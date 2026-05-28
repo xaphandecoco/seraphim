@@ -11,7 +11,7 @@ from tenacity import (
     before_sleep_log,
 )
 
-from app.config import legacy_settings
+from app.config import dynamic_settings
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +41,8 @@ def _map_tier(similarity: Optional[float]) -> Literal["100", "91-99", "below90",
 
 class ComprefaceClient:
     def __init__(self):
-        self.base_url = legacy_settings.COMPREFACE_URL.rstrip("/") if legacy_settings.COMPREFACE_URL else ""
-        self.api_key = legacy_settings.COMPREFACE_API_KEY or ""
+        self.base_url = dynamic_settings.get_compreface_url().rstrip("/")
+        self.api_key = dynamic_settings.get_compreface_api_key()
         self._client = httpx.AsyncClient(timeout=30.0)
 
     async def close(self):

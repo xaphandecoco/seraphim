@@ -7,9 +7,9 @@ from app.services.compreface import ComprefaceClient, RecognitionResult, _map_ti
 
 @pytest.fixture
 def client():
-    with patch("app.services.compreface.legacy_settings") as mock_settings:
-        mock_settings.COMPREFACE_URL = "http://compreface:8000"
-        mock_settings.COMPREFACE_API_KEY = "test-api-key"
+    with patch("app.services.compreface.dynamic_settings") as mock_settings:
+        mock_settings.get_compreface_url.return_value = "http://compreface:8000"
+        mock_settings.get_compreface_api_key.return_value = "test-api-key"
         c = ComprefaceClient()
         yield c
 

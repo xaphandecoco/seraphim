@@ -31,8 +31,6 @@ services:
       dockerfile: Dockerfile
     environment:
       - DATABASE_URL=postgresql+asyncpg://seraphim:${DB_PASSWORD}@postgres:5432/seraphim_attendance
-      - COMPREFACE_API_KEY=${COMPREFACE_API_KEY}
-      - COMPREFACE_URL=${COMPREFACE_URL}
       - CIVICRM_URL=${CIVICRM_URL}
       - CIVICRM_API_KEY=${CIVICRM_API_KEY}
       - CIVICRM_SITE_KEY=${CIVICRM_SITE_KEY}
@@ -81,8 +79,6 @@ services:
     environment:
       - BACKEND_URL=http://seraphim-backend:8000
       - DATABASE_URL=postgresql+asyncpg://seraphim:${DB_PASSWORD}@postgres:5432/seraphim_attendance
-      - COMPREFACE_API_KEY=${COMPREFACE_API_KEY}
-      - COMPREFACE_URL=${COMPREFACE_URL}
       - REDIS_URL=redis://redis:6379/0
       - STORAGE_PATH=/app/storage
       - BOOTSTRAP_CONFIG_PATH=/app/config/bootstrap.json
@@ -109,8 +105,6 @@ services:
     command: python -m app.workers.queue_consumer
     environment:
       - DATABASE_URL=postgresql+asyncpg://seraphim:${DB_PASSWORD}@postgres:5432/seraphim_attendance
-      - COMPREFACE_API_KEY=${COMPREFACE_API_KEY}
-      - COMPREFACE_URL=${COMPREFACE_URL}
       - CIVICRM_URL=${CIVICRM_URL}
       - CIVICRM_API_KEY=${CIVICRM_API_KEY}
       - CIVICRM_SITE_KEY=${CIVICRM_SITE_KEY}

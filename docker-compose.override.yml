@@ -30,7 +30,6 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://seraphim:devpass@postgres:5432/seraphim_attendance
       - REDIS_URL=redis://redis:6379/0
-      - COMPREFACE_URL=http://compreface-api:8080
       - FRONTEND_URL=http://localhost:5173
       - BOOTSTRAP_CONFIG_PATH=/app/config/bootstrap.json
       - ENVIRONMENT=development
@@ -74,7 +73,6 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://seraphim:devpass@postgres:5432/seraphim_attendance
       - REDIS_URL=redis://redis:6379/0
-      - COMPREFACE_URL=http://compreface-api:8080
       - STORAGE_PATH=/app/storage
       - BOOTSTRAP_CONFIG_PATH=/app/config/bootstrap.json
     depends_on:
@@ -98,7 +96,6 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://seraphim:devpass@postgres:5432/seraphim_attendance
       - REDIS_URL=redis://redis:6379/0
-      - COMPREFACE_URL=http://compreface-api:8080
       - WORKER_ID=queue-worker-1
       - POLL_INTERVAL=1
       - BOOTSTRAP_CONFIG_PATH=/app/config/bootstrap.json
