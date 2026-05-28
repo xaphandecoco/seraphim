@@ -1,0 +1,123 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./.local-data/redis:/data
+    networks:
+      - seraphim-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres:
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./.local-data/postgres:/var/lib/postgresql/data
+
+  seraphim-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./.local-data/storage:/app/storage
+      - ./.local-data/config:/app/config
+      - ./backend:/app
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://seraphim:devpass@postgres:5432/seraphim_attendance
+      - REDIS_URL=redis://redis:6379/0
+      - COMPREFACE_URL=http://compreface-api:8080
+      - FRONTEND_URL=http://localhost:5173
+      - BOOTSTRAP_CONFIG_PATH=/app/config/bootstrap.json
+      - ENVIRONMENT=development
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      compreface-api:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    networks:
+      - seraphim-network
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  seraphim-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_URL=http://localhost:8000
+      - VITE_API_PROXY_TARGET=http://seraphim-backend:8000
+    ports:
+      - "5173:5173"
+    networks:
+      - seraphim-network
+    command: npm run dev -- --host
+
+  seraphim-rtsp-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    volumes:
+      - ./.local-data/storage:/app/storage
+      - ./.local-data/config:/app/config
+      - ./backend:/app
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://seraphim:devpass@postgres:5432/seraphim_attendance
+      - REDIS_URL=redis://redis:6379/0
+      - COMPREFACE_URL=http://compreface-api:8080
+      - STORAGE_PATH=/app/storage
+      - BOOTSTRAP_CONFIG_PATH=/app/config/bootstrap.json
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      compreface-api:
+        condition: service_healthy
+    networks:
+      - seraphim-network
+    command: python -m app.workers.rtsp_capture
+
+  seraphim-queue-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    volumes:
+      - ./.local-data/config:/app/config
+      - ./backend:/app
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://seraphim:devpass@postgres:5432/seraphim_attendance
+      - REDIS_URL=redis://redis:6379/0
+      - COMPREFACE_URL=http://compreface-api:8080
+      - WORKER_ID=queue-worker-1
+      - POLL_INTERVAL=1
+      - BOOTSTRAP_CONFIG_PATH=/app/config/bootstrap.json
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      compreface-api:
+        condition: service_healthy
+    networks:
+      - seraphim-network
+    command: python -m app.workers.queue_consumer
+
+  mock-camera-1:
+    build:
+      context: ./backend/mock_camera
+      dockerfile: Dockerfile
+    networks:
+      - seraphim-network
+    ports:
+      - "8554:8554"

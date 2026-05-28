@@ -1,0 +1,188 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: seraphim
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: seraphim_attendance
+    volumes:
+      - /mnt/user/appdata/seraphim/postgres:/var/lib/postgresql/data
+    networks:
+      - seraphim-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U seraphim -d seraphim_attendance"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - /mnt/user/appdata/seraphim/redis:/data
+    networks:
+      - seraphim-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  seraphim-backend:
+    image: seraphim-backend:unstable
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://seraphim:${DB_PASSWORD}@postgres:5432/seraphim_attendance
+      - COMPREFACE_API_KEY=${COMPREFACE_API_KEY}
+      - COMPREFACE_URL=${COMPREFACE_URL}
+      - CIVICRM_URL=${CIVICRM_URL}
+      - CIVICRM_API_KEY=${CIVICRM_API_KEY}
+      - CIVICRM_SITE_KEY=${CIVICRM_SITE_KEY}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - JWT_SECRET=${JWT_SECRET}
+      - ADMIN_EMAILS=${ADMIN_EMAILS}
+      - STORAGE_PATH=/app/storage
+      - REDIS_URL=redis://redis:6379/0
+      - BOOTSTRAP_CONFIG_PATH=/app/config/bootstrap.json
+    volumes:
+      - /mnt/user/appdata/seraphim/storage:/app/storage
+      - /mnt/user/appdata/seraphim/config:/app/config
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - seraphim-network
+    ports:
+      - "3001:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  seraphim-frontend:
+    image: seraphim-frontend:unstable
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    depends_on:
+      seraphim-backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - seraphim-network
+    ports:
+      - "3000:80"
+    restart: unless-stopped
+
+  seraphim-rtsp-worker:
+    image: seraphim-backend:unstable
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    command: python -m app.workers.rtsp_capture
+    environment:
+      - BACKEND_URL=http://seraphim-backend:8000
+      - DATABASE_URL=postgresql+asyncpg://seraphim:${DB_PASSWORD}@postgres:5432/seraphim_attendance
+      - COMPREFACE_API_KEY=${COMPREFACE_API_KEY}
+      - COMPREFACE_URL=${COMPREFACE_URL}
+      - REDIS_URL=redis://redis:6379/0
+      - STORAGE_PATH=/app/storage
+      - BOOTSTRAP_CONFIG_PATH=/app/config/bootstrap.json
+    volumes:
+      - /mnt/user/appdata/seraphim/storage:/app/storage
+      - /mnt/user/appdata/seraphim/config:/app/config
+    depends_on:
+      seraphim-backend:
+        condition: service_healthy
+    networks:
+      - seraphim-network
+    privileged: true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://seraphim-backend:8000/health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+  seraphim-queue-worker:
+    image: seraphim-backend:unstable
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: python -m app.workers.queue_consumer
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://seraphim:${DB_PASSWORD}@postgres:5432/seraphim_attendance
+      - COMPREFACE_API_KEY=${COMPREFACE_API_KEY}
+      - COMPREFACE_URL=${COMPREFACE_URL}
+      - CIVICRM_URL=${CIVICRM_URL}
+      - CIVICRM_API_KEY=${CIVICRM_API_KEY}
+      - CIVICRM_SITE_KEY=${CIVICRM_SITE_KEY}
+      - REDIS_URL=redis://redis:6379/0
+      - WORKER_ID=queue-worker-1
+      - POLL_INTERVAL=1
+      - BOOTSTRAP_CONFIG_PATH=/app/config/bootstrap.json
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - /mnt/user/appdata/seraphim/storage:/app/storage
+      - /mnt/user/appdata/seraphim/config:/app/config
+    networks:
+      - seraphim-network
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+    restart: unless-stopped
+
+  gitea:
+    image: gitea/gitea:1.21
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+      - GITEA__database__DB_TYPE=postgres
+      - GITEA__database__HOST=postgres:5432
+      - GITEA__database__NAME=gitea
+      - GITEA__database__USER=gitea
+      - GITEA__database__PASSWD=${GITEA_DB_PASSWORD}
+    volumes:
+      - /mnt/user/appdata/seraphim/gitea:/data
+    ports:
+      - "3333:3000"
+      - "222:22"
+    networks:
+      - seraphim-network
+    restart: unless-stopped
+
+  webhook-listener:
+    build:
+      context: ./scripts
+      dockerfile: Dockerfile.webhook
+    environment:
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /mnt/user/appdata/seraphim/repo:/repo
+      - /mnt/user/appdata/seraphim/scripts:/scripts
+      - /mnt/user/appdata/seraphim/logs:/logs
+    ports:
+      - "9000:9000"
+    networks:
+      - seraphim-network
+    restart: unless-stopped
+
+networks:
+  seraphim-network:
+    driver: bridge

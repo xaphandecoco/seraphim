@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 45 40% 96%;
+    --foreground: 220 15% 15%;
+    --card: 45 30% 98%;
+    --card-foreground: 220 15% 15%;
+    --popover: 45 30% 98%;
+    --popover-foreground: 220 15% 15%;
+    --primary: 48 90% 62%;
+    --primary-foreground: 220 15% 15%;
+    --secondary: 45 30% 92%;
+    --secondary-foreground: 220 15% 15%;
+    --muted: 45 20% 92%;
+    --muted-foreground: 220 9% 46%;
+    --accent: 48 90% 92%;
+    --accent-foreground: 220 15% 15%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 45 20% 88%;
+    --input: 45 20% 88%;
+    --ring: 48 90% 50%;
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior-y: none;
+  }
+}

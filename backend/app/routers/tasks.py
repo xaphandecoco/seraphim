@@ -1,0 +1,286 @@
+from fastapi import APIRouter, Body, Depends, HTTPException, status
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import dynamic_settings
+from app.database import get_db
+from app.dependencies import require_volunteer
+from app.middleware.cooldown import check_cooldown
+from app.models import Detection, Task
+from app.schemas import PaginatedTaskResponse, TaskActionRequest, TaskResponse
+from app.services.task_service import TaskService
+from app.sse import broadcaster
+
+router = APIRouter(prefix="/tasks", tags=["tasks"])
+
+
+@router.get("", response_model=PaginatedTaskResponse)
+async def list_tasks(
+    page: int = 1,
+    page_size: int = 20,
+    status: str = "pending",
+    db: AsyncSession = Depends(get_db),
+    user=Depends(require_volunteer),
+):
+    """Paginated task list."""
+    if page < 1:
+        page = 1
+    if page_size < 1 or page_size > 100:
+        page_size = 20
+
+    offset = (page - 1) * page_size
+
+    total_result = await db.execute(
+        select(func.count(Task.id)).where(Task.status == status)
+    )
+    total = total_result.scalar() or 0
+
+    result = await db.execute(
+        select(Task, Detection)
+        .join(Detection, Task.detection_id == Detection.id)
+        .where(Task.status == status)
+        .order_by(Detection.timestamp.desc())
+        .offset(offset)
+        .limit(page_size)
+    )
+    
+    items = []
+    for task, detection in result.all():
+        items.append(TaskResponse(
+            id=task.id,
+            detection_id=task.detection_id,
+            status=task.status,
+            required_approvals=task.required_approvals,
+            current_approvals=task.current_approvals,
+            skip_count=task.skip_count,
+            skip_reasons=task.skip_reasons or [],
+            tier=detection.tier,
+            confidence=float(detection.confidence) if detection.confidence else None,
+            matched_name=detection.matched_name,
+            face_thumbnail_path=detection.image_path,
+            camera_name=f"Camera {detection.camera_id}",
+            detected_at=detection.timestamp,
+            expiry_date=task.expiry_date,
+        ))
+
+    return PaginatedTaskResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/next", response_model=TaskResponse)
+async def get_next_task(
+    db: AsyncSession = Depends(get_db),
+    user=Depends(require_volunteer),
+):
+    """Get next pending task for current volunteer."""
+    service = TaskService(db)
+    task = await service.get_next_task(int(user["sub"]))
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No pending tasks available"
+        )
+    
+    detection = await db.get(Detection, task.detection_id)
+    return TaskResponse(
+        id=task.id,
+        detection_id=task.detection_id,
+        status=task.status,
+        required_approvals=task.required_approvals,
+        current_approvals=task.current_approvals,
+        skip_count=task.skip_count,
+        skip_reasons=task.skip_reasons or [],
+        tier=detection.tier if detection else None,
+        confidence=float(detection.confidence) if detection and detection.confidence else None,
+        matched_name=detection.matched_name if detection else None,
+        face_thumbnail_path=detection.image_path if detection else None,
+        camera_name=f"Camera {detection.camera_id}" if detection else None,
+        detected_at=detection.timestamp if detection else None,
+        expiry_date=task.expiry_date,
+    )
+
+
+@router.post("/{task_id}/confirm", response_model=TaskResponse)
+async def confirm_task(
+    task_id: int,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(require_volunteer),
+):
+    """Confirm suggested match."""
+    remaining = await check_cooldown(int(user["sub"]))
+    if remaining:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Cooldown active. Wait {remaining:.1f}s",
+        )
+    service = TaskService(db)
+    task = await service.confirm_task(task_id, int(user["sub"]))
+    await broadcaster.publish(f'{{"type":"task_updated","task_id":{task.id},"status":"{task.status}"}}')
+    
+    detection = await db.get(Detection, task.detection_id)
+    return TaskResponse(
+        id=task.id,
+        detection_id=task.detection_id,
+        status=task.status,
+        required_approvals=task.required_approvals,
+        current_approvals=task.current_approvals,
+        skip_count=task.skip_count,
+        skip_reasons=task.skip_reasons or [],
+        tier=detection.tier if detection else None,
+        confidence=float(detection.confidence) if detection and detection.confidence else None,
+        matched_name=detection.matched_name if detection else None,
+        face_thumbnail_path=detection.image_path if detection else None,
+        camera_name=f"Camera {detection.camera_id}" if detection else None,
+        detected_at=detection.timestamp if detection else None,
+        expiry_date=task.expiry_date,
+    )
+
+
+@router.post("/{task_id}/edit", response_model=TaskResponse)
+async def edit_task(
+    task_id: int,
+    member_id: int = Body(..., embed=True),
+    db: AsyncSession = Depends(get_db),
+    user=Depends(require_volunteer),
+):
+    """Edit task — select different member."""
+    remaining = await check_cooldown(int(user["sub"]))
+    if remaining:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Cooldown active. Wait {remaining:.1f}s",
+        )
+    service = TaskService(db)
+    task = await service.edit_task(task_id, int(user["sub"]), member_id)
+    await broadcaster.publish(f'{{"type":"task_updated","task_id":{task.id},"status":"{task.status}"}}')
+    
+    detection = await db.get(Detection, task.detection_id)
+    return TaskResponse(
+        id=task.id,
+        detection_id=task.detection_id,
+        status=task.status,
+        required_approvals=task.required_approvals,
+        current_approvals=task.current_approvals,
+        skip_count=task.skip_count,
+        skip_reasons=task.skip_reasons or [],
+        tier=detection.tier if detection else None,
+        confidence=float(detection.confidence) if detection and detection.confidence else None,
+        matched_name=detection.matched_name if detection else None,
+        face_thumbnail_path=detection.image_path if detection else None,
+        camera_name=f"Camera {detection.camera_id}" if detection else None,
+        detected_at=detection.timestamp if detection else None,
+        expiry_date=task.expiry_date,
+    )
+
+
+@router.post("/{task_id}/add", response_model=TaskResponse)
+async def add_task(
+    task_id: int,
+    member_id: int = Body(..., embed=True),
+    db: AsyncSession = Depends(get_db),
+    user=Depends(require_volunteer),
+):
+    """Add unidentified face to member."""
+    remaining = await check_cooldown(int(user["sub"]))
+    if remaining:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Cooldown active. Wait {remaining:.1f}s",
+        )
+    service = TaskService(db)
+    task = await service.add_task(task_id, int(user["sub"]), member_id)
+    await broadcaster.publish(f'{{"type":"task_updated","task_id":{task.id},"status":"{task.status}"}}')
+    
+    detection = await db.get(Detection, task.detection_id)
+    return TaskResponse(
+        id=task.id,
+        detection_id=task.detection_id,
+        status=task.status,
+        required_approvals=task.required_approvals,
+        current_approvals=task.current_approvals,
+        skip_count=task.skip_count,
+        skip_reasons=task.skip_reasons or [],
+        tier=detection.tier if detection else None,
+        confidence=float(detection.confidence) if detection and detection.confidence else None,
+        matched_name=detection.matched_name if detection else None,
+        face_thumbnail_path=detection.image_path if detection else None,
+        camera_name=f"Camera {detection.camera_id}" if detection else None,
+        detected_at=detection.timestamp if detection else None,
+        expiry_date=task.expiry_date,
+    )
+
+
+@router.post("/{task_id}/skip", response_model=TaskResponse)
+async def skip_task(
+    task_id: int,
+    reason: str = Body("", embed=True),
+    db: AsyncSession = Depends(get_db),
+    user=Depends(require_volunteer),
+):
+    """Skip task — return to queue with reason."""
+    remaining = await check_cooldown(int(user["sub"]))
+    if remaining:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Cooldown active. Wait {remaining:.1f}s",
+        )
+    service = TaskService(db)
+    task = await service.skip_task(task_id, int(user["sub"]), reason)
+    await broadcaster.publish(f'{{"type":"task_updated","task_id":{task.id},"status":"{task.status}"}}')
+    
+    detection = await db.get(Detection, task.detection_id)
+    return TaskResponse(
+        id=task.id,
+        detection_id=task.detection_id,
+        status=task.status,
+        required_approvals=task.required_approvals,
+        current_approvals=task.current_approvals,
+        skip_count=task.skip_count,
+        skip_reasons=task.skip_reasons or [],
+        tier=detection.tier if detection else None,
+        confidence=float(detection.confidence) if detection and detection.confidence else None,
+        matched_name=detection.matched_name if detection else None,
+        face_thumbnail_path=detection.image_path if detection else None,
+        camera_name=f"Camera {detection.camera_id}" if detection else None,
+        detected_at=detection.timestamp if detection else None,
+        expiry_date=task.expiry_date,
+    )
+
+
+@router.post("/{task_id}/override", response_model=TaskResponse)
+async def admin_override_task(
+    task_id: int,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(require_volunteer),
+):
+    """Admin override on dual-approval tasks."""
+    if user["role"] != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+    
+    service = TaskService(db)
+    task = await service.admin_override(task_id, int(user["sub"]))
+    await broadcaster.publish(f'{{"type":"task_updated","task_id":{task.id},"status":"{task.status}"}}')
+    
+    detection = await db.get(Detection, task.detection_id)
+    return TaskResponse(
+        id=task.id,
+        detection_id=task.detection_id,
+        status=task.status,
+        required_approvals=task.required_approvals,
+        current_approvals=task.current_approvals,
+        skip_count=task.skip_count,
+        skip_reasons=task.skip_reasons or [],
+        tier=detection.tier if detection else None,
+        confidence=float(detection.confidence) if detection and detection.confidence else None,
+        matched_name=detection.matched_name if detection else None,
+        face_thumbnail_path=detection.image_path if detection else None,
+        camera_name=f"Camera {detection.camera_id}" if detection else None,
+        detected_at=detection.timestamp if detection else None,
+        expiry_date=task.expiry_date,
+    )

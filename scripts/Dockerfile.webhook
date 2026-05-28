@@ -1,0 +1,12 @@
+FROM python:3.11-alpine
+
+RUN apk add --no-cache docker-cli docker-cli-compose git bash
+
+COPY webhook_listener.py /app/
+COPY deploy.sh rollback.sh /scripts/
+RUN chmod +x /scripts/deploy.sh /scripts/rollback.sh
+
+WORKDIR /app
+EXPOSE 9000
+
+CMD ["python", "webhook_listener.py"]
