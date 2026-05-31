@@ -69,14 +69,13 @@ RTSP Camera → FFmpeg Frame Capture → Compreface Recognition → Tier Classif
 |---------|------|-----------|
 | postgres | Primary database (13 tables) | 5432 |
 | redis | Task queue, cache, SSE pub/sub | 6379 |
-| compreface-api | Face recognition API (Exadel) | internal |
-| compreface-core | ML inference engine | internal |
-| compreface-postgres-db | Compreface internal DB | internal |
 | seraphim-backend | FastAPI application server | 8000 / 3001 |
 | seraphim-frontend | React Vite SPA | 5173 / 3000 |
 | seraphim-rtsp-worker | FFmpeg frame capture from RTSP | internal |
 | seraphim-queue-worker | Redis queue consumer → task creation | internal |
 | mock-camera-1 | FFmpeg test pattern RTSP stream | 8554 |
+
+> **Note:** Compreface is an **external service** (not bundled in Docker Compose). Configure its URL and API key during the setup wizard or in admin settings.
 
 ---
 
@@ -91,7 +90,7 @@ RTSP Camera → FFmpeg Frame Capture → Compreface Recognition → Tier Classif
 | Database | SQLAlchemy (async) | 2.0.30 |
 | DB Driver | asyncpg | 0.29.0 |
 | Migrations | Alembic | 1.13.1 |
-| Auth | python-jose + passlib + bcrypt | — |
+| Auth | PyJWT + bcrypt | — |
 | HTTP Client | httpx | 0.27.0 |
 | Cache | redis-py | 5.0.4 |
 | Validation | Pydantic v2 | 2.7.2 |
@@ -652,14 +651,13 @@ Services:
 Services:
   postgres:           no host port (internal only)
   redis:              no host port (internal only)
-  compreface-postgres-db: internal
-  compreface-api:     no host port
-  compreface-core:    ML inference (4 CPU, 8GB RAM limit)
   seraphim-backend:        port 3001:8000
   seraphim-frontend:       port 3000:80 (nginx static)
   seraphim-rtsp-worker:    privileged mode
   seraphim-queue-worker:   2 CPU, 2GB RAM limit
 ```
+
+> **Note:** Compreface runs as an **external service** (not in Docker Compose). Point the system to your Compreface instance via the setup wizard or admin settings.
 
 ---
 
@@ -788,12 +786,9 @@ Copy project files to Unraid via USB/SMB.
 
 | Priority | Issue | Recommendation |
 |----------|-------|----------------|
-| High | No rate limiting on login/API | Add `slowapi` or nginx rate limiting before production |
 | High | No HTTPS enforcement | Deploy behind reverse proxy (nginx/traefik) with HTTPS termination |
 | Medium | Weak password complexity | Add complexity rules or generate strong passwords in setup wizard |
-| Medium | Missing security headers | Add Content-Security-Policy, X-Frame-Options, X-Content-Type-Options |
 | Medium | No dedicated security audit log | Add security event logging for compliance |
-| Low | `python-jose` has known CVEs | Consider migrating to `PyJWT` or `joserfc` |
 
 ### Data Protection
 
@@ -855,9 +850,9 @@ The LNC logo (`LOGOME.png`) is served at `/logo.png` and displayed on:
 The backend image includes ffmpeg and ~250 Debian dependencies (~680MB). First build may take 30+ minutes. Subsequent builds use Docker layer cache.
 
 ### Compreface not responding
-Compreface core takes several minutes to initialize ML models on first startup. Check health with:
+Ensure your external Compreface instance is running and accessible. Check the connection from admin settings or test via:
 ```bash
-docker compose logs -f compreface-core
+curl "http://your-compreface-url:port/api/v1/health"
 ```
 
 ### Frontend proxy errors

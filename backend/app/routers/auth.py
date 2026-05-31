@@ -171,9 +171,8 @@ async def request_password_reset(
     await db.commit()
 
     return {
-        "message": "Reset link generated",
+        "message": "Reset link generated. Share the reset link securely with the volunteer.",
         "reset_link": f"/reset-password?token={token}&email={req.email}",
-        "token": token,  # Admin shares this with volunteer
     }
 
 

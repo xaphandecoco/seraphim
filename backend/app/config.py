@@ -91,7 +91,7 @@ class DynamicSettings:
         return self.get_str("civicrm_site_key", "")
     
     def get_jwt_secret(self) -> str:
-        return self.get_str("jwt_secret", "change-me-in-production")
+        return self.get_str("jwt_secret", "")
     
     def get_access_token_expire_minutes(self) -> int:
         return self.get_int("access_token_expire_minutes", 15)
@@ -145,7 +145,7 @@ dynamic_settings = DynamicSettings()
 # Legacy settings object for backwards compatibility during migration
 class LegacySettings(BaseSettings):
     DATABASE_URL: str
-    SECRET_KEY: str = "change-me"
+    SECRET_KEY: str = ""
     GOOGLE_CLIENT_ID: Optional[str] = None
     GOOGLE_CLIENT_SECRET: Optional[str] = None
     COMPREFACE_API_KEY: Optional[str] = None

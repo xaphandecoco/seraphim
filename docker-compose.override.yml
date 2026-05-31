@@ -38,8 +38,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      compreface-api:
-        condition: service_healthy
     ports:
       - "8000:8000"
     networks:
@@ -80,8 +78,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      compreface-api:
-        condition: service_healthy
     networks:
       - seraphim-network
     command: python -m app.workers.rtsp_capture
@@ -103,8 +99,6 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      compreface-api:
         condition: service_healthy
     networks:
       - seraphim-network

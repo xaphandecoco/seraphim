@@ -108,25 +108,23 @@ export function SetupPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const defaultDb = parsePostgresUrl(
-    'postgresql+asyncpg://seraphim:devpass@postgres:5432/seraphim_attendance'
-  );
-  const defaultRedis = parseRedisUrl('redis://redis:6379/0');
+  const defaultDb = parsePostgresUrl('');
+  const defaultRedis = parseRedisUrl('');
 
   const [form, setForm] = useState({
-    database_url: 'postgresql+asyncpg://seraphim:devpass@postgres:5432/seraphim_attendance',
-    redis_url: 'redis://redis:6379/0',
-    compreface_url: 'http://compreface-api:8080',
+    database_url: '',
+    redis_url: '',
+    compreface_url: '',
     compreface_api_key: '',
     civicrm_url: '',
     civicrm_api_key: '',
     civicrm_site_key: '',
-    admin_email: 'admin@lightnc.org',
+    admin_email: '',
     admin_password: '',
     admin_password_confirm: '',
-    admin_name: 'Admin',
-    camera_name: 'Entrance Camera',
-    camera_rtsp: 'rtsp://mock-camera-1:8554/cam1',
+    admin_name: '',
+    camera_name: '',
+    camera_rtsp: '',
   });
 
   const [dbFields, setDbFields] = useState(defaultDb);

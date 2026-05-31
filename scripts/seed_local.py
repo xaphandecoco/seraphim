@@ -106,8 +106,8 @@ async def seed():
 
         await session.commit()
         print("Database seeded successfully!")
-        print("Admin: admin@lightnc.org / admin")
-        print("Volunteers: volunteer1@lightnc.org / volunteer1, etc.")
+        print("WARNING: Default credentials are for development only.")
+        print("Change all passwords before deploying to production.")
 
 
 if __name__ == "__main__":

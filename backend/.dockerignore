@@ -19,6 +19,5 @@ htmlcov
 data/
 *.md
 !README.md
-alembic.ini
 scripts/
 mock_camera/
