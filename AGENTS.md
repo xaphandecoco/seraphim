@@ -6,11 +6,27 @@
 ├── backend/                 # FastAPI Python backend
 │   ├── app/
 │   │   ├── routers/         # API route handlers
+│   │   │   ├── analytics.py # Aggregate stats + CSV export (admin)
+│   │   │   ├── attendance.py
+│   │   │   ├── audit.py     # Quality audit queue (prefix: /audit)
+│   │   │   ├── auth.py      # Login, OAuth, user management
+│   │   │   ├── cameras.py
+│   │   │   ├── events.py
+│   │   │   ├── health.py    # Includes safe_mode in /health/queue
+│   │   │   ├── leaderboard.py
+│   │   │   ├── logs.py
+│   │   │   ├── members.py
+│   │   │   ├── pit.py
+│   │   │   ├── settings.py
+│   │   │   ├── setup.py
+│   │   │   ├── storage.py   # Authenticated file serving for /storage/**
+│   │   │   ├── tasks.py
+│   │   │   └── uploads.py
 │   │   ├── services/        # Business logic, external clients
 │   │   ├── workers/         # Background workers (RTSP, queue consumer)
 │   │   ├── utils/           # Auth, helpers
 │   │   ├── main.py          # FastAPI app entry
-│   │   ├── config.py        # Pydantic settings
+│   │   ├── config.py        # 3-tier settings (Bootstrap/Dynamic/Legacy)
 │   │   ├── database.py      # SQLAlchemy engine & sessions
 │   │   ├── models.py        # SQLAlchemy ORM models
 │   │   └── schemas.py       # Pydantic request/response models
@@ -21,23 +37,31 @@
 │   └── requirements.txt
 ├── frontend/                # React Vite frontend
 │   ├── src/
-│   │   ├── components/      # React components (by feature)
-│   │   ├── hooks/           # Custom React hooks
-│   │   ├── services/        # API clients, SSE
+│   │   ├── components/
+│   │   │   ├── layout/      # BottomNav, ProtectedRoute, AdminRoute
+│   │   │   ├── tasks/       # TaskCard, TaskFeed, MemberSearchModal
+│   │   │   └── ui/          # Shared: StateViews (LoadingState, EmptyState, ErrorState)
+│   │   ├── hooks/           # useAuth (in-memory token + refresh)
+│   │   ├── pages/           # Route-level pages (see App.tsx for full list)
+│   │   ├── services/
+│   │   │   ├── api.ts       # Axios client with 401→refresh interceptor
+│   │   │   ├── connectionUrl.ts  # Shared Postgres/Redis URL builders
+│   │   │   └── sse.ts       # SSEClient (passes token via ?_t= query param)
+│   │   ├── store/
+│   │   │   ├── authStore.ts # In-memory token; no localStorage
+│   │   │   └── taskStore.ts
 │   │   ├── types/           # TypeScript types
-│   │   ├── App.tsx
-│   │   └── main.tsx
-│   ├── tests/               # Vitest suite
+│   │   ├── App.tsx          # Routes (includes /audit, /settings/users, /settings/attendance, /dashboard)
+│   │   ├── index.css        # Design tokens (light + dark)
+│   │   └── main.tsx         # Applies persisted dark mode before first paint
 │   ├── index.html
-│   ├── vite.config.ts
-│   ├── tailwind.config.js
+│   ├── vite.config.ts       # Includes vite-plugin-pwa
+│   ├── tailwind.config.js   # darkMode:'class'; token colors with <alpha-value>
 │   └── Dockerfile
-├── contracts/               # Shared inter-agent contracts
-│   └── schemas.py           # Pydantic schemas used across agents
-├── tests/                   # Cross-cutting tests
-│   ├── e2e/                 # Playwright E2E tests
-│   └── fixtures/            # Test data, mock images
-├── docker-compose.yml       # Unraid Docker Compose
+├── scripts/
+│   ├── webhook_listener.py  # Gitea push webhook (binds 127.0.0.1; requires WEBHOOK_SECRET ≥32 chars)
+│   └── deploy.sh
+├── docker-compose.yml       # Unraid Docker Compose (no privileged on RTSP worker)
 └── .env.template            # Environment variable template
 ```
 
@@ -54,36 +78,49 @@
 
 ### Frontend (TypeScript/React)
 - React 18 functional components + hooks
-- `shadcn/ui` for base components
-- TailwindCSS for styling
+- TailwindCSS with **design tokens** — always use token classes (`bg-primary`, `text-foreground`, `border-border`, `bg-background`, `bg-card`) instead of hardcoded hex values
+- Dark mode is wired: every new component must work under `.dark` (use `dark:` prefix variants or token classes which adapt automatically)
 - Mobile-first: all designs start at 375px width
-- `zustand` or React Context for state (no Redux)
-- `tanstack-query` for server state
+- `zustand` for auth/task state; `tanstack-query` for server state
+- Toasts via `sonner` — never use `alert()` or `confirm()`; always surface server `detail` messages
+
+### Auth / Token handling
+- Access token lives **in-memory only** (Zustand) — never in localStorage
+- Refresh cookie is HttpOnly; the 401 interceptor in `api.ts` attempts `/auth/refresh` before redirecting to `/login`
+- SSE endpoint (`/tasks/feed`) receives the access token via `?_t=` query param since `EventSource` cannot send headers
+
+### API prefix convention
+- All routers are registered without an `/api` prefix in FastAPI (the Vite dev proxy and nginx production proxy strip `/api` before forwarding)
+- Exception: the `/storage` router is also prefix-free and auth-gated
+- `check_setup_complete` dependency no longer has a hard-coded allow-list — setup and auth routes are registered before it is applied
 
 ### Database
 - Alembic migrations for all schema changes
-- Never modify migration files after commit
+- Never modify migration files after they are applied
 - Use `TIMESTAMP WITH TIME ZONE` for all timestamps
 - Foreign keys with `ON DELETE` specified explicitly
 
 ### Docker
 - All services must have `healthcheck` blocks
 - Use `restart: unless-stopped`
-- Non-root user where possible
+- `privileged: true` is **not** permitted — use `cap_add` if a specific capability is required
 - `.env` file for secrets (never commit)
+- Set `ENVIRONMENT=production` in production compose
 
-## Inter-Agent Contracts
+## Key Security Rules
 
-Agents communicate via shared files in `contracts/` and via the running API.
-- **Never** break a Pydantic schema without updating `contracts/schemas.py`
-- **Never** change an API route path without updating this file and notifying other agents
-- Backend routers must return consistent error shapes: `{ "detail": "..." }` or `{ "detail": [{"msg":"...","loc":["field"]}] }`
+- **JWT secret** — always read from `dynamic_settings.get_jwt_secret()` only; never fall back to an empty string. The app refuses to serve (fails `lifespan`) if setup is complete but the secret is empty or shorter than 32 chars.
+- **RTSP URLs** — validated to start with `rtsp://` or `rtsps://` in schemas; never passed to ffmpeg as shell strings.
+- **Setup test endpoints** — `/setup/test-connection` and `/setup/test-services` return 410 after setup is complete.
+- **Webhook listener** — requires `WEBHOOK_SECRET` ≥ 32 chars to start; binds to `127.0.0.1` by default.
+- **Face images** — served only through the authenticated `/storage/{path}` route with path-containment checks.
 
 ## Testing
 - Every backend service function should have a unit test
 - Every frontend component with logic should have a component test
 - E2E tests cover: login → task confirm → leaderboard → logout
 - Mock external services (Compreface, CiviCRM, Google OAuth) in unit tests
+- Tests reference `legacy_settings.JWT_SECRET` (not `SECRET_KEY`)
 
 ## Git Workflow
 - Do not run `git commit`, `git push`, or any git mutations unless explicitly asked
