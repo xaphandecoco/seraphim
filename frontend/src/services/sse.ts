@@ -2,7 +2,7 @@ export type SSEEventCallback = (event: MessageEvent) => void;
 export type SSEErrorCallback = (error: Event) => void;
 
 export class SSEClient {
-  private url: string;
+  private baseUrl: string;
   private eventSource: EventSource | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectDelay = 3000;
@@ -10,16 +10,25 @@ export class SSEClient {
   private eventCallbacks: Map<string, SSEEventCallback[]> = new Map();
   private errorCallbacks: SSEErrorCallback[] = [];
   private isManualClose = false;
+  private getToken: (() => string | null) | null = null;
 
-  constructor(url: string) {
-    this.url = url;
+  constructor(url: string, getToken?: () => string | null) {
+    this.baseUrl = url;
+    this.getToken = getToken ?? null;
+  }
+
+  private buildUrl(): string {
+    const token = this.getToken?.();
+    if (!token) return this.baseUrl;
+    const sep = this.baseUrl.includes('?') ? '&' : '?';
+    return `${this.baseUrl}${sep}_t=${encodeURIComponent(token)}`;
   }
 
   connect() {
     if (this.eventSource) return;
 
     this.isManualClose = false;
-    this.eventSource = new EventSource(this.url);
+    this.eventSource = new EventSource(this.buildUrl());
 
     this.eventSource.onopen = () => {
       this.reconnectDelay = 3000;
@@ -30,7 +39,6 @@ export class SSEClient {
       this.reconnect();
     };
 
-    // Register all event listeners
     this.eventCallbacks.forEach((callbacks, eventName) => {
       callbacks.forEach((cb) => {
         this.eventSource?.addEventListener(eventName, cb);

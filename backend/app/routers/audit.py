@@ -18,7 +18,7 @@ from app.dependencies import get_current_user
 from app.models import Camera, Detection, Log, Task, User, VolunteerStat
 from app.schemas import AuditActionRequest, AuditTaskResponse
 
-router = APIRouter(prefix="/api/audit", tags=["audit"])
+router = APIRouter(prefix="/audit", tags=["audit"])
 
 
 def _extract_contact_id(matched_name: Optional[str]) -> Optional[int]:

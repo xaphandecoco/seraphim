@@ -9,26 +9,45 @@ interface MemberSearchModalProps {
   onClose: () => void;
 }
 
-export function MemberSearchModal({
-  mode,
-  onSelect,
-  onClose,
-}: MemberSearchModalProps) {
+export function MemberSearchModal({ mode, onSelect, onClose }: MemberSearchModalProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Member[]>([]);
   const [loading, setLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  // Esc to close
   useEffect(() => {
-    inputRef.current?.focus();
+    const handle = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handle);
+    return () => document.removeEventListener('keydown', handle);
+  }, [onClose]);
+
+  // Focus trap
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    const trap = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      const focusable = panel.querySelectorAll<HTMLElement>(
+        'button, input, [tabindex]:not([tabindex="-1"])'
+      );
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey ? document.activeElement === first : document.activeElement === last) {
+        e.preventDefault();
+        (e.shiftKey ? last : first)?.focus();
+      }
+    };
+    panel.addEventListener('keydown', trap);
+    return () => panel.removeEventListener('keydown', trap);
   }, []);
 
   const search = useCallback(async (q: string) => {
-    if (!q.trim()) {
-      setResults([]);
-      return;
-    }
+    if (!q.trim()) { setResults([]); return; }
     setLoading(true);
     try {
       const res = await api.get('/members', { params: { search: q } });
@@ -43,54 +62,55 @@ export function MemberSearchModal({
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => search(query), 300);
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [query, search]);
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-end justify-center bg-[#1F2128]/40 sm:items-center"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="member-modal-title"
+      className="fixed inset-0 z-[60] flex items-end justify-center bg-foreground/40 sm:items-center"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-t-2xl bg-white p-4 shadow-xl sm:rounded-2xl border border-[#E8DDA8]"
+        ref={panelRef}
+        className="w-full max-w-md rounded-t-2xl border border-border bg-card p-4 shadow-xl sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-[#1F2128]">
+          <h2 id="member-modal-title" className="text-lg font-bold text-foreground">
             {mode === 'edit' ? 'Link to Member' : 'Add as Member'}
           </h2>
           <button
             onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-full text-[#1F2128]/40 transition-colors hover:bg-[#FBF8F0] hover:text-[#1F2128]"
+            aria-label="Close"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-foreground/40 transition-colors hover:bg-background hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           >
-            <X size={18} />
+            <X size={18} aria-hidden="true" />
           </button>
         </div>
 
         <div className="relative mb-3">
-          <Search
-            size={16}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-[#1F2128]/40"
-          />
+          <label htmlFor="member-search" className="sr-only">Search members</label>
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground/40" aria-hidden="true" />
           <input
+            id="member-search"
             ref={inputRef}
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search members..."
-            className="h-11 w-full rounded-xl border border-[#E8DDA8] bg-[#FBF8F0] pl-9 pr-4 text-sm text-[#1F2128] outline-none placeholder:text-[#1F2128]/40 focus:border-[#F5D547] focus:ring-2 focus:ring-[#F5D547]/30"
+            placeholder="Search members…"
+            autoComplete="off"
+            className="h-11 w-full rounded-xl border border-border bg-background pl-9 pr-4 text-sm text-foreground outline-none placeholder:text-foreground/40 focus:border-primary focus:ring-2 focus:ring-primary/30"
           />
         </div>
 
         <div className="max-h-[50vh] overflow-y-auto">
           {loading ? (
-            <div className="py-8 text-center text-sm text-[#1F2128]/50">
-              Searching...
-            </div>
+            <div aria-live="polite" className="py-8 text-center text-sm text-foreground/50">Searching…</div>
           ) : results.length === 0 ? (
-            <div className="py-8 text-center text-sm text-[#1F2128]/50">
+            <div aria-live="polite" className="py-8 text-center text-sm text-foreground/50">
               {query.trim() ? 'No members found' : 'Start typing to search'}
             </div>
           ) : (
@@ -99,20 +119,16 @@ export function MemberSearchModal({
                 <li key={member.contact_id}>
                   <button
                     onClick={() => onSelect(member)}
-                    className="flex w-full min-h-[44px] items-center gap-3 rounded-xl px-3 py-2 transition-colors hover:bg-[#FBF8F0]"
+                    className="flex w-full min-h-[44px] items-center gap-3 rounded-xl px-3 py-2 transition-colors hover:bg-background focus:outline-none focus:ring-2 focus:ring-ring"
                   >
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#F5D547]/20">
-                      <User size={14} className="text-[#F5D547]" />
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/20">
+                      <User size={14} className="text-primary" aria-hidden="true" />
                     </div>
                     <div className="text-left">
-                      <p className="text-sm font-semibold text-[#1F2128]">
+                      <p className="text-sm font-semibold text-foreground">
                         {member.display_name || `${member.first_name} ${member.last_name}`.trim()}
                       </p>
-                      {member.email && (
-                        <p className="text-xs text-[#1F2128]/50">
-                          {member.email}
-                        </p>
-                      )}
+                      {member.email && <p className="text-xs text-foreground/50">{member.email}</p>}
                     </div>
                   </button>
                 </li>

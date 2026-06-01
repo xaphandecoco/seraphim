@@ -5,6 +5,13 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import './index.css'
 
+// Apply persisted theme before first paint to avoid flash
+const storedTheme = localStorage.getItem('seraphim-theme');
+const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+if (storedTheme === 'dark' || (!storedTheme && prefersDark)) {
+  document.documentElement.classList.add('dark');
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

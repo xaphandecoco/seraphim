@@ -5,10 +5,22 @@ import hashlib
 import hmac
 import os
 import subprocess
+import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
 DEPLOY_SCRIPT = "/mnt/user/appdata/seraphim/scripts/deploy.sh"
+BIND_HOST = os.environ.get("WEBHOOK_BIND_HOST", "127.0.0.1")
+
+
+def _validate_startup():
+    if not WEBHOOK_SECRET or len(WEBHOOK_SECRET) < 32:
+        print(
+            "ERROR: WEBHOOK_SECRET is not set or is shorter than 32 characters. "
+            "Set a strong secret before running the webhook listener.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -17,11 +29,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
             return
 
+        signature = self.headers.get("X-Gitea-Signature", "")
+        if not signature:
+            self.send_error(403)
+            return
+
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length)
 
-        # Verify HMAC signature
-        signature = self.headers.get("X-Gitea-Signature", "")
         expected = hmac.new(
             WEBHOOK_SECRET.encode(), body, hashlib.sha256
         ).hexdigest()
@@ -30,7 +45,6 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(403)
             return
 
-        # Trigger deploy in background
         subprocess.Popen(
             [DEPLOY_SCRIPT],
             stdout=subprocess.DEVNULL,
@@ -43,13 +57,13 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(b'{"status":"deploying"}')
 
     def log_message(self, format, *args):
-        # Suppress default logging; use container logs instead
         pass
 
 
 def run():
-    server = HTTPServer(("0.0.0.0", 9000), Handler)
-    print("Webhook listener on :9000")
+    _validate_startup()
+    server = HTTPServer((BIND_HOST, 9000), Handler)
+    print(f"Webhook listener on {BIND_HOST}:9000")
     server.serve_forever()
 
 

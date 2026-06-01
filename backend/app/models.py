@@ -26,6 +26,7 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    name: Mapped[Optional[str]] = mapped_column(String(255))
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     auth_provider: Mapped[str] = mapped_column(
         String(20), default="local"

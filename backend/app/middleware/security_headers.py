@@ -21,7 +21,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "default-src 'self'; "
             "img-src 'self' data: blob:; "
             "style-src 'self' 'unsafe-inline'; "
-            "script-src 'self'"
+            "script-src 'self'; "
+            "object-src 'none'; "
+            "frame-ancestors 'none'"
         )
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = (

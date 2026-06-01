@@ -144,7 +144,7 @@ async def test_refresh_token_expired_returns_401(client: AsyncClient, admin_user
             "name": "Admin",
             "role": admin_user.role,
         },
-        secret=legacy_settings.SECRET_KEY,
+        secret=legacy_settings.JWT_SECRET,
         expires_delta=timedelta(seconds=-1),  # already expired
     )
     resp = await client.post(
@@ -215,7 +215,7 @@ async def test_google_callback_mismatched_state_returns_400(client: AsyncClient)
     from app.config import legacy_settings
 
     real_state = "correct-state-value"
-    serializer = URLSafeTimedSerializer(legacy_settings.SECRET_KEY, salt="oauth-state")
+    serializer = URLSafeTimedSerializer(legacy_settings.JWT_SECRET, salt="oauth-state")
     signed = serializer.dumps(real_state)
 
     resp = await client.get(

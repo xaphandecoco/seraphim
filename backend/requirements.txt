@@ -1,46 +1,46 @@
 # Web framework
-fastapi==0.111.0
-uvicorn[standard]==0.30.0
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
 
 # Database
-sqlalchemy[asyncio]==2.0.30
-asyncpg==0.29.0
-alembic==1.13.1
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
 
 # Auth
 itsdangerous==2.2.0
-httpx==0.27.0
+httpx==0.28.1
 PyJWT[crypto]>=2.8.0
-passlib[bcrypt]==1.7.4
-cryptography==42.0.7
+bcrypt==4.2.1
+cryptography==44.0.0
 
 # Rate limiting
 slowapi==0.1.9
 
 # Cache / Queue
-redis==5.0.4
+redis==5.2.1
 
 # Image processing / RTSP
-opencv-python-headless==4.9.0.80
+opencv-python-headless==4.10.0.84
 numpy==1.26.4
-Pillow==10.3.0
+Pillow==11.0.0
 
 # Config / validation
-pydantic==2.7.2
-pydantic-settings==2.2.1
+pydantic==2.10.3
+pydantic-settings==2.6.1
 python-dotenv==1.0.1
-python-multipart==0.0.9
+python-multipart==0.0.19
 
 # Retry / resilience
-tenacity==8.3.0
+tenacity==9.0.0
 
 # Utilities
-aiofiles==23.2.1
+aiofiles==24.1.0
 aiosignal==1.3.1
 
 # Testing
-pytest==8.2.1
-pytest-asyncio==0.23.7
+pytest==8.3.4
+pytest-asyncio==0.24.0
 pytest-mock==3.14.0
 respx==0.21.1
 aiosqlite==0.20.0

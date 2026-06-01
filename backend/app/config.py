@@ -145,7 +145,7 @@ dynamic_settings = DynamicSettings()
 # Legacy settings object for backwards compatibility during migration
 class LegacySettings(BaseSettings):
     DATABASE_URL: str
-    SECRET_KEY: str = ""
+    JWT_SECRET: str = ""
     GOOGLE_CLIENT_ID: Optional[str] = None
     GOOGLE_CLIENT_SECRET: Optional[str] = None
     COMPREFACE_API_KEY: Optional[str] = None

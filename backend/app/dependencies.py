@@ -1,7 +1,7 @@
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.config import dynamic_settings, legacy_settings
+from app.config import dynamic_settings
 from app.utils.auth import verify_token
 
 security = HTTPBearer(auto_error=False)
@@ -17,7 +17,7 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    secret = dynamic_settings.get_jwt_secret() or legacy_settings.SECRET_KEY
+    secret = dynamic_settings.get_jwt_secret()
     payload = verify_token(credentials.credentials, secret)
     if not payload:
         raise HTTPException(
@@ -66,13 +66,9 @@ async def require_volunteer(
 async def check_setup_complete(request: Request):
     """Middleware dependency: return 503 if setup is not complete."""
     from app.config import dynamic_settings
-    
-    # Allow setup endpoints through
-    if request.url.path in ("/api/setup/status", "/api/setup"):
-        return
-    
+
     if not dynamic_settings.is_setup_complete():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Setup required. Complete initial configuration at /api/setup",
+            detail="Setup required. Complete initial configuration at /setup",
         )

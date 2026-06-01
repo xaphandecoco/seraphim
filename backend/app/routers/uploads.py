@@ -51,11 +51,19 @@ async def upload_faces(
             detail="Uploaded file must be an image",
         )
 
-    contents = await file.read()
+    MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+    MAX_MEGAPIXELS = 25
+
+    contents = await file.read(MAX_BYTES + 1)
     if not contents:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Empty file",
+        )
+    if len(contents) > MAX_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Image exceeds 10 MB limit",
         )
 
     # Decode image to BGR numpy array
@@ -65,6 +73,13 @@ async def upload_faces(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid image format",
+        )
+
+    h, w = frame.shape[:2]
+    if (h * w) > MAX_MEGAPIXELS * 1_000_000:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Image exceeds {MAX_MEGAPIXELS} megapixel limit",
         )
 
     ctx = _UploadContext()

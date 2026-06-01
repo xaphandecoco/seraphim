@@ -6,12 +6,26 @@ from app.config import dynamic_settings
 from app.database import get_db
 from app.dependencies import require_volunteer
 from app.middleware.cooldown import check_cooldown
-from app.models import Detection, Task
+from app.models import CiviCRMMember, Detection, Task
 from app.schemas import PaginatedTaskResponse, TaskActionRequest, TaskResponse
 from app.services.task_service import TaskService
 from app.sse import broadcaster
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
+
+
+async def _resolve_name(raw_name: str | None, db: AsyncSession) -> str | None:
+    """Resolve 'member:{id}' synthetic names to display names."""
+    if not raw_name or not raw_name.startswith("member:"):
+        return raw_name
+    try:
+        contact_id = int(raw_name.split(":", 1)[1])
+        member = await db.get(CiviCRMMember, contact_id)
+        if member:
+            return f"{member.first_name} {member.last_name}".strip()
+    except (ValueError, IndexError):
+        pass
+    return raw_name
 
 
 @router.get("", response_model=PaginatedTaskResponse)
@@ -46,6 +60,7 @@ async def list_tasks(
     
     items = []
     for task, detection in result.all():
+        resolved_name = await _resolve_name(detection.matched_name, db)
         items.append(TaskResponse(
             id=task.id,
             detection_id=task.detection_id,
@@ -56,7 +71,7 @@ async def list_tasks(
             skip_reasons=task.skip_reasons or [],
             tier=detection.tier,
             confidence=float(detection.confidence) if detection.confidence else None,
-            matched_name=detection.matched_name,
+            matched_name=resolved_name,
             face_thumbnail_path=detection.image_path,
             camera_name=f"Camera {detection.camera_id}",
             detected_at=detection.timestamp,
@@ -85,6 +100,7 @@ async def get_next_task(
         )
     
     detection = await db.get(Detection, task.detection_id)
+    resolved_name = await _resolve_name(detection.matched_name if detection else None, db)
     return TaskResponse(
         id=task.id,
         detection_id=task.detection_id,
@@ -95,7 +111,7 @@ async def get_next_task(
         skip_reasons=task.skip_reasons or [],
         tier=detection.tier if detection else None,
         confidence=float(detection.confidence) if detection and detection.confidence else None,
-        matched_name=detection.matched_name if detection else None,
+        matched_name=resolved_name,
         face_thumbnail_path=detection.image_path if detection else None,
         camera_name=f"Camera {detection.camera_id}" if detection else None,
         detected_at=detection.timestamp if detection else None,
@@ -118,7 +134,7 @@ async def confirm_task(
         )
     service = TaskService(db)
     task = await service.confirm_task(task_id, int(user["sub"]))
-    await broadcaster.publish(f'{{"type":"task_updated","task_id":{task.id},"status":"{task.status}"}}')
+    await broadcaster.publish(f'{{"type":"task_update","task_id":{task.id},"status":"{task.status}"}}')
     
     detection = await db.get(Detection, task.detection_id)
     return TaskResponse(
@@ -155,7 +171,7 @@ async def edit_task(
         )
     service = TaskService(db)
     task = await service.edit_task(task_id, int(user["sub"]), member_id)
-    await broadcaster.publish(f'{{"type":"task_updated","task_id":{task.id},"status":"{task.status}"}}')
+    await broadcaster.publish(f'{{"type":"task_update","task_id":{task.id},"status":"{task.status}"}}')
     
     detection = await db.get(Detection, task.detection_id)
     return TaskResponse(
@@ -192,7 +208,7 @@ async def add_task(
         )
     service = TaskService(db)
     task = await service.add_task(task_id, int(user["sub"]), member_id)
-    await broadcaster.publish(f'{{"type":"task_updated","task_id":{task.id},"status":"{task.status}"}}')
+    await broadcaster.publish(f'{{"type":"task_update","task_id":{task.id},"status":"{task.status}"}}')
     
     detection = await db.get(Detection, task.detection_id)
     return TaskResponse(
@@ -229,7 +245,7 @@ async def skip_task(
         )
     service = TaskService(db)
     task = await service.skip_task(task_id, int(user["sub"]), reason)
-    await broadcaster.publish(f'{{"type":"task_updated","task_id":{task.id},"status":"{task.status}"}}')
+    await broadcaster.publish(f'{{"type":"task_update","task_id":{task.id},"status":"{task.status}"}}')
     
     detection = await db.get(Detection, task.detection_id)
     return TaskResponse(
@@ -265,7 +281,7 @@ async def admin_override_task(
     
     service = TaskService(db)
     task = await service.admin_override(task_id, int(user["sub"]))
-    await broadcaster.publish(f'{{"type":"task_updated","task_id":{task.id},"status":"{task.status}"}}')
+    await broadcaster.publish(f'{{"type":"task_update","task_id":{task.id},"status":"{task.status}"}}')
     
     detection = await db.get(Detection, task.detection_id)
     return TaskResponse(

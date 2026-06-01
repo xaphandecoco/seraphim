@@ -11,7 +11,7 @@ from itsdangerous import URLSafeTimedSerializer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import dynamic_settings, legacy_settings
+from app.config import dynamic_settings, legacy_settings  # legacy_settings kept for ENVIRONMENT/FRONTEND_URL only
 from app.rate_limit import limiter
 from app.database import get_db
 from app.dependencies import get_current_user, require_admin
@@ -36,9 +36,21 @@ from app.utils.auth import (
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-state_serializer = URLSafeTimedSerializer(
-    dynamic_settings.get_jwt_secret() or legacy_settings.SECRET_KEY, salt="oauth-state"
-)
+
+def _get_state_serializer() -> URLSafeTimedSerializer:
+    """Build serializer lazily so it always uses the current (post-setup) secret."""
+    secret = dynamic_settings.get_jwt_secret()
+    if not secret:
+        raise HTTPException(status_code=503, detail="Auth not yet configured")
+    return URLSafeTimedSerializer(secret, salt="oauth-state")
+
+
+@router.get("/config")
+async def auth_config():
+    """Public endpoint: returns auth feature flags for the frontend."""
+    return {
+        "google_oauth_enabled": dynamic_settings.get_enable_google_oauth(),
+    }
 
 
 def generate_pkce_pair() -> tuple[str, str]:
@@ -75,14 +87,14 @@ async def login(
             detail="Account deactivated",
         )
 
-    secret = dynamic_settings.get_jwt_secret() or legacy_settings.SECRET_KEY
+    secret = dynamic_settings.get_jwt_secret()
     access_token = create_access_token(
-        {"sub": str(user.id), "email": user.email, "name": getattr(user, "name", None) or user.email, "role": user.role},
+        {"sub": str(user.id), "email": user.email, "name": user.name or user.email, "role": user.role},
         secret=secret,
         expires_delta=timedelta(minutes=dynamic_settings.get_access_token_expire_minutes()),
     )
     refresh_token = create_refresh_token(
-        {"sub": str(user.id), "email": user.email, "name": getattr(user, "name", None) or user.email, "role": user.role},
+        {"sub": str(user.id), "email": user.email, "name": user.name or user.email, "role": user.role},
         secret=secret,
         expires_delta=timedelta(days=dynamic_settings.get_refresh_token_expire_days()),
     )
@@ -128,7 +140,7 @@ async def refresh_token(request: Request):
             detail="Missing refresh token",
         )
 
-    secret = dynamic_settings.get_jwt_secret() or legacy_settings.SECRET_KEY
+    secret = dynamic_settings.get_jwt_secret()
     payload = verify_token(refresh_tok, secret)
     if not payload or payload.get("type") != "refresh":
         raise HTTPException(
@@ -159,10 +171,8 @@ async def request_password_reset(
     result = await db.execute(select(User).where(User.email == req.email.lower()))
     user = result.scalar_one_or_none()
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
+        # Return generic message to avoid user enumeration
+        return {"message": "If that email exists, a reset link has been generated."}
 
     token = generate_reset_token()
     from app.utils.auth import hash_password as _hash
@@ -187,9 +197,10 @@ async def confirm_password_reset(
     result = await db.execute(select(User).where(User.email == req.email.lower()))
     user = result.scalar_one_or_none()
     if not user:
+        # Generic error to avoid user enumeration
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token",
         )
 
     # Verify reset token
@@ -216,6 +227,20 @@ async def confirm_password_reset(
     return {"message": "Password updated successfully"}
 
 
+@router.get("/users", response_model=list[UserResponse])
+async def list_users(
+    current_user: dict = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin: list all user accounts."""
+    result = await db.execute(select(User).order_by(User.created_at.asc()))
+    users = result.scalars().all()
+    return [
+        UserResponse(id=u.id, email=u.email, name=u.name, role=u.role, is_active=u.is_active)
+        for u in users
+    ]
+
+
 @router.post("/add-volunteer", response_model=UserResponse)
 async def add_volunteer(
     req: AddVolunteerRequest,
@@ -232,6 +257,7 @@ async def add_volunteer(
 
     user = User(
         email=req.email.lower(),
+        name=req.name,
         password_hash=hash_password(req.temporary_password),
         auth_provider="local",
         role=req.role,
@@ -244,7 +270,7 @@ async def add_volunteer(
     return UserResponse(
         id=user.id,
         email=user.email,
-        name=req.name,
+        name=user.name,
         role=user.role,
         is_active=user.is_active,
     )
@@ -293,9 +319,10 @@ async def google_login(request: Request, response: Response):
     }
     auth_url = "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params)
     response = RedirectResponse(url=auth_url)
+    serializer = _get_state_serializer()
     response.set_cookie(
         key="oauth_state",
-        value=state_serializer.dumps(state),
+        value=serializer.dumps(state),
         max_age=600,
         httponly=True,
         secure=legacy_settings.ENVIRONMENT == "production",
@@ -331,7 +358,7 @@ async def google_callback(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing state cookie")
 
     try:
-        expected_state = state_serializer.loads(signed_state, max_age=600)
+        expected_state = _get_state_serializer().loads(signed_state, max_age=600)
     except Exception:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired state")
     if state != expected_state:
@@ -389,7 +416,7 @@ async def google_callback(
         await db.commit()
         await db.refresh(user)
 
-    secret = dynamic_settings.get_jwt_secret() or legacy_settings.SECRET_KEY
+    secret = dynamic_settings.get_jwt_secret()
     access_token = create_access_token(
         {"sub": str(user.id), "email": email, "name": name, "role": user.role},
         secret=secret,

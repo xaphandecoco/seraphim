@@ -9,6 +9,7 @@ interface AuthState {
   login: (user: User, token: string) => void;
   logout: () => void;
   setUser: (user: User | null) => void;
+  setToken: (token: string) => void;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -24,5 +25,8 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
   setUser: (user) => {
     set({ user, isAdmin: user?.role === 'admin', isAuthenticated: !!user });
+  },
+  setToken: (token) => {
+    set({ token, isAuthenticated: true });
   },
 }));

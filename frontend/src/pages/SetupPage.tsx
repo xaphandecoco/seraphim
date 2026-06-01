@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@/services/api';
+import { buildPostgresUrl, parsePostgresUrl, buildRedisUrl, parseRedisUrl } from '@/services/connectionUrl';
 import {
   Lock,
   Database,
@@ -17,90 +18,6 @@ import {
   Eye,
   EyeOff,
 } from 'lucide-react';
-
-function buildPostgresUrl(
-  host: string,
-  port: string,
-  name: string,
-  username: string,
-  password: string,
-  extra: string
-): string {
-  let url = `postgresql+asyncpg://${encodeURIComponent(username)}`;
-  if (password) {
-    url += `:${encodeURIComponent(password)}`;
-  }
-  url += `@${host}`;
-  if (port) {
-    url += `:${port}`;
-  }
-  url += `/${name}`;
-  if (extra) {
-    const sep = extra.startsWith('?') ? '' : '?';
-    url += `${sep}${extra}`;
-  }
-  return url;
-}
-
-function parsePostgresUrl(url: string): {
-  host: string;
-  port: string;
-  name: string;
-  username: string;
-  password: string;
-  extra: string;
-} {
-  const defaults = { host: '', port: '5432', name: '', username: '', password: '', extra: '' };
-  try {
-    const u = new URL(url);
-    defaults.host = u.hostname;
-    defaults.port = u.port || '5432';
-    defaults.name = u.pathname.replace(/^\//, '');
-    defaults.username = decodeURIComponent(u.username);
-    defaults.password = decodeURIComponent(u.password);
-    defaults.extra = u.search.replace(/^\?/, '');
-  } catch {
-    // ignore
-  }
-  return defaults;
-}
-
-function buildRedisUrl(
-  host: string,
-  port: string,
-  db: string,
-  password: string
-): string {
-  let url = 'redis://';
-  if (password) {
-    url += `:${encodeURIComponent(password)}@`;
-  }
-  url += `${host}`;
-  if (port) {
-    url += `:${port}`;
-  }
-  url += `/${db}`;
-  return url;
-}
-
-function parseRedisUrl(url: string): {
-  host: string;
-  port: string;
-  db: string;
-  password: string;
-} {
-  const defaults = { host: '', port: '6379', db: '0', password: '' };
-  try {
-    const u = new URL(url);
-    defaults.host = u.hostname;
-    defaults.port = u.port || '6379';
-    defaults.db = u.pathname.replace(/^\//, '') || '0';
-    defaults.password = decodeURIComponent(u.password);
-  } catch {
-    // ignore
-  }
-  return defaults;
-}
 
 export function SetupPage() {
   const navigate = useNavigate();
@@ -131,6 +48,7 @@ export function SetupPage() {
   const [redisFields, setRedisFields] = useState(defaultRedis);
 
   const [showDbPassword, setShowDbPassword] = useState(false);
+  const [showRedisPassword, setShowRedisPassword] = useState(false);
   const [showAdminPassword, setShowAdminPassword] = useState(false);
   const [showAdminPasswordConfirm, setShowAdminPasswordConfirm] = useState(false);
 
@@ -275,8 +193,8 @@ export function SetupPage() {
   ];
 
   const inputClass =
-    'h-12 w-full rounded-xl border border-[#E8DDA8] bg-[#FBF8F0] px-4 text-sm text-[#1F2128] transition-colors focus:border-[#F5D547] focus:outline-none focus:ring-2 focus:ring-[#F5D547]/30 placeholder:text-[#1F2128]/40';
-  const labelClass = 'block text-xs font-semibold text-[#1F2128]/60 mb-1.5';
+    'h-12 w-full rounded-xl border border-border bg-background px-4 text-sm text-foreground transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder:text-foreground/40';
+  const labelClass = 'block text-xs font-semibold text-foreground/60 mb-1.5';
 
   const isOptionalStep = (s: number) => s === 2 || s === 4;
 
@@ -291,7 +209,7 @@ export function SetupPage() {
   const passwordsMatch = form.admin_password_confirm === '' || form.admin_password === form.admin_password_confirm;
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-[#F5D547] via-[#F9E79F] to-[#FBF8F0] px-4 py-8">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-primary via-[#F9E79F] to-[#FBF8F0] px-4 py-8">
       <div className="w-full max-w-lg">
         {/* Header */}
         <div className="mb-6 text-center">
@@ -300,12 +218,12 @@ export function SetupPage() {
             alt="LNC Logo"
             className="mx-auto mb-3 h-16 w-auto drop-shadow-sm"
           />
-          <h1 className="text-2xl font-extrabold text-[#1F2128]">LNC Attendance</h1>
-          <p className="mt-1 text-sm font-medium text-[#1F2128]/70">Initial Setup</p>
+          <h1 className="text-2xl font-extrabold text-foreground">LNC Attendance</h1>
+          <p className="mt-1 text-sm font-medium text-foreground/70">Initial Setup</p>
         </div>
 
         {/* Step indicator */}
-        <div className="mb-6 rounded-2xl border border-[#E8DDA8] bg-white/90 p-4 shadow-lg shadow-[#F5D547]/10 backdrop-blur-sm">
+        <div className="mb-6 rounded-2xl border border-border bg-white/90 p-4 shadow-lg shadow-[#F5D547]/10 backdrop-blur-sm">
           <div className="flex items-center justify-between">
             {steps.map((s, idx) => {
               const Icon = s.icon;
@@ -318,15 +236,15 @@ export function SetupPage() {
                     <div
                       className={`flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold transition-all ${
                         isCurrent
-                          ? 'bg-[#F5D547] text-[#1F2128] ring-2 ring-[#F5D547] ring-offset-2 ring-offset-white'
+                          ? 'bg-primary text-foreground ring-2 ring-primary ring-offset-2 ring-offset-white'
                           : isActive
-                          ? 'bg-[#F5D547] text-[#1F2128]'
-                          : 'bg-[#FBF8F0] text-[#1F2128]/40'
+                          ? 'bg-primary text-foreground'
+                          : 'bg-background text-foreground/40'
                       }`}
                     >
                       <Icon size={16} />
                     </div>
-                    <span className={`mt-2 text-[11px] font-semibold ${isCurrent ? 'text-[#F5D547]' : 'text-[#1F2128]/50'}`}>
+                    <span className={`mt-2 text-[11px] font-semibold ${isCurrent ? 'text-primary' : 'text-foreground/50'}`}>
                       {s.label}
                     </span>
                     <span className="h-4 text-[10px]">
@@ -341,7 +259,7 @@ export function SetupPage() {
                     <div className="mx-1 mb-6 flex-1">
                       <div
                         className={`h-0.5 transition-colors ${
-                          step > s.num ? 'bg-[#F5D547]' : 'bg-[#E8DDA8]'
+                          step > s.num ? 'bg-primary' : 'bg-border'
                         }`}
                       />
                     </div>
@@ -365,13 +283,13 @@ export function SetupPage() {
           {step === 1 && (
             <>
               <div className="flex items-center gap-2">
-                <Database size={18} className="text-[#F5D547]" />
-                <h2 className="text-lg font-bold text-[#1F2128]">Database & Cache</h2>
+                <Database size={18} className="text-primary" />
+                <h2 className="text-lg font-bold text-foreground">Database & Cache</h2>
               </div>
 
               {/* PostgreSQL Section */}
-              <div className="rounded-2xl border border-[#E8DDA8] bg-white/90 p-4 shadow-sm backdrop-blur-sm">
-                <p className="mb-3 text-sm font-bold text-[#1F2128]">PostgreSQL</p>
+              <div className="rounded-2xl border border-border bg-white/90 p-4 shadow-sm backdrop-blur-sm">
+                <p className="mb-3 text-sm font-bold text-foreground">PostgreSQL</p>
                 <div className="space-y-3">
                   <div>
                     <label className={labelClass}>Host / URL</label>
@@ -427,7 +345,7 @@ export function SetupPage() {
                     <button
                       type="button"
                       onClick={() => setShowDbPassword(!showDbPassword)}
-                      className="absolute right-3 top-[26px] text-[#1F2128]/40 hover:text-[#1F2128]"
+                      className="absolute right-3 top-[26px] text-foreground/40 hover:text-foreground"
                     >
                       {showDbPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
@@ -446,8 +364,8 @@ export function SetupPage() {
               </div>
 
               {/* Redis Section */}
-              <div className="rounded-2xl border border-[#E8DDA8] bg-white/90 p-4 shadow-sm backdrop-blur-sm">
-                <p className="mb-3 text-sm font-bold text-[#1F2128]">Redis Cache</p>
+              <div className="rounded-2xl border border-border bg-white/90 p-4 shadow-sm backdrop-blur-sm">
+                <p className="mb-3 text-sm font-bold text-foreground">Redis Cache</p>
                 <div className="space-y-3">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
@@ -485,7 +403,7 @@ export function SetupPage() {
                     <div className="relative">
                       <label className={labelClass}>Password (optional)</label>
                       <input
-                        type={showDbPassword ? 'text' : 'password'}
+                        type={showRedisPassword ? 'text' : 'password'}
                         value={redisFields.password}
                         onChange={(e) => setRedisFields({ ...redisFields, password: e.target.value })}
                         placeholder="No auth"
@@ -493,10 +411,11 @@ export function SetupPage() {
                       />
                       <button
                         type="button"
-                        onClick={() => setShowDbPassword(!showDbPassword)}
-                        className="absolute right-3 top-[26px] text-[#1F2128]/40 hover:text-[#1F2128]"
+                        aria-label={showRedisPassword ? 'Hide password' : 'Show password'}
+                        onClick={() => setShowRedisPassword(!showRedisPassword)}
+                        className="absolute right-3 top-[26px] text-foreground/40 hover:text-foreground"
                       >
-                        {showDbPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        {showRedisPassword ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
                       </button>
                     </div>
                   </div>
@@ -507,14 +426,14 @@ export function SetupPage() {
               <button
                 onClick={runConnectionTest}
                 disabled={testing}
-                className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-[#E8DDA8] bg-white/90 text-sm font-semibold text-[#1F2128] shadow-sm transition-all hover:bg-[#FBF8F0] active:scale-[0.98] disabled:opacity-50"
+                className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-border bg-white/90 text-sm font-semibold text-foreground shadow-sm transition-all hover:bg-background active:scale-[0.98] disabled:opacity-50"
               >
                 <Plug size={16} />
                 {testing ? 'Testing...' : 'Test Connections'}
               </button>
 
               {testResult && (
-                <div className="space-y-2 rounded-2xl border border-[#E8DDA8] bg-white/90 p-4 text-sm shadow-sm backdrop-blur-sm">
+                <div className="space-y-2 rounded-2xl border border-border bg-white/90 p-4 text-sm shadow-sm backdrop-blur-sm">
                   <div className="flex items-center gap-3">
                     {testResult.database_ok ? (
                       <CheckCircle2 size={18} className="shrink-0 text-green-600" />
@@ -522,8 +441,8 @@ export function SetupPage() {
                       <XCircle size={18} className="shrink-0 text-red-500" />
                     )}
                     <div className="min-w-0">
-                      <span className="font-semibold text-[#1F2128]">PostgreSQL</span>
-                      <p className="text-[#1F2128]/60">{testResult.database_message}</p>
+                      <span className="font-semibold text-foreground">PostgreSQL</span>
+                      <p className="text-foreground/60">{testResult.database_message}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
@@ -533,8 +452,8 @@ export function SetupPage() {
                       <XCircle size={18} className="shrink-0 text-red-500" />
                     )}
                     <div className="min-w-0">
-                      <span className="font-semibold text-[#1F2128]">Redis</span>
-                      <p className="text-[#1F2128]/60">{testResult.redis_message}</p>
+                      <span className="font-semibold text-foreground">Redis</span>
+                      <p className="text-foreground/60">{testResult.redis_message}</p>
                     </div>
                   </div>
                 </div>
@@ -545,13 +464,13 @@ export function SetupPage() {
           {step === 2 && (
             <>
               <div className="flex items-center gap-2">
-                <Server size={18} className="text-[#F5D547]" />
-                <h2 className="text-lg font-bold text-[#1F2128]">External Services</h2>
+                <Server size={18} className="text-primary" />
+                <h2 className="text-lg font-bold text-foreground">External Services</h2>
               </div>
 
               {/* Compreface */}
-              <div className="rounded-2xl border border-[#E8DDA8] bg-white/90 p-4 shadow-sm backdrop-blur-sm">
-                <p className="mb-3 text-sm font-bold text-[#1F2128]">Compreface</p>
+              <div className="rounded-2xl border border-border bg-white/90 p-4 shadow-sm backdrop-blur-sm">
+                <p className="mb-3 text-sm font-bold text-foreground">Compreface</p>
                 <div className="space-y-3">
                   <div>
                     <label className={labelClass}>Service URL</label>
@@ -577,9 +496,9 @@ export function SetupPage() {
               </div>
 
               {/* CiviCRM */}
-              <div className="rounded-2xl border border-[#E8DDA8] bg-white/90 p-4 shadow-sm backdrop-blur-sm">
-                <p className="mb-3 text-sm font-bold text-[#1F2128]">CiviCRM Integration</p>
-                <p className="mb-3 text-xs text-[#1F2128]/50">Required if configuring CiviCRM</p>
+              <div className="rounded-2xl border border-border bg-white/90 p-4 shadow-sm backdrop-blur-sm">
+                <p className="mb-3 text-sm font-bold text-foreground">CiviCRM Integration</p>
+                <p className="mb-3 text-xs text-foreground/50">Required if configuring CiviCRM</p>
                 <div className="space-y-3">
                   <div>
                     <label className={labelClass}>Service URL</label>
@@ -617,14 +536,14 @@ export function SetupPage() {
               <button
                 onClick={runServiceTest}
                 disabled={serviceTesting}
-                className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-[#E8DDA8] bg-white/90 text-sm font-semibold text-[#1F2128] shadow-sm transition-all hover:bg-[#FBF8F0] active:scale-[0.98] disabled:opacity-50"
+                className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-border bg-white/90 text-sm font-semibold text-foreground shadow-sm transition-all hover:bg-background active:scale-[0.98] disabled:opacity-50"
               >
                 <Plug size={16} />
                 {serviceTesting ? 'Testing...' : 'Test Services'}
               </button>
 
               {serviceTestResult && (
-                <div className="space-y-2 rounded-2xl border border-[#E8DDA8] bg-white/90 p-4 text-sm shadow-sm backdrop-blur-sm">
+                <div className="space-y-2 rounded-2xl border border-border bg-white/90 p-4 text-sm shadow-sm backdrop-blur-sm">
                   <div className="flex items-center gap-3">
                     {serviceTestResult.compreface_ok ? (
                       <CheckCircle2 size={18} className="shrink-0 text-green-600" />
@@ -632,8 +551,8 @@ export function SetupPage() {
                       <XCircle size={18} className="shrink-0 text-red-500" />
                     )}
                     <div className="min-w-0">
-                      <span className="font-semibold text-[#1F2128]">Compreface</span>
-                      <p className="text-[#1F2128]/60">{serviceTestResult.compreface_message}</p>
+                      <span className="font-semibold text-foreground">Compreface</span>
+                      <p className="text-foreground/60">{serviceTestResult.compreface_message}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
@@ -645,8 +564,8 @@ export function SetupPage() {
                       <span className="h-[18px] w-[18px] shrink-0 rounded-full bg-gray-400" />
                     )}
                     <div className="min-w-0">
-                      <span className="font-semibold text-[#1F2128]">CiviCRM</span>
-                      <p className="text-[#1F2128]/60">{serviceTestResult.civicrm_message}</p>
+                      <span className="font-semibold text-foreground">CiviCRM</span>
+                      <p className="text-foreground/60">{serviceTestResult.civicrm_message}</p>
                     </div>
                   </div>
                 </div>
@@ -657,11 +576,11 @@ export function SetupPage() {
           {step === 3 && (
             <>
               <div className="flex items-center gap-2">
-                <Lock size={18} className="text-[#F5D547]" />
-                <h2 className="text-lg font-bold text-[#1F2128]">Admin Account</h2>
+                <Lock size={18} className="text-primary" />
+                <h2 className="text-lg font-bold text-foreground">Admin Account</h2>
               </div>
 
-              <div className="rounded-2xl border border-[#E8DDA8] bg-white/90 p-4 shadow-sm backdrop-blur-sm">
+              <div className="rounded-2xl border border-border bg-white/90 p-4 shadow-sm backdrop-blur-sm">
                 <div className="space-y-3">
                   <div>
                     <label className={labelClass}>Email</label>
@@ -695,7 +614,7 @@ export function SetupPage() {
                     <button
                       type="button"
                       onClick={() => setShowAdminPassword(!showAdminPassword)}
-                      className="absolute right-3 top-[26px] text-[#1F2128]/40 hover:text-[#1F2128]"
+                      className="absolute right-3 top-[26px] text-foreground/40 hover:text-foreground"
                     >
                       {showAdminPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
@@ -712,7 +631,7 @@ export function SetupPage() {
                     <button
                       type="button"
                       onClick={() => setShowAdminPasswordConfirm(!showAdminPasswordConfirm)}
-                      className="absolute right-3 top-[26px] text-[#1F2128]/40 hover:text-[#1F2128]"
+                      className="absolute right-3 top-[26px] text-foreground/40 hover:text-foreground"
                     >
                       {showAdminPasswordConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
@@ -728,20 +647,20 @@ export function SetupPage() {
 
                   {/* Password strength checklist */}
                   {form.admin_password && (
-                    <div className="rounded-xl bg-[#FBF8F0] p-3">
-                      <p className="mb-2 text-xs font-semibold text-[#1F2128]/60">Password requirements</p>
+                    <div className="rounded-xl bg-background p-3">
+                      <p className="mb-2 text-xs font-semibold text-foreground/60">Password requirements</p>
                       <div className="space-y-1.5">
                         {passwordChecks.map((check) => (
                           <div
                             key={check.label}
                             className={`flex items-center gap-2 text-xs transition-colors ${
-                              check.valid ? 'text-green-600' : 'text-[#1F2128]/40'
+                              check.valid ? 'text-green-600' : 'text-foreground/40'
                             }`}
                           >
                             {check.valid ? (
                               <CheckCircle2 size={13} className="shrink-0" />
                             ) : (
-                              <span className="h-[13px] w-[13px] shrink-0 rounded-full border border-[#1F2128]/20" />
+                              <span className="h-[13px] w-[13px] shrink-0 rounded-full border border-foreground/20" />
                             )}
                             {check.label}
                           </div>
@@ -757,11 +676,11 @@ export function SetupPage() {
           {step === 4 && (
             <>
               <div className="flex items-center gap-2">
-                <Camera size={18} className="text-[#F5D547]" />
-                <h2 className="text-lg font-bold text-[#1F2128]">Initial Camera</h2>
+                <Camera size={18} className="text-primary" />
+                <h2 className="text-lg font-bold text-foreground">Initial Camera</h2>
               </div>
 
-              <div className="rounded-2xl border border-[#E8DDA8] bg-white/90 p-4 shadow-sm backdrop-blur-sm">
+              <div className="rounded-2xl border border-border bg-white/90 p-4 shadow-sm backdrop-blur-sm">
                 <div className="space-y-3">
                   <div>
                     <label className={labelClass}>Camera Name</label>
@@ -791,27 +710,27 @@ export function SetupPage() {
           {step === 5 && (
             <>
               <div className="flex items-center gap-2">
-                <Check size={18} className="text-[#F5D547]" />
-                <h2 className="text-lg font-bold text-[#1F2128]">Review & Confirm</h2>
+                <Check size={18} className="text-primary" />
+                <h2 className="text-lg font-bold text-foreground">Review & Confirm</h2>
               </div>
 
-              <div className="space-y-3 rounded-2xl border border-[#E8DDA8] bg-white/90 p-4 text-sm shadow-sm backdrop-blur-sm">
+              <div className="space-y-3 rounded-2xl border border-border bg-white/90 p-4 text-sm shadow-sm backdrop-blur-sm">
                 <div className="space-y-2">
                   <div>
-                    <span className="font-semibold text-[#1F2128]/60">Database</span>
-                    <p className="mt-0.5 break-all font-mono text-xs text-[#1F2128]">
-                      {buildPostgresUrl(dbFields.host, dbFields.port, dbFields.name, dbFields.username, dbFields.password, dbFields.extra)}
+                    <span className="font-semibold text-foreground/60">Database</span>
+                    <p className="mt-0.5 break-all font-mono text-xs text-foreground">
+                      {buildPostgresUrl(dbFields.host, dbFields.port, dbFields.name, dbFields.username, dbFields.password ? '****' : '', dbFields.extra)}
                     </p>
                   </div>
-                  <div className="border-t border-[#E8DDA8] pt-2">
-                    <span className="font-semibold text-[#1F2128]/60">Redis</span>
-                    <p className="mt-0.5 break-all font-mono text-xs text-[#1F2128]">
+                  <div className="border-t border-border pt-2">
+                    <span className="font-semibold text-foreground/60">Redis</span>
+                    <p className="mt-0.5 break-all font-mono text-xs text-foreground">
                       {buildRedisUrl(redisFields.host, redisFields.port, redisFields.db, redisFields.password)}
                     </p>
                   </div>
-                  <div className="border-t border-[#E8DDA8] pt-2">
-                    <span className="font-semibold text-[#1F2128]/60">Compreface</span>
-                    <p className="mt-0.5 break-all font-mono text-xs text-[#1F2128]">{form.compreface_url}</p>
+                  <div className="border-t border-border pt-2">
+                    <span className="font-semibold text-foreground/60">Compreface</span>
+                    <p className="mt-0.5 break-all font-mono text-xs text-foreground">{form.compreface_url}</p>
                   </div>
                   {skippedSteps.has(2) && (
                     <div className="flex items-center gap-2 rounded-lg bg-amber-50 p-2 text-xs font-medium text-amber-700">
@@ -819,9 +738,9 @@ export function SetupPage() {
                       External Services skipped — configure later in Settings
                     </div>
                   )}
-                  <div className="border-t border-[#E8DDA8] pt-2">
-                    <span className="font-semibold text-[#1F2128]/60">Admin</span>
-                    <p className="mt-0.5 text-[#1F2128]">{form.admin_email}</p>
+                  <div className="border-t border-border pt-2">
+                    <span className="font-semibold text-foreground/60">Admin</span>
+                    <p className="mt-0.5 text-foreground">{form.admin_email}</p>
                   </div>
                   {skippedSteps.has(4) ? (
                     <div className="flex items-center gap-2 rounded-lg bg-amber-50 p-2 text-xs font-medium text-amber-700">
@@ -829,9 +748,9 @@ export function SetupPage() {
                       Camera setup skipped — configure later in Settings
                     </div>
                   ) : (
-                    <div className="border-t border-[#E8DDA8] pt-2">
-                      <span className="font-semibold text-[#1F2128]/60">Camera</span>
-                      <p className="mt-0.5 text-[#1F2128]">{form.camera_name}</p>
+                    <div className="border-t border-border pt-2">
+                      <span className="font-semibold text-foreground/60">Camera</span>
+                      <p className="mt-0.5 text-foreground">{form.camera_name}</p>
                     </div>
                   )}
                 </div>
@@ -845,7 +764,7 @@ export function SetupPage() {
           {step > 1 && (
             <button
               onClick={() => setStep(step - 1)}
-              className="flex h-12 items-center justify-center gap-1.5 rounded-xl border border-[#E8DDA8] bg-white/90 px-5 text-sm font-semibold text-[#1F2128] shadow-sm transition-all hover:bg-[#FBF8F0] active:scale-[0.98]"
+              className="flex h-12 items-center justify-center gap-1.5 rounded-xl border border-border bg-white/90 px-5 text-sm font-semibold text-foreground shadow-sm transition-all hover:bg-background active:scale-[0.98]"
             >
               <ChevronLeft size={16} />
               Back
@@ -864,16 +783,20 @@ export function SetupPage() {
           {step < 5 ? (
             <button
               onClick={() => setStep(step + 1)}
-              className="flex h-12 items-center justify-center gap-1.5 rounded-xl bg-[#F5D547] px-6 text-sm font-bold text-[#1F2128] shadow-md shadow-[#F5D547]/30 transition-all hover:bg-[#E5C53F] active:scale-[0.98]"
+              disabled={
+                // Block advancing from Admin step unless password is valid and confirmed
+                step === 3 && (!passwordChecks.every((c) => c.valid) || !passwordsMatch || !form.admin_password_confirm)
+              }
+              className="flex h-12 items-center justify-center gap-1.5 rounded-xl bg-primary px-6 text-sm font-bold text-primary-foreground shadow-md transition-all hover:bg-primary/85 active:scale-[0.98] disabled:opacity-50"
             >
               Next
-              <ChevronRight size={16} />
+              <ChevronRight size={16} aria-hidden="true" />
             </button>
           ) : (
             <button
               onClick={handleSubmit}
               disabled={loading}
-              className="flex h-12 items-center justify-center gap-1.5 rounded-xl bg-[#F5D547] px-6 text-sm font-bold text-[#1F2128] shadow-md shadow-[#F5D547]/30 transition-all hover:bg-[#E5C53F] active:scale-[0.98] disabled:opacity-50"
+              className="flex h-12 items-center justify-center gap-1.5 rounded-xl bg-primary px-6 text-sm font-bold text-foreground shadow-md shadow-[#F5D547]/30 transition-all hover:bg-primary/85 active:scale-[0.98] disabled:opacity-50"
             >
               {loading ? 'Setting up...' : 'Complete Setup'}
               <Check size={16} />

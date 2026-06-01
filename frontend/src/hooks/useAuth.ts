@@ -1,44 +1,34 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import { api } from '@/services/api';
 import type { User } from '@/types';
 
-const STORAGE_KEY = 'seraphim_auth';
-
-interface StoredAuth {
-  user: User;
-  token: string;
-}
-
 export function useAuth() {
   const { user, token, isAdmin, login, logout } = useAuthStore();
+  const initialized = useRef(false);
 
-  // Hydrate from localStorage on mount
+  // On app load: try to get a new access token from the HttpOnly refresh cookie.
+  // This replaces the localStorage persistence pattern — token stays in memory only.
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      try {
-        const parsed: StoredAuth = JSON.parse(stored);
-        if (parsed.token && parsed.user) {
-          login(parsed.user, parsed.token);
-        }
-      } catch {
-        localStorage.removeItem(STORAGE_KEY);
-      }
-    }
-  }, [login]);
+    if (initialized.current) return;
+    initialized.current = true;
 
-  // Persist to localStorage on change
-  useEffect(() => {
-    if (user && token) {
-      const data: StoredAuth = { user, token };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    } else {
-      localStorage.removeItem(STORAGE_KEY);
-    }
-  }, [user, token]);
+    if (token) return; // already hydrated (e.g. just logged in)
 
-  // Update API auth header when token changes
+    api.post<{ access_token: string }>('/auth/refresh')
+      .then(async (res) => {
+        const accessToken = res.data.access_token;
+        const meRes = await api.get<User>('/auth/me', {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        login(meRes.data, accessToken);
+      })
+      .catch(() => {
+        // No valid refresh cookie — user must log in
+      });
+  }, [token, login]);
+
+  // Sync the Authorization header whenever the in-memory token changes
   useEffect(() => {
     if (token) {
       api.defaults.headers.common['Authorization'] = `Bearer ${token}`;

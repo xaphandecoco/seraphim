@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, field_validator
 
@@ -38,16 +38,40 @@ class PasswordResetRequest(BaseModel):
     email: EmailStr
 
 
+def _validate_password_strength(v: str) -> str:
+    if len(v) < 12:
+        raise ValueError("Password must be at least 12 characters long")
+    if not any(c.isupper() for c in v):
+        raise ValueError("Password must contain at least one uppercase letter")
+    if not any(c.islower() for c in v):
+        raise ValueError("Password must contain at least one lowercase letter")
+    if not any(c.isdigit() for c in v):
+        raise ValueError("Password must contain at least one number")
+    if not any(c in "!@#$%^&*()_+-=[]{}|;':\",./<>?" for c in v):
+        raise ValueError("Password must contain at least one special character")
+    return v
+
+
 class PasswordResetConfirm(BaseModel):
     token: str
     new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, v: str) -> str:
+        return _validate_password_strength(v)
 
 
 class AddVolunteerRequest(BaseModel):
     email: EmailStr
     name: str
-    role: str = "volunteer"
+    role: Literal["volunteer", "admin"] = "volunteer"
     temporary_password: str
+
+    @field_validator("temporary_password")
+    @classmethod
+    def validate_temp_password(cls, v: str) -> str:
+        return _validate_password_strength(v)
 
 
 # ============================================================================
@@ -100,17 +124,7 @@ class SetupRequest(BaseModel):
     @field_validator("admin_password")
     @classmethod
     def validate_password_strength(cls, v: str) -> str:
-        if len(v) < 12:
-            raise ValueError("Password must be at least 12 characters long")
-        if not any(c.isupper() for c in v):
-            raise ValueError("Password must contain at least one uppercase letter")
-        if not any(c.islower() for c in v):
-            raise ValueError("Password must contain at least one lowercase letter")
-        if not any(c.isdigit() for c in v):
-            raise ValueError("Password must contain at least one number")
-        if not any(c in "!@#$%^&*()_+-=[]{}|;':\",./<>?" for c in v):
-            raise ValueError("Password must contain at least one special character")
-        return v
+        return _validate_password_strength(v)
 
 
 # ============================================================================
@@ -169,12 +183,23 @@ class LeaderboardResponse(BaseModel):
 # Cameras
 # ============================================================================
 
+def _validate_rtsp_url(v: str) -> str:
+    if not v.startswith(("rtsp://", "rtsps://")):
+        raise ValueError("Camera URL must start with rtsp:// or rtsps://")
+    return v
+
+
 class CameraCreateRequest(BaseModel):
     name: str
     rtsp_url: str
     zone_label: Optional[str] = None
     fps: int = 1
     enable_health_check: bool = True
+
+    @field_validator("rtsp_url")
+    @classmethod
+    def validate_rtsp(cls, v: str) -> str:
+        return _validate_rtsp_url(v)
 
 
 class CameraUpdateRequest(BaseModel):
@@ -183,6 +208,13 @@ class CameraUpdateRequest(BaseModel):
     zone_label: Optional[str] = None
     fps: Optional[int] = None
     enable_health_check: Optional[bool] = None
+
+    @field_validator("rtsp_url")
+    @classmethod
+    def validate_rtsp(cls, v: str | None) -> str | None:
+        if v is not None:
+            return _validate_rtsp_url(v)
+        return v
 
 
 class CameraResponse(BaseModel):
@@ -267,6 +299,21 @@ class HealthCheck(BaseModel):
 class CameraPreviewResponse(BaseModel):
     content_type: str = "image/jpeg"
     data_url: str
+
+
+# ============================================================================
+# Attendance
+# ============================================================================
+
+class AttendanceRecord(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    contact_id: Optional[int] = None
+    event_id: Optional[int] = None
+    detection_id: Optional[int] = None
+    status: str
+    push_status: str
+    created_at: datetime
 
 
 # ============================================================================

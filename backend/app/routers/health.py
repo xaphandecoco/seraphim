@@ -57,7 +57,7 @@ async def health_check(db: AsyncSession = Depends(get_db)):
 
 @router.get("/health/queue")
 async def queue_status(db: AsyncSession = Depends(get_db)):
-    """Return queue saturation status."""
+    """Return queue saturation status and safe-mode flag (volunteer-readable)."""
     result = await db.execute(
         select(func.count(Task.id)).where(Task.status == "pending")
     )
@@ -70,4 +70,5 @@ async def queue_status(db: AsyncSession = Depends(get_db)):
         "resume_limit": resume_limit,
         "saturated": pending >= hard_limit,
         "paused": pending >= hard_limit,
+        "safe_mode": dynamic_settings.is_safe_mode(),
     }

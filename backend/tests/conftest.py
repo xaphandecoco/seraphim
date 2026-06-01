@@ -29,7 +29,7 @@ def make_token(user_id: int, email: str, role: str, name: str = "") -> str:
     from app.config import legacy_settings
     return create_access_token(
         {"sub": str(user_id), "email": email, "name": name, "role": role},
-        secret=legacy_settings.SECRET_KEY,
+        secret=legacy_settings.JWT_SECRET,
         expires_delta=timedelta(minutes=30),
     )
 

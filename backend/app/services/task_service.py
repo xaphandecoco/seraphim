@@ -116,6 +116,18 @@ class TaskService:
                 detail="Task is no longer pending",
             )
 
+        existing = await self.session.execute(
+            select(TaskAction).where(
+                (TaskAction.task_id == task_id)
+                & (TaskAction.volunteer_id == volunteer_id)
+            )
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="You have already acted on this task",
+            )
+
         # Record action
         action = TaskAction(
             task_id=task_id,
@@ -158,6 +170,18 @@ class TaskService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Task is no longer pending",
+            )
+
+        existing = await self.session.execute(
+            select(TaskAction).where(
+                (TaskAction.task_id == task_id)
+                & (TaskAction.volunteer_id == volunteer_id)
+            )
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="You have already acted on this task",
             )
 
         # Record action
@@ -222,7 +246,7 @@ class TaskService:
 
         task.skip_count += 1
         if reason:
-            task.skip_reasons.append(reason)
+            task.skip_reasons = [*(task.skip_reasons or []), reason]
 
         # Check for pit queue (4 skips from >=2 volunteers)
         if task.skip_count >= 4:

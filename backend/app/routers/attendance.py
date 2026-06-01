@@ -9,14 +9,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import require_admin, require_volunteer
 from app.models import Attendance, CiviCRMEvent, Detection, Task
-from app.schemas import AttendeeSummary, DeadLetterListResponse, DeadLetterRecord, DeadLetterRetryResponse, PushDiff
+from app.schemas import AttendanceRecord, AttendeeSummary, DeadLetterListResponse, DeadLetterRecord, DeadLetterRetryResponse, PushDiff
 
 router = APIRouter(prefix="/attendance", tags=["attendance"])
 
 logger = logging.getLogger(__name__)
 
 
-@router.get("")
+@router.get("", response_model=List[AttendanceRecord])
 async def list_attendance(
     event_id: Optional[int] = None,
     date: Optional[str] = None,

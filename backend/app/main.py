@@ -12,6 +12,7 @@ from app.dependencies import check_setup_complete, get_current_user
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.rate_limit import limiter
 from app.routers import (
+    analytics,
     attendance,
     audit,
     auth,
@@ -24,6 +25,7 @@ from app.routers import (
     pit,
     settings as settings_router,
     setup,
+    storage as storage_router,
     tasks,
     uploads as uploads_router,
 )
@@ -40,6 +42,17 @@ async def lifespan(app: FastAPI):
         from app.config import dynamic_settings
         async with async_session() as db:
             await dynamic_settings.initialize(db)
+
+        # Fail-fast: if setup is complete the JWT secret must be present and strong
+        if dynamic_settings.is_setup_complete():
+            secret = dynamic_settings.get_jwt_secret()
+            if not secret or len(secret) < 32:
+                raise RuntimeError(
+                    "JWT secret is missing or too short (< 32 chars). "
+                    "Set a valid jwt_secret via admin settings."
+                )
+    except RuntimeError:
+        raise
     except Exception:
         pass
     yield
@@ -88,10 +101,37 @@ app.include_router(pit.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(attendance.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(audit.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(uploads_router.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(analytics.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(storage_router.router)
 
 
 @app.get("/tasks/feed")
-async def task_feed(current_user=Depends(get_current_user)):
+async def task_feed(request: Request, _t: str | None = None):
+    """SSE endpoint. Authenticates via Bearer token, query param, or HttpOnly refresh cookie."""
+    from app.config import dynamic_settings
+    from app.utils.auth import verify_token
+
+    secret = dynamic_settings.get_jwt_secret()
+    payload = None
+
+    # 1. Bearer header
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        payload = verify_token(auth_header.split(" ", 1)[1], secret)
+
+    # 2. Query-string token (used by EventSource which can't set headers)
+    if payload is None and _t:
+        payload = verify_token(_t, secret)
+
+    if payload is None:
+        refresh_tok = request.cookies.get("refresh_token")
+        if refresh_tok:
+            payload = verify_token(refresh_tok, secret)
+
+    if payload is None or not all(k in payload for k in ("sub", "email", "role")):
+        from fastapi.responses import Response as _Resp
+        return _Resp(status_code=401)
+
     async def event_generator():
         async for data in broadcaster.subscribe():
             yield f"data: {data}\n\n"
@@ -99,4 +139,8 @@ async def task_feed(current_user=Depends(get_current_user)):
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )

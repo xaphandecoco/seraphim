@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
+import { buildPostgresUrl, parsePostgresUrl, buildRedisUrl, parseRedisUrl } from '@/services/connectionUrl';
 import { LogOut, Shield, Users, Camera, Power, AlertTriangle, Database, Settings2, Plug, Upload } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { api } from '@/services/api';
@@ -14,88 +16,118 @@ interface SettingItem {
   sensitive?: boolean;
 }
 
-function buildPostgresUrl(
-  host: string,
-  port: string,
-  name: string,
-  username: string,
-  password: string,
-  extra: string
-): string {
-  let url = `postgresql+asyncpg://${encodeURIComponent(username)}`;
-  if (password) {
-    url += `:${encodeURIComponent(password)}`;
-  }
-  url += `@${host}`;
-  if (port) {
-    url += `:${port}`;
-  }
-  url += `/${name}`;
-  if (extra) {
-    const sep = extra.startsWith('?') ? '' : '?';
-    url += `${sep}${extra}`;
-  }
-  return url;
-}
+// Tunables that are editable via a structured form (non-sensitive, non-restart)
+const EDITABLE_TUNABLES: Array<{ key: string; label: string; type: 'number' | 'float' | 'boolean' | 'text'; description: string }> = [
+  { key: 'similarity_threshold_high', label: 'Auto-log threshold', type: 'float', description: 'Similarity ≥ this → auto-logged (0–1, e.g. 0.98)' },
+  { key: 'similarity_threshold_medium', label: 'Single-approval threshold', type: 'float', description: 'Similarity ≥ this → 1-volunteer review (0–1, e.g. 0.91)' },
+  { key: 'queue_hard_limit', label: 'Queue hard limit', type: 'number', description: 'Stop ingestion when pending tasks exceed this' },
+  { key: 'queue_resume_limit', label: 'Queue resume limit', type: 'number', description: 'Resume ingestion when pending falls below this' },
+  { key: 'dedup_window_seconds', label: 'Dedup window (s)', type: 'number', description: 'Skip faces already detected within this window' },
+  { key: 'task_expiry_days', label: 'Task expiry (days)', type: 'number', description: 'Unresolved tasks are expired after this many days' },
+  { key: 'face_retention_days', label: 'Face retention (days)', type: 'number', description: 'Untrained face snapshots deleted after this many days' },
+  { key: 'access_token_expire_minutes', label: 'Access token expiry (min)', type: 'number', description: 'JWT access token lifetime in minutes' },
+  { key: 'refresh_token_expire_days', label: 'Refresh token expiry (days)', type: 'number', description: 'Refresh cookie lifetime in days' },
+  { key: 'allowed_domain', label: 'Allowed OAuth domain', type: 'text', description: 'Google OAuth restricted to this email domain' },
+  { key: 'enable_google_oauth', label: 'Enable Google OAuth', type: 'boolean', description: 'Allow volunteers to sign in with Google' },
+];
 
-function parsePostgresUrl(url: string): {
-  host: string;
-  port: string;
-  name: string;
-  username: string;
-  password: string;
-  extra: string;
-} {
-  const defaults = { host: '', port: '5432', name: '', username: '', password: '', extra: '' };
-  try {
-    const u = new URL(url);
-    defaults.host = u.hostname;
-    defaults.port = u.port || '5432';
-    defaults.name = u.pathname.replace(/^\//, '');
-    defaults.username = decodeURIComponent(u.username);
-    defaults.password = decodeURIComponent(u.password);
-    defaults.extra = u.search.replace(/^\?/, '');
-  } catch {
-    // ignore
-  }
-  return defaults;
-}
+function TunablesEditor({ settings, onSaved }: { settings: SettingItem[]; onSaved: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const settingMap = Object.fromEntries(settings.map((s) => [s.key, s.value?.value]));
+  const [values, setValues] = useState<Record<string, any>>({});
 
-function buildRedisUrl(
-  host: string,
-  port: string,
-  db: string,
-  password: string
-): string {
-  let url = 'redis://';
-  if (password) {
-    url += `:${encodeURIComponent(password)}@`;
-  }
-  url += `${host}`;
-  if (port) {
-    url += `:${port}`;
-  }
-  url += `/${db}`;
-  return url;
-}
+  const startEdit = () => {
+    const initial: Record<string, any> = {};
+    EDITABLE_TUNABLES.forEach((t) => { initial[t.key] = settingMap[t.key] ?? ''; });
+    setValues(initial);
+    setEditing(true);
+  };
 
-function parseRedisUrl(url: string): {
-  host: string;
-  port: string;
-  db: string;
-  password: string;
-} {
-  const defaults = { host: '', port: '6379', db: '0', password: '' };
-  try {
-    const u = new URL(url);
-    defaults.host = u.hostname;
-    defaults.port = u.port || '6379';
-    defaults.db = u.pathname.replace(/^\//, '') || '0';
-    defaults.password = decodeURIComponent(u.password);
-  } catch {
-    // ignore
-  }
-  return defaults;
+  const save = async () => {
+    setSaving(true);
+    try {
+      const payload: Record<string, any> = {};
+      EDITABLE_TUNABLES.forEach((t) => {
+        const v = values[t.key];
+        if (t.type === 'number') payload[t.key] = Number(v);
+        else if (t.type === 'float') payload[t.key] = parseFloat(v);
+        else if (t.type === 'boolean') payload[t.key] = Boolean(v);
+        else payload[t.key] = v;
+      });
+      await api.put('/settings', { settings: payload });
+      toast.success('Settings saved');
+      setEditing(false);
+      onSaved();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const inputCls = 'h-9 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30';
+
+  return (
+    <div className="mb-4 space-y-1">
+      <h2 className="px-1 text-xs font-bold uppercase tracking-wide text-foreground/50">Recognition & Queue</h2>
+      <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+        {!editing ? (
+          <>
+            <div className="space-y-2">
+              {EDITABLE_TUNABLES.filter((t) => settingMap[t.key] !== undefined).map((t) => (
+                <div key={t.key} className="flex items-center justify-between text-xs">
+                  <span className="text-foreground/60">{t.label}</span>
+                  <span className="font-mono font-semibold text-foreground">{String(settingMap[t.key] ?? '—')}</span>
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={startEdit}
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-background py-2 text-xs font-semibold text-foreground hover:bg-primary/10"
+            >
+              Edit Tunables
+            </button>
+          </>
+        ) : (
+          <div className="space-y-3">
+            {EDITABLE_TUNABLES.map((t) => (
+              <div key={t.key}>
+                <label htmlFor={`tunable-${t.key}`} className="mb-1 block text-xs font-semibold text-foreground/60">{t.label}</label>
+                <p className="mb-1 text-[10px] text-foreground/40">{t.description}</p>
+                {t.type === 'boolean' ? (
+                  <select
+                    id={`tunable-${t.key}`}
+                    value={String(values[t.key])}
+                    onChange={(e) => setValues({ ...values, [t.key]: e.target.value === 'true' })}
+                    className={inputCls}
+                  >
+                    <option value="true">Enabled</option>
+                    <option value="false">Disabled</option>
+                  </select>
+                ) : (
+                  <input
+                    id={`tunable-${t.key}`}
+                    type={t.type === 'number' || t.type === 'float' ? 'number' : 'text'}
+                    step={t.type === 'float' ? '0.01' : undefined}
+                    value={String(values[t.key] ?? '')}
+                    onChange={(e) => setValues({ ...values, [t.key]: e.target.value })}
+                    className={inputCls}
+                  />
+                )}
+              </div>
+            ))}
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => setEditing(false)} className="flex h-10 flex-1 items-center justify-center rounded-xl border border-border bg-card text-xs font-semibold text-foreground hover:bg-background">Cancel</button>
+              <button onClick={save} disabled={saving} className="flex h-10 flex-1 items-center justify-center rounded-xl bg-primary text-xs font-bold text-primary-foreground shadow-sm disabled:opacity-50 hover:bg-primary/85">
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export function SettingsPage() {
@@ -105,6 +137,11 @@ export function SettingsPage() {
   const [settings, setSettings] = useState<SettingItem[]>([]);
   const [cameras, setCameras] = useState<CameraType[]>([]);
   const [safeMode, setSafeMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    const stored = localStorage.getItem('seraphim-theme');
+    if (stored) return stored === 'dark';
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
   const [loading, setLoading] = useState(true);
   const [showCameraForm, setShowCameraForm] = useState(false);
   const [cameraForm, setCameraForm] = useState({
@@ -147,6 +184,9 @@ export function SettingsPage() {
   } | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [previewCamera, setPreviewCamera] = useState<{ id: number; name: string } | null>(null);
+  const [previewSrc, setPreviewSrc] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -181,17 +221,30 @@ export function SettingsPage() {
     }
   }
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await api.post('/auth/logout');
+    } catch {
+      // best-effort; clear local state regardless
+    }
     logout();
     navigate('/login');
+  };
+
+  const toggleDarkMode = () => {
+    const next = !darkMode;
+    setDarkMode(next);
+    localStorage.setItem('seraphim-theme', next ? 'dark' : 'light');
+    document.documentElement.classList.toggle('dark', next);
   };
 
   const toggleSafeMode = async () => {
     try {
       const res = await api.post(`/settings/safe-mode?enabled=${!safeMode}`);
       setSafeMode(res.data.safe_mode);
+      toast.success(`Safe mode ${res.data.safe_mode ? 'enabled' : 'disabled'}`);
     } catch {
-      alert('Failed to toggle safe mode');
+      toast.error('Failed to toggle safe mode');
     }
   };
 
@@ -201,27 +254,44 @@ export function SettingsPage() {
       setCameraForm({ name: '', rtsp_url: '', zone_label: '', fps: 1, enable_health_check: true });
       setShowCameraForm(false);
       fetchData();
-    } catch {
-      alert('Failed to add camera');
+      toast.success('Camera added');
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Failed to add camera');
     }
   };
 
   const deleteCamera = async (id: number) => {
-    if (!confirm('Delete this camera?')) return;
+    if (!window.confirm('Delete this camera?')) return;
     try {
       await api.delete(`/cameras/${id}`);
       fetchData();
+      toast.success('Camera deleted');
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Failed to delete camera');
+    }
+  };
+
+  const openPreview = async (id: number, name: string) => {
+    setPreviewCamera({ id, name });
+    setPreviewSrc(null);
+    setPreviewLoading(true);
+    try {
+      const res = await api.get(`/cameras/${id}/preview`, { responseType: 'blob' });
+      setPreviewSrc(URL.createObjectURL(res.data));
     } catch {
-      alert('Failed to delete camera');
+      toast.error('Could not capture preview frame');
+      setPreviewCamera(null);
+    } finally {
+      setPreviewLoading(false);
     }
   };
 
   const reconnectCamera = async (id: number) => {
     try {
       await api.post(`/cameras/${id}/reconnect`);
-      alert('Reconnect initiated');
-    } catch {
-      alert('Failed to reconnect');
+      toast.success('Reconnect initiated');
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Failed to reconnect');
     }
   };
 
@@ -251,8 +321,8 @@ export function SettingsPage() {
       });
       setShowSystemEdit(false);
       fetchData();
-    } catch {
-      alert('Failed to save system settings');
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Failed to save system settings');
     } finally {
       setSystemSaving(false);
     }
@@ -323,50 +393,73 @@ export function SettingsPage() {
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center text-[#1F2128]/50">
+      <div className="flex h-screen items-center justify-center text-foreground/50">
         Loading...
       </div>
     );
   }
 
   const inputClass =
-    'h-10 w-full rounded-xl border border-[#E8DDA8] bg-[#FBF8F0] px-3 text-sm text-[#1F2128] focus:border-[#F5D547] focus:outline-none focus:ring-2 focus:ring-[#F5D547]/30 placeholder:text-[#1F2128]/40';
-  const labelClass = 'block text-xs font-semibold text-[#1F2128]/60 mb-1';
+    'h-10 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder:text-foreground/40';
+  const labelClass = 'block text-xs font-semibold text-foreground/60 mb-1';
 
   return (
     <div className="flex h-screen flex-col pb-20">
-      <header className="border-b border-[#E8DDA8] bg-white/95 px-4 py-3 backdrop-blur-sm">
-        <h1 className="text-lg font-bold text-[#1F2128]">Settings</h1>
+      <header className="border-b border-border bg-white/95 px-4 py-3 backdrop-blur-sm">
+        <h1 className="text-lg font-bold text-foreground">Settings</h1>
       </header>
       <main className="flex-1 overflow-y-auto px-3 pt-3">
         {/* Profile */}
-        <div className="mb-4 rounded-2xl border border-[#E8DDA8] bg-white p-4 shadow-sm">
+        <div className="mb-4 rounded-2xl border border-border bg-card p-4 shadow-sm">
           <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#F5D547]/20 text-lg font-bold text-[#F5D547]">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/20 text-lg font-bold text-primary">
               {user?.name?.charAt(0).toUpperCase() || 'U'}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-bold text-[#1F2128]">
+              <p className="text-sm font-bold text-foreground">
                 {user?.name || 'Volunteer'}
               </p>
-              <p className="truncate text-xs text-[#1F2128]/50">{user?.email}</p>
-              <span className="mt-1 inline-block rounded-full bg-[#F5D547]/10 px-2 py-0.5 text-[10px] font-bold uppercase text-[#F5D547]">
+              <p className="truncate text-xs text-foreground/50">{user?.email}</p>
+              <span className="mt-1 inline-block rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase text-primary">
                 {user?.role}
               </span>
             </div>
           </div>
         </div>
 
+        {/* Appearance */}
+        <div className="mb-4 rounded-2xl border border-border bg-card p-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-bold text-foreground">Dark Mode</p>
+              <p className="text-xs text-foreground/50">{darkMode ? 'Dark' : 'Light'} theme</p>
+            </div>
+            <button
+              onClick={toggleDarkMode}
+              role="switch"
+              aria-checked={darkMode}
+              aria-label="Toggle dark mode"
+              className={`relative h-7 w-12 rounded-full transition-colors ${darkMode ? 'bg-primary' : 'bg-foreground/20'}`}
+            >
+              <span
+                aria-hidden="true"
+                className="absolute top-0.5 h-6 w-6 rounded-full bg-card shadow transition-transform"
+                style={{ transform: darkMode ? 'translateX(20px)' : 'translateX(2px)' }}
+              />
+            </button>
+          </div>
+        </div>
+
         {/* Safe Mode */}
-        <div className="mb-4 rounded-2xl border border-[#E8DDA8] bg-white p-4 shadow-sm">
+        <div className="mb-4 rounded-2xl border border-border bg-card p-4 shadow-sm">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${safeMode ? 'bg-red-100' : 'bg-green-100'}`}>
                 <Power size={18} className={safeMode ? 'text-red-500' : 'text-green-600'} />
               </div>
               <div>
-                <p className="text-sm font-bold text-[#1F2128]">Safe Mode</p>
-                <p className="text-xs text-[#1F2128]/50">
+                <p className="text-sm font-bold text-foreground">Safe Mode</p>
+                <p className="text-xs text-foreground/50">
                   {safeMode ? 'Recognition paused' : 'System active'}
                 </p>
               </div>
@@ -376,7 +469,7 @@ export function SettingsPage() {
               className={`relative h-7 w-12 rounded-full transition-colors ${safeMode ? 'bg-red-500' : 'bg-green-500'}`}
             >
               <span
-                className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform ${safeMode ? 'left-5.5' : 'left-0.5'}`}
+                className={`absolute top-0.5 h-6 w-6 rounded-full bg-card shadow transition-transform ${safeMode ? 'left-5.5' : 'left-0.5'}`}
                 style={{ transform: safeMode ? 'translateX(20px)' : 'translateX(0)' }}
               />
             </button>
@@ -390,22 +483,22 @@ export function SettingsPage() {
         </div>
 
         {/* Cameras */}
-        <div className="mb-4 rounded-2xl border border-[#E8DDA8] bg-white shadow-sm">
+        <div className="mb-4 rounded-2xl border border-border bg-card shadow-sm">
           <div className="flex items-center justify-between p-4">
             <div className="flex items-center gap-3">
-              <Camera size={18} className="text-[#1F2128]/50" />
-              <span className="text-sm font-bold text-[#1F2128]">Cameras</span>
+              <Camera size={18} className="text-foreground/50" />
+              <span className="text-sm font-bold text-foreground">Cameras</span>
             </div>
             <button
               onClick={() => setShowCameraForm(!showCameraForm)}
-              className="rounded-xl bg-[#F5D547] px-3 py-1 text-xs font-bold text-[#1F2128] shadow-sm transition-all hover:bg-[#E5C53F] active:scale-[0.98]"
+              className="rounded-xl bg-primary px-3 py-1 text-xs font-bold text-foreground shadow-sm transition-all hover:bg-primary/85 active:scale-[0.98]"
             >
               {showCameraForm ? 'Cancel' : 'Add'}
             </button>
           </div>
 
           {showCameraForm && (
-            <div className="space-y-2 border-t border-[#E8DDA8] p-4">
+            <div className="space-y-2 border-t border-border p-4">
               <input
                 type="text"
                 placeholder="Camera name"
@@ -434,9 +527,9 @@ export function SettingsPage() {
                   max={5}
                   value={cameraForm.fps}
                   onChange={(e) => setCameraForm({ ...cameraForm, fps: parseInt(e.target.value) || 1 })}
-                  className="h-10 w-20 rounded-xl border border-[#E8DDA8] bg-[#FBF8F0] px-3 text-sm text-[#1F2128]"
+                  className="h-10 w-20 rounded-xl border border-border bg-background px-3 text-sm text-foreground"
                 />
-                <label className="flex items-center gap-2 text-sm text-[#1F2128]/50">
+                <label className="flex items-center gap-2 text-sm text-foreground/50">
                   <input
                     type="checkbox"
                     checked={cameraForm.enable_health_check}
@@ -447,7 +540,7 @@ export function SettingsPage() {
               </div>
               <button
                 onClick={addCamera}
-                className="h-10 w-full rounded-xl bg-[#F5D547] text-sm font-bold text-[#1F2128] shadow-sm transition-all hover:bg-[#E5C53F] active:scale-[0.98]"
+                className="h-10 w-full rounded-xl bg-primary text-sm font-bold text-foreground shadow-sm transition-all hover:bg-primary/85 active:scale-[0.98]"
               >
                 Save Camera
               </button>
@@ -455,10 +548,10 @@ export function SettingsPage() {
           )}
 
           {cameras.map((cam) => (
-            <div key={cam.id} className="flex items-center justify-between border-t border-[#E8DDA8] p-4">
+            <div key={cam.id} className="flex items-center justify-between border-t border-border p-4">
               <div>
-                <p className="text-sm font-semibold text-[#1F2128]">{cam.name}</p>
-                <p className="text-xs text-[#1F2128]/50">{cam.rtsp_url}</p>
+                <p className="text-sm font-semibold text-foreground">{cam.name}</p>
+                <p className="text-xs text-foreground/50">{cam.rtsp_url}</p>
                 <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${
                   cam.status === 'streaming' ? 'bg-green-100 text-green-600' :
                   cam.status === 'reconnecting' ? 'bg-amber-100 text-amber-700' :
@@ -469,8 +562,15 @@ export function SettingsPage() {
               </div>
               <div className="flex gap-2">
                 <button
+                  onClick={() => openPreview(cam.id, cam.name)}
+                  className="rounded-xl bg-background px-2 py-1 text-xs font-medium text-foreground/60 border border-border transition-all hover:bg-primary/20"
+                  aria-label={`Preview ${cam.name}`}
+                >
+                  Preview
+                </button>
+                <button
                   onClick={() => reconnectCamera(cam.id)}
-                  className="rounded-xl bg-[#FBF8F0] px-2 py-1 text-xs font-medium text-[#1F2128]/60 border border-[#E8DDA8] transition-all hover:bg-[#F5D547]/20"
+                  className="rounded-xl bg-background px-2 py-1 text-xs font-medium text-foreground/60 border border-border transition-all hover:bg-primary/20"
                 >
                   Reconnect
                 </button>
@@ -487,28 +587,42 @@ export function SettingsPage() {
 
         {/* Admin sections */}
         <div className="mb-4 space-y-1">
-          <h2 className="px-1 text-xs font-bold uppercase tracking-wide text-[#1F2128]/50">
+          <h2 className="px-1 text-xs font-bold uppercase tracking-wide text-foreground/50">
             Admin
           </h2>
-          <div className="rounded-2xl border border-[#E8DDA8] bg-white shadow-sm">
-            <button className="flex w-full min-h-[44px] items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-[#FBF8F0]">
-              <Shield size={18} className="text-[#1F2128]/50" />
-              <span className="text-sm text-[#1F2128]">Manage Users</span>
+          <div className="rounded-2xl border border-border bg-card shadow-sm">
+            <button
+              onClick={() => navigate('/settings/users')}
+              className="flex w-full min-h-[44px] items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-background"
+            >
+              <Shield size={18} className="text-foreground/50" aria-hidden="true" />
+              <span className="text-sm text-foreground">Manage Users</span>
             </button>
-            <div className="mx-4 h-px bg-[#E8DDA8]" />
-            <button className="flex w-full min-h-[44px] items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-[#FBF8F0]">
-              <Users size={18} className="text-[#1F2128]/50" />
-              <span className="text-sm text-[#1F2128]">Manage Members</span>
+            <div className="mx-4 h-px bg-border" />
+            <button
+              onClick={() => navigate('/settings/attendance')}
+              className="flex w-full min-h-[44px] items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-background"
+            >
+              <Users size={18} className="text-foreground/50" aria-hidden="true" />
+              <span className="text-sm text-foreground">Attendance & CiviCRM Push</span>
+            </button>
+            <div className="mx-4 h-px bg-border" />
+            <button
+              onClick={() => navigate('/dashboard')}
+              className="flex w-full min-h-[44px] items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-background"
+            >
+              <Database size={18} className="text-foreground/50" aria-hidden="true" />
+              <span className="text-sm text-foreground">Analytics Dashboard</span>
             </button>
           </div>
 
           {/* Face Upload */}
-          <div className="rounded-2xl border border-[#E8DDA8] bg-white p-4 shadow-sm">
+          <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
             <div className="flex items-center gap-3 mb-3">
-              <Upload size={18} className="text-[#1F2128]/50" />
-              <span className="text-sm font-bold text-[#1F2128]">Face Upload</span>
+              <Upload size={18} className="text-foreground/50" />
+              <span className="text-sm font-bold text-foreground">Face Upload</span>
             </div>
-            <p className="text-xs text-[#1F2128]/50 mb-3">
+            <p className="text-xs text-foreground/50 mb-3">
               Upload a photo to detect faces and send them to the volunteer review queue.
             </p>
             <input
@@ -521,12 +635,12 @@ export function SettingsPage() {
             <div className="flex items-center gap-2 mb-3">
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="rounded-xl border border-[#E8DDA8] bg-[#FBF8F0] px-3 py-2 text-xs font-semibold text-[#1F2128] transition-all hover:bg-[#F5D547]/20 active:scale-[0.98]"
+                className="rounded-xl border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground transition-all hover:bg-primary/20 active:scale-[0.98]"
               >
                 Choose File
               </button>
               {uploadFile && (
-                <span className="text-xs text-[#1F2128]/60 truncate max-w-[180px]">
+                <span className="text-xs text-foreground/60 truncate max-w-[180px]">
                   {uploadFile.name}
                 </span>
               )}
@@ -534,7 +648,7 @@ export function SettingsPage() {
             <button
               onClick={handleUpload}
               disabled={!uploadFile || uploading}
-              className="h-10 w-full rounded-xl bg-[#F5D547] text-sm font-bold text-[#1F2128] shadow-sm transition-all hover:bg-[#E5C53F] active:scale-[0.98] disabled:opacity-50"
+              className="h-10 w-full rounded-xl bg-primary text-sm font-bold text-foreground shadow-sm transition-all hover:bg-primary/85 active:scale-[0.98] disabled:opacity-50"
             >
               {uploading ? 'Uploading...' : 'Upload & Detect Faces'}
             </button>
@@ -544,24 +658,24 @@ export function SettingsPage() {
               </div>
             )}
             {uploadResult && (
-              <div className="mt-3 space-y-1 rounded-xl bg-[#FBF8F0] p-3 text-xs">
-                <p className="font-semibold text-[#1F2128]">
+              <div className="mt-3 space-y-1 rounded-xl bg-background p-3 text-xs">
+                <p className="font-semibold text-foreground">
                   {uploadResult.faces_detected} face{uploadResult.faces_detected !== 1 ? 's' : ''} detected
                 </p>
                 {uploadResult.quality_passed > 0 && (
-                  <p className="text-[#1F2128]/70">
+                  <p className="text-foreground/70">
                     {uploadResult.quality_passed} passed quality
                     {uploadResult.auto_logged > 0 && ` → ${uploadResult.auto_logged} auto-logged`}
                     {uploadResult.tasks_created > 0 && ` → ${uploadResult.tasks_created} task${uploadResult.tasks_created !== 1 ? 's' : ''} created`}
                   </p>
                 )}
                 {uploadResult.quality_failed > 0 && (
-                  <p className="text-[#1F2128]/70">
+                  <p className="text-foreground/70">
                     {uploadResult.quality_failed} failed quality → skipped
                   </p>
                 )}
                 {uploadResult.deduplicated > 0 && (
-                  <p className="text-[#1F2128]/70">
+                  <p className="text-foreground/70">
                     {uploadResult.deduplicated} deduplicated
                   </p>
                 )}
@@ -573,17 +687,17 @@ export function SettingsPage() {
         {/* System Settings */}
         {settings.length > 0 && (
           <div className="mb-4 space-y-1">
-            <h2 className="px-1 text-xs font-bold uppercase tracking-wide text-[#1F2128]/50">
+            <h2 className="px-1 text-xs font-bold uppercase tracking-wide text-foreground/50">
               System
             </h2>
-            <div className="rounded-2xl border border-[#E8DDA8] bg-white p-4 shadow-sm">
+            <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
               {!showSystemEdit ? (
                 <>
                   <div className="space-y-2">
                     {settings.map((s) => (
                       <div key={s.key} className="flex items-center justify-between text-sm">
-                        <span className="text-[#1F2128]/50">{s.key}</span>
-                        <span className="font-mono text-xs text-[#1F2128]">
+                        <span className="text-foreground/50">{s.key}</span>
+                        <span className="font-mono text-xs text-foreground">
                           {s.sensitive ? '********' : String(s.value?.value ?? '')}
                         </span>
                       </div>
@@ -591,7 +705,7 @@ export function SettingsPage() {
                   </div>
                   <button
                     onClick={() => setShowSystemEdit(true)}
-                    className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[#E8DDA8] bg-[#FBF8F0] py-2 text-xs font-semibold text-[#1F2128] transition-all hover:bg-[#F5D547]/20 active:scale-[0.98]"
+                    className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-background py-2 text-xs font-semibold text-foreground transition-all hover:bg-primary/20 active:scale-[0.98]"
                   >
                     <Settings2 size={14} />
                     Edit Connection Settings
@@ -599,7 +713,7 @@ export function SettingsPage() {
                 </>
               ) : (
                 <div className="space-y-3">
-                  <div className="flex items-center gap-2 text-sm font-bold text-[#1F2128]">
+                  <div className="flex items-center gap-2 text-sm font-bold text-foreground">
                     <Database size={16} />
                     Database Connection
                   </div>
@@ -664,8 +778,8 @@ export function SettingsPage() {
                     />
                   </div>
 
-                  <div className="border-t border-[#E8DDA8] pt-3">
-                    <div className="flex items-center gap-2 text-sm font-bold text-[#1F2128]">
+                  <div className="border-t border-border pt-3">
+                    <div className="flex items-center gap-2 text-sm font-bold text-foreground">
                       <Database size={16} />
                       Redis Cache
                     </div>
@@ -714,23 +828,23 @@ export function SettingsPage() {
                   <button
                     onClick={runConnectionTest}
                     disabled={testing}
-                    className="flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-[#E8DDA8] bg-white text-xs font-semibold text-[#1F2128] transition-all hover:bg-[#FBF8F0] active:scale-[0.98] disabled:opacity-50"
+                    className="flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-border bg-card text-xs font-semibold text-foreground transition-all hover:bg-background active:scale-[0.98] disabled:opacity-50"
                   >
                     <Plug size={14} />
                     {testing ? 'Testing...' : 'Test Connections'}
                   </button>
 
                   {testResult && (
-                    <div className="space-y-2 rounded-xl bg-[#FBF8F0] p-3 text-xs">
+                    <div className="space-y-2 rounded-xl bg-background p-3 text-xs">
                       <div className="flex items-center gap-2">
                         <span className={`h-2 w-2 rounded-full ${testResult.database_ok ? 'bg-green-500' : 'bg-red-500'}`} />
-                        <span className="font-semibold text-[#1F2128]">Postgres</span>
-                        <span className="text-[#1F2128]/50">{testResult.database_message}</span>
+                        <span className="font-semibold text-foreground">Postgres</span>
+                        <span className="text-foreground/50">{testResult.database_message}</span>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className={`h-2 w-2 rounded-full ${testResult.redis_ok ? 'bg-green-500' : 'bg-red-500'}`} />
-                        <span className="font-semibold text-[#1F2128]">Redis</span>
-                        <span className="text-[#1F2128]/50">{testResult.redis_message}</span>
+                        <span className="font-semibold text-foreground">Redis</span>
+                        <span className="text-foreground/50">{testResult.redis_message}</span>
                       </div>
                     </div>
                   )}
@@ -738,14 +852,14 @@ export function SettingsPage() {
                   <div className="flex gap-2 pt-1">
                     <button
                       onClick={() => setShowSystemEdit(false)}
-                      className="flex h-10 flex-1 items-center justify-center rounded-xl border border-[#E8DDA8] bg-white text-xs font-semibold text-[#1F2128] transition-all hover:bg-[#FBF8F0] active:scale-[0.98]"
+                      className="flex h-10 flex-1 items-center justify-center rounded-xl border border-border bg-card text-xs font-semibold text-foreground transition-all hover:bg-background active:scale-[0.98]"
                     >
                       Cancel
                     </button>
                     <button
                       onClick={saveSystemSettings}
                       disabled={systemSaving}
-                      className="flex h-10 flex-1 items-center justify-center rounded-xl bg-[#F5D547] text-xs font-bold text-[#1F2128] shadow-sm transition-all hover:bg-[#E5C53F] active:scale-[0.98] disabled:opacity-50"
+                      className="flex h-10 flex-1 items-center justify-center rounded-xl bg-primary text-xs font-bold text-foreground shadow-sm transition-all hover:bg-primary/85 active:scale-[0.98] disabled:opacity-50"
                     >
                       {systemSaving ? 'Saving...' : 'Save'}
                     </button>
@@ -756,22 +870,61 @@ export function SettingsPage() {
           </div>
         )}
 
+        {/* Tunables editor */}
+        {settings.length > 0 && (
+          <TunablesEditor settings={settings} onSaved={fetchData} />
+        )}
+
         {/* General */}
         <div className="mb-4 space-y-1">
-          <h2 className="px-1 text-xs font-bold uppercase tracking-wide text-[#1F2128]/50">
+          <h2 className="px-1 text-xs font-bold uppercase tracking-wide text-foreground/50">
             General
           </h2>
-          <div className="rounded-2xl border border-[#E8DDA8] bg-white shadow-sm">
+          <div className="rounded-2xl border border-border bg-card shadow-sm">
             <button
               onClick={handleLogout}
               className="flex w-full min-h-[44px] items-center gap-3 px-4 py-2 text-left text-red-500 transition-colors hover:bg-red-50 rounded-2xl"
             >
-              <LogOut size={18} />
+              <LogOut size={18} aria-hidden="true" />
               <span className="text-sm font-semibold">Log Out</span>
             </button>
           </div>
         </div>
       </main>
+
+      {/* Camera preview modal */}
+      {previewCamera && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Preview: ${previewCamera.name}`}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/60"
+          onClick={() => { setPreviewCamera(null); setPreviewSrc(null); }}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl border border-border bg-card p-4 shadow-xl mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-bold text-foreground">{previewCamera.name}</h2>
+              <button
+                onClick={() => { setPreviewCamera(null); setPreviewSrc(null); }}
+                aria-label="Close preview"
+                className="text-foreground/40 hover:text-foreground"
+              >
+                ✕
+              </button>
+            </div>
+            {previewLoading ? (
+              <div className="flex h-48 items-center justify-center text-sm text-foreground/50">Capturing frame…</div>
+            ) : previewSrc ? (
+              <img src={previewSrc} alt={`Preview from ${previewCamera.name}`} className="w-full rounded-xl object-cover" />
+            ) : (
+              <div className="flex h-48 items-center justify-center text-sm text-foreground/50">No frame available</div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

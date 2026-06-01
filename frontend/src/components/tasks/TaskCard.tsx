@@ -41,7 +41,7 @@ export function TaskCard({ task, onConfirm, onEdit, onAdd, onSkip }: TaskCardPro
     : undefined;
 
   return (
-    <div className="mx-3 mb-3 rounded-2xl border border-[#E8DDA8] bg-white p-4 shadow-sm transition-transform active:scale-[0.99]">
+    <div className="mx-3 mb-3 rounded-2xl border border-border bg-card p-4 shadow-sm transition-transform active:scale-[0.99]">
       <div className="flex gap-3">
         {/* Face thumbnail */}
         <div className="shrink-0">
@@ -53,8 +53,8 @@ export function TaskCard({ task, onConfirm, onEdit, onAdd, onSkip }: TaskCardPro
               loading="lazy"
             />
           ) : (
-            <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-[#FBF8F0]">
-              <span className="text-xs text-[#1F2128]/40">No image</span>
+            <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-background">
+              <span className="text-xs text-foreground/40">No image</span>
             </div>
           )}
         </div>
@@ -62,7 +62,7 @@ export function TaskCard({ task, onConfirm, onEdit, onAdd, onSkip }: TaskCardPro
         {/* Info */}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h3 className="truncate text-base font-bold text-[#1F2128]">
+            <h3 className="truncate text-base font-bold text-foreground">
               {task.matched_name || 'Unknown'}
             </h3>
             <span
@@ -75,15 +75,15 @@ export function TaskCard({ task, onConfirm, onEdit, onAdd, onSkip }: TaskCardPro
           </div>
 
           {typeof task.confidence === 'number' && (
-            <p className="mt-0.5 text-xs text-[#1F2128]/50">
+            <p className="mt-0.5 text-xs text-foreground/50">
               Similarity: {(task.confidence * 100).toFixed(1)}%
             </p>
           )}
 
-          <p className="mt-1 text-xs text-[#1F2128]/50">
+          <p className="mt-1 text-xs text-foreground/50">
             {task.camera_name}
           </p>
-          <p className="text-xs text-[#1F2128]/50">
+          <p className="text-xs text-foreground/50">
             {task.detected_at ? new Date(task.detected_at).toLocaleString() : '—'}
           </p>
         </div>
@@ -93,14 +93,14 @@ export function TaskCard({ task, onConfirm, onEdit, onAdd, onSkip }: TaskCardPro
       <div className="mt-3 grid grid-cols-4 gap-2">
         <button
           onClick={() => onConfirm(task.id)}
-          className="flex min-h-[44px] items-center justify-center gap-1 rounded-xl bg-[#F5D547] text-sm font-bold text-[#1F2128] shadow-sm transition-all hover:bg-[#E5C53F] active:scale-[0.98]"
+          className="flex min-h-[44px] items-center justify-center gap-1 rounded-xl bg-primary text-sm font-bold text-foreground shadow-sm transition-all hover:bg-primary/85 active:scale-[0.98]"
         >
           <Check size={16} />
           <span className="text-xs">Confirm</span>
         </button>
         <button
           onClick={() => onEdit(task)}
-          className="flex min-h-[44px] items-center justify-center gap-1 rounded-xl bg-[#FBF8F0] text-sm font-semibold text-[#1F2128] border border-[#E8DDA8] transition-all hover:bg-[#F5D547]/20 active:scale-[0.98]"
+          className="flex min-h-[44px] items-center justify-center gap-1 rounded-xl bg-background text-sm font-semibold text-foreground border border-border transition-all hover:bg-primary/20 active:scale-[0.98]"
         >
           <Pencil size={16} />
           <span className="text-xs">Edit</span>

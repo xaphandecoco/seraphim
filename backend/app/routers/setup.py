@@ -36,6 +36,12 @@ async def setup_status():
 @router.post("/test-connection", response_model=ConnectionTestResponse)
 async def test_connection(req: ConnectionTestRequest):
     """Test Postgres and Redis connections using provided URLs."""
+    if BOOTSTRAP_PATH.exists():
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Setup already completed. This endpoint is permanently locked.",
+        )
+
     db_ok = False
     db_msg = ""
     redis_ok = False
@@ -49,8 +55,8 @@ async def test_connection(req: ConnectionTestRequest):
             db_ok = True
             db_msg = "Connected successfully"
             await test_engine.dispose()
-        except Exception as exc:
-            db_msg = f"Connection failed: {exc}"
+        except Exception:
+            db_msg = "Connection failed. Check credentials and host."
     else:
         db_msg = "No URL provided"
 
@@ -61,8 +67,8 @@ async def test_connection(req: ConnectionTestRequest):
             redis_ok = True
             redis_msg = "Connected successfully"
             await r.close()
-        except Exception as exc:
-            redis_msg = f"Connection failed: {exc}"
+        except Exception:
+            redis_msg = "Connection failed. Check credentials and host."
     else:
         redis_msg = "No URL provided"
 
@@ -77,6 +83,12 @@ async def test_connection(req: ConnectionTestRequest):
 @router.post("/test-services", response_model=ServiceTestResponse)
 async def test_services(req: ServiceTestRequest):
     """Test Compreface and CiviCRM connectivity."""
+    if BOOTSTRAP_PATH.exists():
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Setup already completed. This endpoint is permanently locked.",
+        )
+
     compreface_ok = False
     compreface_msg = ""
     civicrm_ok = None
@@ -90,16 +102,15 @@ async def test_services(req: ServiceTestRequest):
                     compreface_ok = True
                     compreface_msg = "Connected successfully"
                 else:
-                    compreface_msg = f"HTTP {resp.status_code}"
-        except Exception as exc:
-            compreface_msg = f"Connection failed: {exc}"
+                    compreface_msg = "Service returned an unexpected status"
+        except Exception:
+            compreface_msg = "Connection failed. Check URL and network."
     else:
         compreface_msg = "No URL provided"
 
     if req.civicrm_url:
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                # Lightweight CiviCRM REST probe
                 resp = await client.get(
                     f"{req.civicrm_url}/civicrm/ajax/rest",
                     params={"entity": "System", "action": "check", "json": "1"},
@@ -109,10 +120,10 @@ async def test_services(req: ServiceTestRequest):
                     civicrm_msg = "Endpoint reachable"
                 else:
                     civicrm_ok = False
-                    civicrm_msg = f"HTTP {resp.status_code}"
-        except Exception as exc:
+                    civicrm_msg = "Service returned an unexpected status"
+        except Exception:
             civicrm_ok = False
-            civicrm_msg = f"Connection failed: {exc}"
+            civicrm_msg = "Connection failed. Check URL and network."
     else:
         civicrm_msg = "No URL provided"
 
@@ -216,6 +227,10 @@ async def create_setup(
         db.add(camera)
 
     await db.commit()
+
+    # Reload in-memory settings so the app is immediately usable without a restart
+    from app.config import dynamic_settings
+    await dynamic_settings.reload(db)
 
     return {
         "message": "Setup completed successfully",

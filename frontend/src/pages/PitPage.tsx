@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { AlertTriangle, UserCheck, Trash2, UserX, ArrowLeft } from 'lucide-react';
 import { api } from '@/services/api';
 import { useNavigate } from 'react-router-dom';
@@ -25,8 +26,9 @@ export function PitPage() {
     try {
       await api.post(`/pit/${taskId}/${action}`);
       queryClient.invalidateQueries({ queryKey: ['pit'] });
-    } catch {
-      alert(`Failed to ${action} task`);
+      toast.success(`Action "${action}" applied`);
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || `Failed to ${action} task`);
     } finally {
       setActionLoading(null);
     }
@@ -34,20 +36,20 @@ export function PitPage() {
 
   return (
     <div className="flex h-screen flex-col pb-20">
-      <header className="border-b border-[#E8DDA8] bg-white/95 px-4 py-3 backdrop-blur-sm">
+      <header className="border-b border-border bg-white/95 px-4 py-3 backdrop-blur-sm">
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate('/')} className="text-[#1F2128]/50 hover:text-[#1F2128]">
+          <button onClick={() => navigate('/')} className="text-foreground/50 hover:text-foreground">
             <ArrowLeft size={20} />
           </button>
-          <h1 className="text-lg font-bold text-[#1F2128]">Admin Pit</h1>
+          <h1 className="text-lg font-bold text-foreground">Admin Pit</h1>
         </div>
       </header>
 
       <main className="flex-1 overflow-y-auto px-3 pt-3">
         {isLoading ? (
-          <div className="py-16 text-center text-sm text-[#1F2128]/50">Loading...</div>
+          <div className="py-16 text-center text-sm text-foreground/50">Loading...</div>
         ) : tasks.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-[#1F2128]/50">
+          <div className="flex flex-col items-center justify-center py-16 text-foreground/50">
             <AlertTriangle size={40} className="mb-3 opacity-40" />
             <p className="text-sm font-medium">Pit queue is empty</p>
             <p className="mt-1 text-xs">Tasks that hit 4 skips appear here</p>
@@ -55,7 +57,7 @@ export function PitPage() {
         ) : (
           <div className="space-y-3 pb-4">
             {tasks.map((task) => (
-              <div key={task.id} className="rounded-2xl border border-[#E8DDA8] bg-white p-4 shadow-sm">
+              <div key={task.id} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
                 <div className="flex gap-3">
                   {task.face_thumbnail_path ? (
                     <img
@@ -65,18 +67,18 @@ export function PitPage() {
                       loading="lazy"
                     />
                   ) : (
-                    <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-[#FBF8F0]">
-                      <span className="text-xs text-[#1F2128]/40">No image</span>
+                    <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-background">
+                      <span className="text-xs text-foreground/40">No image</span>
                     </div>
                   )}
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-bold text-[#1F2128]">
+                    <p className="text-sm font-bold text-foreground">
                       {task.matched_name || 'Unknown'}
                     </p>
-                    <p className="text-xs text-[#1F2128]/50">
+                    <p className="text-xs text-foreground/50">
                       Skipped {task.skip_count} times
                     </p>
-                    <p className="text-xs text-[#1F2128]/50">
+                    <p className="text-xs text-foreground/50">
                       {task.camera_name}
                     </p>
                   </div>

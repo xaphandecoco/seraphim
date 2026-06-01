@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -14,12 +14,10 @@ router = APIRouter(prefix="/leaderboard", tags=["leaderboard"])
 
 
 def _get_month_key(period: str) -> str | None:
-    """Return YYYY-MM month key for the given period."""
     now = datetime.now(timezone.utc)
     if period == "this_month":
         return now.strftime("%Y-%m")
     elif period == "previous_month":
-        # Previous month
         year, month = now.year, now.month
         if month == 1:
             year -= 1
@@ -27,9 +25,11 @@ def _get_month_key(period: str) -> str | None:
         else:
             month -= 1
         return f"{year}-{month:02d}"
-    else:
-        # all_time — no month filter
-        return None
+    return None
+
+
+def _display_name(user: User) -> str:
+    return user.name or user.email
 
 
 @router.get("", response_model=LeaderboardResponse)
@@ -51,19 +51,17 @@ async def get_leaderboard(
         rows = result.all()
         entries = [
             LeaderboardEntry(
-                volunteer_id=str(User.id),
-                volunteer_email=User.email,
+                volunteer_id=str(u.id),
+                volunteer_email=_display_name(u),
                 total_points=stat.total_points or 0,
                 tasks_completed=(stat.tasks_confirmed or 0)
                 + (stat.tasks_edited or 0)
                 + (stat.tasks_added or 0),
                 accuracy_percent=float(stat.accuracy_score or 100.0),
             )
-            for stat, User in rows
+            for stat, u in rows
         ]
     else:
-        # All time: aggregate across all months
-        from sqlalchemy import func
         result = await db.execute(
             select(
                 VolunteerStat.volunteer_id,
@@ -76,17 +74,16 @@ async def get_leaderboard(
             .order_by(func.sum(VolunteerStat.total_points).desc())
         )
         rows = result.all()
-        # Fetch emails separately
         volunteer_ids = [row.volunteer_id for row in rows]
         user_result = await db.execute(
-            select(User.id, User.email).where(User.id.in_(volunteer_ids))
+            select(User).where(User.id.in_(volunteer_ids))
         )
-        user_map = {uid: email for uid, email in user_result.all()}
+        user_map = {u.id: u for u in user_result.scalars().all()}
 
         entries = [
             LeaderboardEntry(
                 volunteer_id=str(row.volunteer_id),
-                volunteer_email=user_map.get(row.volunteer_id, ""),
+                volunteer_email=_display_name(user_map[row.volunteer_id]) if row.volunteer_id in user_map else "",
                 total_points=row.total_points or 0,
                 tasks_completed=(row.tasks_confirmed or 0)
                 + (row.tasks_edited or 0)

@@ -41,6 +41,7 @@ services:
       - STORAGE_PATH=/app/storage
       - REDIS_URL=redis://redis:6379/0
       - BOOTSTRAP_CONFIG_PATH=/app/config/bootstrap.json
+      - ENVIRONMENT=production
     volumes:
       - /mnt/user/appdata/seraphim/storage:/app/storage
       - /mnt/user/appdata/seraphim/config:/app/config
@@ -90,7 +91,6 @@ services:
         condition: service_healthy
     networks:
       - seraphim-network
-    privileged: true
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://seraphim-backend:8000/health"]
