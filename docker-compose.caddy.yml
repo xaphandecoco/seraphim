@@ -1,0 +1,31 @@
+# Optional: Caddy reverse proxy for HTTPS termination
+# Usage: docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d
+#
+# Prerequisites:
+#   1. Set DOMAIN=your-domain.com in .env (or replace below)
+#   2. Open ports 80 and 443 on your firewall/router
+#   3. Point your domain DNS A record to your Unraid IP
+#
+# Caddy automatically provisions and renews Let's Encrypt certificates.
+# For a local Unraid box with no public domain, use Nginx Proxy Manager instead
+# (available in the Unraid Community Apps store).
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - seraphim-network
+    depends_on:
+      - seraphim-frontend
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -192,6 +192,7 @@ async def create_setup(
         "enable_google_oauth": False,
         "access_token_expire_minutes": 15,
         "refresh_token_expire_days": 7,
+        "active_event_id": None,
     }
 
     for key, value in settings_data.items():

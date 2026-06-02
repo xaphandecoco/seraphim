@@ -16,6 +16,8 @@ from app.services.rtsp import FFmpegCapture
 
 logger = logging.getLogger(__name__)
 
+SETTINGS_RELOAD_INTERVAL = 60  # seconds
+
 
 class PipelineContext:
     def __init__(self):
@@ -52,10 +54,12 @@ async def _process_face(
         return
 
     face_crop = frame[y : y + h, x : x + w]
+    # Stamp the currently active event (loaded from DB settings)
+    event_id = dynamic_settings.get_active_event_id()
     await process_face_crop(
         face_crop=face_crop,
         camera_id=camera_id,
-        event_id=None,
+        event_id=event_id,
         ctx=ctx,
         db_session_factory=async_session,
     )
@@ -79,8 +83,34 @@ async def _on_frame(camera_id: int, frame: np.ndarray, ctx: PipelineContext) -> 
         asyncio.create_task(_process_face(camera_id, frame.copy(), face_box, ctx))
 
 
+async def _reload_settings_loop() -> None:
+    """Periodically reload dynamic settings so URL/key changes take effect."""
+    while True:
+        await asyncio.sleep(SETTINGS_RELOAD_INTERVAL)
+        try:
+            async with async_session() as session:
+                await dynamic_settings.reload(session)
+                logger.debug("RTSP worker: dynamic settings reloaded")
+        except Exception as exc:
+            logger.warning("RTSP worker: failed to reload settings: %s", exc)
+
+
 async def main():
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+    # Initialize dynamic settings from DB before doing any work
+    logger.info("RTSP worker: initializing settings from database…")
+    try:
+        async with async_session() as session:
+            await dynamic_settings.initialize(session)
+        logger.info("RTSP worker: settings initialized (compreface_url=%r, active_event_id=%r)",
+                    dynamic_settings.get_compreface_url(), dynamic_settings.get_active_event_id())
+    except Exception as exc:
+        logger.error("RTSP worker: could not load settings from DB: %s — proceeding with defaults", exc)
+
     ctx = PipelineContext()
 
     async with async_session() as session:
@@ -116,8 +146,9 @@ async def main():
         captures.append(cap)
         logger.info("Started capture for camera %s: %s", camera.id, camera.name)
 
-    # Keep running
+    # Keep running; reload settings periodically
     try:
+        asyncio.create_task(_reload_settings_loop())
         while True:
             await asyncio.sleep(1)
             ctx.dedup.cleanup()

@@ -30,6 +30,10 @@ class QueueManager:
         logger.info("Background worker %s started", self.worker_id)
         while True:
             try:
+                # Reload settings each cycle so admin changes take effect without restart
+                async with self.db_session_factory() as session:
+                    await dynamic_settings.reload(session)
+
                 worked = False
                 worked |= await self._process_civicrm_push()
                 worked |= await self._process_enrollment()
@@ -252,7 +256,8 @@ class QueueManager:
 
         Returns True if work was done.
         """
-        now = datetime.now(timezone.utc)
+        # Use naive UTC to match naive DateTime columns
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         expiry_days = dynamic_settings.get_task_expiry_days()
 
         async with self.db_session_factory() as session:

@@ -4,16 +4,21 @@ import { api } from '@/services/api';
 import type { User } from '@/types';
 
 export function useAuth() {
-  const { user, token, isAdmin, login, logout } = useAuthStore();
+  const { user, token, isAdmin, authReady, login, logout, setAuthReady } = useAuthStore();
   const initialized = useRef(false);
 
   // On app load: try to get a new access token from the HttpOnly refresh cookie.
-  // This replaces the localStorage persistence pattern — token stays in memory only.
+  // Token stays in memory only (never localStorage).
+  // Sets authReady=true when done so route guards don't flash /login prematurely.
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
 
-    if (token) return; // already hydrated (e.g. just logged in)
+    if (token) {
+      // Already hydrated from a same-session login — mark ready immediately.
+      setAuthReady();
+      return;
+    }
 
     api.post<{ access_token: string }>('/auth/refresh')
       .then(async (res) => {
@@ -22,11 +27,13 @@ export function useAuth() {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
         login(meRes.data, accessToken);
+        // authReady is set inside login()
       })
       .catch(() => {
         // No valid refresh cookie — user must log in
+        setAuthReady();
       });
-  }, [token, login]);
+  }, [token, login, setAuthReady]);
 
   // Sync the Authorization header whenever the in-memory token changes
   useEffect(() => {
@@ -37,5 +44,5 @@ export function useAuth() {
     }
   }, [token]);
 
-  return { user, token, isAdmin, login, logout };
+  return { user, token, isAdmin, authReady, login, logout };
 }

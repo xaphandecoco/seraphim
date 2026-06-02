@@ -2,13 +2,9 @@
 set -e
 
 echo "Running database migrations..."
-# Check if alembic_version table exists and has a version
-if psql "$DATABASE_URL" -c "SELECT version_num FROM alembic_version LIMIT 1;" >/dev/null 2>&1; then
-    echo "Database already initialized, stamping current version..."
-    alembic stamp head || true
-else
-    alembic upgrade head
-fi
+# Always upgrade — alembic skips already-applied revisions, so this is idempotent.
+# The old 'stamp head' branch was wrong: it prevented new migrations from running on upgrade deploys.
+alembic upgrade head
 
 echo "Starting application..."
 exec "$@"

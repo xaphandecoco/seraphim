@@ -101,6 +101,14 @@ async def process_face_crop(
 
     # 5. Insert Detection and route based on tier
     async with db_session_factory() as session:
+        # Resolve Compreface subject → CiviCRM contact for all tiers
+        member_id: int | None = None
+        matched_name: str | None = None
+        if subject_id:
+            member_id = await _find_member_id(session, subject_id)
+            if member_id:
+                matched_name = f"member:{member_id}"
+
         detection = Detection(
             camera_id=camera_id,
             image_path=thumb_path,
@@ -109,24 +117,27 @@ async def process_face_crop(
             confidence=similarity,
             tier=tier,
             status="auto_logged" if tier == "100" else "tasked",
-            matched_name=None,
+            matched_name=matched_name,
             event_id=event_id,
         )
         session.add(detection)
         await session.flush()
 
         # Auto-log attendance for 100% tier
-        if tier == "100" and subject_id:
-            member_id = await _find_member_id(session, subject_id)
-            if member_id:
-                attendance = Attendance(
-                    contact_id=member_id,
-                    event_id=event_id,
-                    detection_id=detection.id,
-                    status="confirmed",
-                    push_status="pending",
-                )
-                session.add(attendance)
+        if tier == "100" and member_id and event_id:
+            attendance = Attendance(
+                contact_id=member_id,
+                event_id=event_id,
+                detection_id=detection.id,
+                status="confirmed",
+                push_status="pending",
+            )
+            session.add(attendance)
+        elif tier == "100" and not event_id:
+            logger.warning(
+                "Tier-100 detection for member=%s skipped attendance — no active event",
+                member_id,
+            )
 
         # Create task for tiers requiring volunteer approval
         if tier != "100":
@@ -143,19 +154,18 @@ async def process_face_crop(
 
         await session.commit()
 
-    # 6. Broadcast SSE
-    event_data = json.dumps(
-        {
-            "type": "detection",
-            "camera_id": camera_id,
-            "subject_id": subject_id,
-            "similarity": similarity,
-            "tier": tier,
-            "timestamp": now.isoformat(),
-        }
-    )
+    # 6. Broadcast SSE so the volunteer queue updates in real time
     try:
-        await broadcaster.publish(event_data)
+        if tier == "100":
+            # Auto-logged — broadcast updated pending count
+            await broadcaster.publish(json.dumps({"type": "pending_count", "pending_count": 0}))
+        else:
+            # New task created — instruct clients to refetch
+            await broadcaster.publish(json.dumps({
+                "type": "new_task",
+                "tier": tier,
+                "camera_id": camera_id,
+            }))
     except Exception as exc:
         logger.warning("SSE broadcast failed: %s", exc)
 

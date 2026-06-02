@@ -16,6 +16,10 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 
 BOOTSTRAP_PATH = Path(os.environ.get("BOOTSTRAP_CONFIG_PATH", "/app/config/bootstrap.json"))
 
+# Keys that cannot be cleared/blanked via the settings API — blanking them would
+# break authentication or make the app unbootable.
+_PROTECTED_KEYS = {"jwt_secret", "database_url", "redis_url", "setup_complete"}
+
 
 def _mask_sensitive(value: dict) -> dict:
     """Mask sensitive values for GET responses."""
@@ -63,11 +67,18 @@ async def update_settings(
     bootstrap_updated = False
 
     for key, value in req.settings.items():
+        # Reject attempts to blank critical keys
+        if key in _PROTECTED_KEYS and (value is None or value == "" or value == "********"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot blank protected setting '{key}'",
+            )
+
         result = await db.execute(select(AdminSetting).where(AdminSetting.key == key))
         setting = result.scalar_one_or_none()
 
         if setting:
-            # Preserve sensitive values if masked
+            # Preserve sensitive values if masked (user didn't change them)
             if setting.sensitive and value == "********":
                 continue
             setting.value = {"value": value}

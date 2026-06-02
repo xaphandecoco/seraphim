@@ -11,6 +11,7 @@ interface QueueStatus {
   saturated: boolean;
   paused: boolean;
   safe_mode: boolean;
+  active_event_id: number | null;
 }
 
 export function TasksPage() {
@@ -40,6 +41,14 @@ export function TasksPage() {
         <div className="flex items-center justify-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs font-bold text-amber-700">
           <ShieldAlert size={14} aria-hidden="true" />
           <span>System in Safe Mode — recognition paused</span>
+        </div>
+      )}
+
+      {/* No Active Event Banner */}
+      {queueStatus && !queueStatus.safe_mode && !queueStatus.active_event_id && (
+        <div className="flex items-center justify-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs font-bold text-amber-700">
+          <AlertTriangle size={14} aria-hidden="true" />
+          <span>No active event set — detections won't be saved to attendance. Set one in Events.</span>
         </div>
       )}
 

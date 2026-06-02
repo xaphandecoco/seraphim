@@ -8,6 +8,7 @@ from app.dependencies import require_volunteer
 from app.middleware.cooldown import check_cooldown
 from app.models import CiviCRMMember, Detection, Task
 from app.schemas import PaginatedTaskResponse, TaskActionRequest, TaskResponse
+from app.services.face_storage import to_storage_url
 from app.services.task_service import TaskService
 from app.sse import broadcaster
 
@@ -72,7 +73,7 @@ async def list_tasks(
             tier=detection.tier,
             confidence=float(detection.confidence) if detection.confidence else None,
             matched_name=resolved_name,
-            face_thumbnail_path=detection.image_path,
+            face_thumbnail_path=to_storage_url(detection.image_path),
             camera_name=f"Camera {detection.camera_id}",
             detected_at=detection.timestamp,
             expiry_date=task.expiry_date,
@@ -112,7 +113,7 @@ async def get_next_task(
         tier=detection.tier if detection else None,
         confidence=float(detection.confidence) if detection and detection.confidence else None,
         matched_name=resolved_name,
-        face_thumbnail_path=detection.image_path if detection else None,
+        face_thumbnail_path=to_storage_url(detection.image_path) if detection else None,
         camera_name=f"Camera {detection.camera_id}" if detection else None,
         detected_at=detection.timestamp if detection else None,
         expiry_date=task.expiry_date,
@@ -148,7 +149,7 @@ async def confirm_task(
         tier=detection.tier if detection else None,
         confidence=float(detection.confidence) if detection and detection.confidence else None,
         matched_name=detection.matched_name if detection else None,
-        face_thumbnail_path=detection.image_path if detection else None,
+        face_thumbnail_path=to_storage_url(detection.image_path) if detection else None,
         camera_name=f"Camera {detection.camera_id}" if detection else None,
         detected_at=detection.timestamp if detection else None,
         expiry_date=task.expiry_date,
@@ -185,7 +186,7 @@ async def edit_task(
         tier=detection.tier if detection else None,
         confidence=float(detection.confidence) if detection and detection.confidence else None,
         matched_name=detection.matched_name if detection else None,
-        face_thumbnail_path=detection.image_path if detection else None,
+        face_thumbnail_path=to_storage_url(detection.image_path) if detection else None,
         camera_name=f"Camera {detection.camera_id}" if detection else None,
         detected_at=detection.timestamp if detection else None,
         expiry_date=task.expiry_date,
@@ -222,7 +223,7 @@ async def add_task(
         tier=detection.tier if detection else None,
         confidence=float(detection.confidence) if detection and detection.confidence else None,
         matched_name=detection.matched_name if detection else None,
-        face_thumbnail_path=detection.image_path if detection else None,
+        face_thumbnail_path=to_storage_url(detection.image_path) if detection else None,
         camera_name=f"Camera {detection.camera_id}" if detection else None,
         detected_at=detection.timestamp if detection else None,
         expiry_date=task.expiry_date,
@@ -259,7 +260,7 @@ async def skip_task(
         tier=detection.tier if detection else None,
         confidence=float(detection.confidence) if detection and detection.confidence else None,
         matched_name=detection.matched_name if detection else None,
-        face_thumbnail_path=detection.image_path if detection else None,
+        face_thumbnail_path=to_storage_url(detection.image_path) if detection else None,
         camera_name=f"Camera {detection.camera_id}" if detection else None,
         detected_at=detection.timestamp if detection else None,
         expiry_date=task.expiry_date,
@@ -295,7 +296,7 @@ async def admin_override_task(
         tier=detection.tier if detection else None,
         confidence=float(detection.confidence) if detection and detection.confidence else None,
         matched_name=detection.matched_name if detection else None,
-        face_thumbnail_path=detection.image_path if detection else None,
+        face_thumbnail_path=to_storage_url(detection.image_path) if detection else None,
         camera_name=f"Camera {detection.camera_id}" if detection else None,
         detected_at=detection.timestamp if detection else None,
         expiry_date=task.expiry_date,

@@ -7,6 +7,21 @@ import cv2
 import numpy as np
 
 
+def to_storage_url(rel_path: str | None) -> str | None:
+    """Convert a bare relative storage path to a /storage/-prefixed URL for API responses.
+
+    The stored image_path is always a bare relative path (e.g. 'faces/2026/01/01/..._thumb.jpg').
+    This helper prepends '/storage/' so the frontend can build '/api/storage/...' which the
+    authenticated /storage route will serve.  The function is idempotent if already prefixed.
+    """
+    if not rel_path:
+        return None
+    rel = rel_path.lstrip("/")
+    if rel.startswith("storage/"):
+        return f"/{rel}"
+    return f"/storage/{rel}"
+
+
 class FaceStorage:
     def __init__(self, base_path: str):
         self.base_path = Path(base_path)

@@ -9,6 +9,16 @@ interface AdminRouteProps {
 export function AdminRoute({ children }: AdminRouteProps) {
   const token = useAuthStore((s) => s.token);
   const isAdmin = useAuthStore((s) => s.isAdmin);
+  const authReady = useAuthStore((s) => s.authReady);
+
+  // Wait for the initial /auth/refresh attempt before deciding
+  if (!authReady) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-border border-t-primary" aria-label="Loading" />
+      </div>
+    );
+  }
 
   if (!token) {
     return <Navigate to="/login" replace />;

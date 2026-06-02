@@ -25,6 +25,9 @@ export function TaskFeed() {
   const { data: tasks = [] } = useQuery({
     queryKey: ['tasks'],
     queryFn: fetchTasks,
+    // Fallback polling: self-heals if SSE connection drops (e.g. proxy timeout)
+    refetchInterval: 15_000,
+    refetchIntervalInBackground: false,
   });
 
   useEffect(() => {

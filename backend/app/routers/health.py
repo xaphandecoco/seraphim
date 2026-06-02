@@ -71,4 +71,5 @@ async def queue_status(db: AsyncSession = Depends(get_db)):
         "saturated": pending >= hard_limit,
         "paused": pending >= hard_limit,
         "safe_mode": dynamic_settings.is_safe_mode(),
+        "active_event_id": dynamic_settings.get_active_event_id(),
     }

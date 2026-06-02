@@ -134,9 +134,18 @@ class DynamicSettings:
     
     def is_safe_mode(self) -> bool:
         return self.get_bool("safe_mode", False)
-    
+
     def is_setup_complete(self) -> bool:
         return self.get_bool("setup_complete", False)
+
+    def get_active_event_id(self) -> int | None:
+        val = self._settings.get("active_event_id")
+        if val is None or val == "" or val == 0:
+            return None
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            return None
 
 
 dynamic_settings = DynamicSettings()

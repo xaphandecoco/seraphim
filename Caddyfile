@@ -1,0 +1,22 @@
+# Caddyfile — HTTPS reverse proxy for Project Seraphim
+# Replace {$DOMAIN} with your actual domain, or set DOMAIN=... in your environment.
+#
+# For LAN-only Unraid (no public domain): use Nginx Proxy Manager instead.
+
+{$DOMAIN} {
+    # Proxy everything to the frontend nginx (which already proxies /api to the backend)
+    reverse_proxy seraphim-frontend:80
+
+    # Increase timeouts for SSE connections (/tasks/feed)
+    transport http {
+        read_timeout 3600s
+    }
+
+    # Security headers (augment the ones set by the backend middleware)
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        -Server
+    }
+
+    encode zstd gzip
+}

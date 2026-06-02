@@ -28,4 +28,7 @@ USER appuser
 EXPOSE 8000
 
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
+# --forwarded-allow-ips="*" trusts X-Forwarded-For from nginx (safe because only the
+# reverse proxy can reach this container on the internal Docker network).
+# LOG_LEVEL defaults to INFO; set DEBUG in .env for verbose output.
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=* --log-level ${LOG_LEVEL:-info}"]

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import require_admin, require_volunteer
-from app.models import Attendance, CiviCRMEvent, Detection, Task
+from app.models import Attendance, CiviCRMEvent, CiviCRMMember, Detection, Task
 from app.schemas import AttendanceRecord, AttendeeSummary, DeadLetterListResponse, DeadLetterRecord, DeadLetterRetryResponse, PushDiff
 
 router = APIRouter(prefix="/attendance", tags=["attendance"])
@@ -33,7 +33,8 @@ async def list_attendance(
         query = query.where(Attendance.status == status)
     if date:
         try:
-            start = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            # Naive UTC to match the naive DateTime columns
+            start = datetime.strptime(date, "%Y-%m-%d")
             end = start.replace(hour=23, minute=59, second=59)
             query = query.where(Attendance.created_at >= start, Attendance.created_at <= end)
         except ValueError:
@@ -74,7 +75,16 @@ async def push_preview(
     seen_names = set()
 
     for attendance, detection in rows:
-        name = detection.matched_name or "Unknown"
+        # Resolve "member:{id}" to a real display name for the preview
+        raw_name = detection.matched_name or ""
+        if raw_name.startswith("member:"):
+            try:
+                contact_id = int(raw_name.split(":", 1)[1])
+                member = await db.get(CiviCRMMember, contact_id)
+                raw_name = f"{member.first_name} {member.last_name}".strip() if member else raw_name
+            except (ValueError, IndexError):
+                pass
+        name = raw_name or "Unknown"
         if name in seen_names:
             duplicates_warn.append(name)
         seen_names.add(name)

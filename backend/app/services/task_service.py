@@ -29,7 +29,8 @@ class TaskService:
         - Expired tasks
         - Tasks in pit
         """
-        now = datetime.now(timezone.utc)
+        # Use naive UTC to match the naive DateTime columns in Postgres
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         
         # Find tasks this volunteer has already acted on
         acted_subq = select(TaskAction.task_id).where(

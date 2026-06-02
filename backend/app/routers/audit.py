@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.services.face_storage import to_storage_url
 from app.dependencies import get_current_user
 from app.models import Camera, Detection, Log, Task, User, VolunteerStat
 from app.schemas import AuditActionRequest, AuditTaskResponse
@@ -67,7 +68,7 @@ async def get_audit_tasks(
         tasks.append(
             AuditTaskResponse(
                 detection_id=detection.id,
-                face_thumbnail_path=detection.image_path,
+                face_thumbnail_path=to_storage_url(detection.image_path),
                 matched_name=detection.matched_name,
                 confidence=float(detection.confidence) if detection.confidence else None,
                 tier=detection.tier,

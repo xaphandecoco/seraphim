@@ -44,8 +44,12 @@ async def search_members(
     return result.scalars().all()
 
 
-def _find_first_thumbnail(subject_id: str, base_path: str = "/app/data") -> Optional[str]:
-    """Return the relative path to the first enrolled thumbnail for a subject."""
+def _find_first_thumbnail(subject_id: str, base_path: str | None = None) -> Optional[str]:
+    """Return the /storage/-prefixed URL of the first enrolled thumbnail for a subject."""
+    import os
+    from app.config import legacy_settings as _ls
+    if base_path is None:
+        base_path = os.environ.get("STORAGE_PATH", _ls.STORAGE_PATH)
     enrolled_dir = Path(base_path) / "enrolled" / subject_id
     if not enrolled_dir.exists():
         return None
@@ -130,7 +134,7 @@ async def sync_members(
                 existing.last_name = member_data.get("last_name", existing.last_name)
                 existing.nickname = member_data.get("nick_name", existing.nickname)
                 existing.email = member_data.get("email", existing.email)
-                existing.last_synced_at = datetime.now(timezone.utc)
+                existing.last_synced_at = datetime.now(timezone.utc).replace(tzinfo=None)
             else:
                 new_member = CiviCRMMember(
                     contact_id=contact_id,
@@ -138,7 +142,7 @@ async def sync_members(
                     last_name=member_data.get("last_name", ""),
                     nickname=member_data.get("nick_name"),
                     email=member_data.get("email"),
-                    last_synced_at=datetime.now(timezone.utc),
+                    last_synced_at=datetime.now(timezone.utc).replace(tzinfo=None),
                 )
                 db.add(new_member)
             synced += 1
@@ -150,8 +154,8 @@ async def sync_members(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"CiviCRM not configured: {exc}"
         )
-    except Exception as exc:
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"CiviCRM sync failed: {exc}"
+            detail="CiviCRM sync failed. Check server logs.",
         )

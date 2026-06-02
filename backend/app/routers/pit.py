@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.services.face_storage import to_storage_url
 from app.dependencies import require_admin
 from app.models import Detection, PitQueue, Task
 from app.schemas import TaskResponse
@@ -41,7 +42,7 @@ async def list_pit_tasks(
                 tier=detection.tier if detection else None,
                 confidence=float(detection.confidence) if detection and detection.confidence else None,
                 matched_name=detection.matched_name if detection else None,
-                face_thumbnail_path=detection.image_path if detection else None,
+                face_thumbnail_path=to_storage_url(detection.image_path) if detection else None,
                 camera_name=f"Camera {detection.camera_id}" if detection else None,
                 detected_at=detection.timestamp if detection else None,
                 expiry_date=task.expiry_date,
@@ -94,7 +95,7 @@ async def enroll_pit_task(
         tier=detection.tier if detection else None,
         confidence=float(detection.confidence) if detection and detection.confidence else None,
         matched_name=detection.matched_name if detection else None,
-        face_thumbnail_path=detection.image_path if detection else None,
+        face_thumbnail_path=to_storage_url(detection.image_path) if detection else None,
         camera_name=f"Camera {detection.camera_id}" if detection else None,
         detected_at=detection.timestamp if detection else None,
         expiry_date=task.expiry_date,
@@ -140,7 +141,7 @@ async def delete_pit_task(
         tier=detection.tier if detection else None,
         confidence=float(detection.confidence) if detection and detection.confidence else None,
         matched_name=detection.matched_name if detection else None,
-        face_thumbnail_path=detection.image_path if detection else None,
+        face_thumbnail_path=to_storage_url(detection.image_path) if detection else None,
         camera_name=f"Camera {detection.camera_id}" if detection else None,
         detected_at=detection.timestamp if detection else None,
         expiry_date=task.expiry_date,
@@ -186,7 +187,7 @@ async def mark_non_person(
         tier=detection.tier if detection else None,
         confidence=float(detection.confidence) if detection and detection.confidence else None,
         matched_name=detection.matched_name if detection else None,
-        face_thumbnail_path=detection.image_path if detection else None,
+        face_thumbnail_path=to_storage_url(detection.image_path) if detection else None,
         camera_name=f"Camera {detection.camera_id}" if detection else None,
         detected_at=detection.timestamp if detection else None,
         expiry_date=task.expiry_date,
