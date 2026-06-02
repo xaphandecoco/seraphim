@@ -17,7 +17,6 @@ async function fetchTasks(): Promise<Task[]> {
 export function TaskFeed() {
   const queryClient = useQueryClient();
   const setPendingCount = useTaskStore((s) => s.setPendingCount);
-  const getToken = useAuthStore((s) => s.token);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [modalMode, setModalMode] = useState<'edit' | 'add' | null>(null);
   const sseRef = useRef<SSEClient | null>(null);

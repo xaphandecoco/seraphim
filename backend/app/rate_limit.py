@@ -15,12 +15,17 @@ from slowapi.util import get_remote_address
 from app.config import legacy_settings
 
 # Use the Redis URL from settings so rate-limit counters are shared across
-# every Uvicorn worker process.  If the URL is missing we fall back to the
-# default in-memory store (safe for single-worker / test environments).
-_redis_url: str = legacy_settings.REDIS_URL or "redis://redis:6379/0"
+# every Uvicorn worker process.  If REDIS_URL is not configured (dev / test /
+# single-process), fall back to slowapi's in-memory store rather than an
+# unreachable Redis host. Production compose always sets REDIS_URL.
+_redis_url: str = legacy_settings.REDIS_URL or "memory://"
 
+# swallow_errors=True → if the Redis storage backend is unreachable, slowapi fails
+# OPEN (allows the request) instead of raising 500s. This keeps login/auth working
+# during a Redis outage, and lets the test suite run without a Redis server.
 limiter = Limiter(
     key_func=get_remote_address,
     storage_uri=_redis_url,
     default_limits=["100/minute"],
+    swallow_errors=True,
 )

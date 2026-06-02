@@ -18,6 +18,7 @@ A step-by-step guide for volunteers and administrators using the LNC Attendance 
   - [Events & Members](#events--members)
 - [Admin Guide](#admin-guide)
   - [Setup Wizard](#setup-wizard)
+  - [Setting the Active Event](#setting-the-active-event-important)
   - [Managing Cameras](#managing-cameras)
   - [Managing Users](#managing-users)
   - [PIT Queue](#pit-queue)
@@ -150,6 +151,18 @@ The first time the system starts, complete the 5-step setup wizard:
 5. **Confirm** — review and complete setup
 
 > **Note:** The review step masks the database password. The wizard is permanently locked after completion; contact the developer if you need to reset.
+
+### Setting the Active Event (IMPORTANT)
+
+Camera detections are only recorded as attendance for the **active event**. Before a service or
+gathering begins, an admin must set it:
+
+1. Go to **Events** (run **Sync** first if the event isn't listed)
+2. Tap **Set Active** on the event that's happening now — it shows a **LIVE** badge
+3. When the service ends, tap **clear** (or set the next event)
+
+> If no active event is set, a banner appears on the Tasks page and **detections are not saved
+> to attendance**. Always set the active event before the doors open.
 
 ### Managing Cameras
 

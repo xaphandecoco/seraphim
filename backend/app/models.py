@@ -12,13 +12,12 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy import JSON
+from sqlalchemy.dialects.postgresql import JSONB as _PG_JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-# Use SQLAlchemy's cross-dialect JSON type so tests can run on SQLite.
-# On Postgres this is the `json` type; the existing columns in production are `jsonb`
-# (created by migrations) — Alembic autogenerate won't flag a difference since we
-# don't use autogenerate. We gain no JSONB-specific operators, but we don't use any.
-JSONB = JSON
+# Use Postgres JSONB in production (matches the columns created by migrations) and
+# fall back to the cross-dialect JSON type on SQLite (used by the test suite).
+JSONB = JSON().with_variant(_PG_JSONB, "postgresql")
 
 from app.database import Base
 

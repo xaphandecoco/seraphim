@@ -1,3 +1,14 @@
+import os
+
+# Configure the test environment BEFORE importing app modules (config/database read
+# env vars at import time). A file-based SQLite DB lets the HTTP-path session and the
+# pipeline's direct `async_session` usage share ONE database with the same schema.
+os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///./test_seraphim.db")
+os.environ.setdefault("ENVIRONMENT", "test")
+os.environ.setdefault("STORAGE_PATH", "./.test-storage")
+# In-memory rate-limit/Redis storage so the suite needs no Redis server
+os.environ.setdefault("REDIS_URL", "memory://")
+
 import asyncio  # noqa: F401  (kept for compatibility with asyncio_mode=auto)
 from datetime import datetime, timedelta, timezone
 from typing import AsyncGenerator
@@ -6,20 +17,15 @@ import pytest
 import pytest_asyncio
 import httpx
 from httpx import AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import dynamic_settings
-from app.database import Base, get_db
+# Use the APP's own engine + session factory so direct `async_session()` usage in the
+# recognition pipeline/workers hits the same database the fixtures set up.
+from app.database import Base, engine, async_session, get_db
 from app.dependencies import check_setup_complete
 from app.main import app
 from app.utils.auth import create_access_token, hash_password
-
-# Use in-memory SQLite for tests
-TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
-
-engine = create_async_engine(TEST_DATABASE_URL, echo=False)
-AsyncTestSession = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 # Stable test secret — must be ≥32 chars (matches our fail-fast assertion)
 TEST_JWT_SECRET = "seraphim-test-secret-do-not-use-in-production-x"
@@ -47,19 +53,19 @@ def make_token(user_id: int, email: str, role: str, name: str = "") -> str:
 # DB engine / session fixtures
 # ---------------------------------------------------------------------------
 
-@pytest_asyncio.fixture(scope="session")
-async def db_engine():
+@pytest_asyncio.fixture
+async def db_session() -> AsyncGenerator[AsyncSession, None]:
+    """Per-test schema for full isolation: create all tables on the app engine, yield a
+    session, then drop everything. The HTTP path (overridden get_db) and the pipeline's
+    direct `async_session()` both use this same engine, so all writes share one DB."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    yield engine
-    await engine.dispose()
-
-
-@pytest_asyncio.fixture
-async def db_session(db_engine) -> AsyncGenerator[AsyncSession, None]:
-    async with AsyncTestSession() as session:
-        yield session
-        await session.rollback()
+    try:
+        async with async_session() as session:
+            yield session
+    finally:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
 
 
 # ---------------------------------------------------------------------------

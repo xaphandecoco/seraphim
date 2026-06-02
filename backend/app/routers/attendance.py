@@ -21,10 +21,14 @@ async def list_attendance(
     event_id: Optional[int] = None,
     date: Optional[str] = None,
     status: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
     db: AsyncSession = Depends(get_db),
     user=Depends(require_volunteer),
 ):
-    """List attendance records with optional filters."""
+    """List attendance records with optional filters (bounded; newest first)."""
+    limit = min(max(limit, 1), 200)
+    offset = max(offset, 0)
     query = select(Attendance).order_by(Attendance.created_at.desc())
 
     if event_id:
@@ -43,6 +47,7 @@ async def list_attendance(
                 detail="Invalid date format. Use YYYY-MM-DD.",
             )
 
+    query = query.offset(offset).limit(limit)
     result = await db.execute(query)
     records = result.scalars().all()
     return records

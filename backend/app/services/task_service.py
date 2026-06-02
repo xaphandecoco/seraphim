@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import dynamic_settings
 from app.models import (
     Attendance,
+    CiviCRMMember,
     Detection,
     Log,
     PitQueue,
@@ -98,6 +99,15 @@ class TaskService:
         await self.session.commit()
         return task
 
+    async def _require_member(self, member_id: int) -> None:
+        """Raise 404 if the given CiviCRM member does not exist (avoids a later FK 500)."""
+        member = await self.session.get(CiviCRMMember, member_id)
+        if member is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Member {member_id} not found",
+            )
+
     async def edit_task(
         self,
         task_id: int,
@@ -128,6 +138,8 @@ class TaskService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="You have already acted on this task",
             )
+
+        await self._require_member(member_id)
 
         # Record action
         action = TaskAction(
@@ -184,6 +196,8 @@ class TaskService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="You have already acted on this task",
             )
+
+        await self._require_member(member_id)
 
         # Record action
         action = TaskAction(
@@ -351,15 +365,25 @@ class TaskService:
 
         stat = await self.session.get(VolunteerStat, (volunteer_id, month_key))
         if not stat:
-            stat = VolunteerStat(volunteer_id=volunteer_id, month=month_key)
+            # Initialize counters explicitly — column `default=0` is only applied at
+            # flush time, so the in-memory attributes are None until then and would
+            # raise `None += 1` on the first action of the month.
+            stat = VolunteerStat(
+                volunteer_id=volunteer_id,
+                month=month_key,
+                tasks_confirmed=0,
+                tasks_edited=0,
+                tasks_added=0,
+                total_points=0,
+            )
             self.session.add(stat)
 
         points = 2 if action_type == "edit" else 1
         if action_type == "confirm":
-            stat.tasks_confirmed += 1
+            stat.tasks_confirmed = (stat.tasks_confirmed or 0) + 1
         elif action_type == "edit":
-            stat.tasks_edited += 1
+            stat.tasks_edited = (stat.tasks_edited or 0) + 1
         elif action_type == "add":
-            stat.tasks_added += 1
+            stat.tasks_added = (stat.tasks_added or 0) + 1
 
-        stat.total_points += points
+        stat.total_points = (stat.total_points or 0) + points

@@ -6,16 +6,6 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '@/services/api';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
-interface AttendanceRecord {
-  id: number;
-  contact_id: number | null;
-  event_id: number | null;
-  detection_id: number | null;
-  status: string;
-  push_status: string;
-  created_at: string;
-}
-
 interface ChurchEvent {
   event_id: number;
   title: string;

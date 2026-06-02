@@ -23,7 +23,11 @@ def fake_ctx():
 
 @pytest.fixture
 def fake_db_factory(db_session: AsyncSession):
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
     async def factory():
+        # Shared session; don't close it here (the db_session fixture owns its lifecycle)
         yield db_session
 
     return factory
@@ -58,9 +62,9 @@ async def test_process_face_crop_quality_fail(db_session: AsyncSession, fake_ctx
 
 @pytest.mark.asyncio
 async def test_process_face_crop_tier_100_auto_log(
-    db_session: AsyncSession, fake_ctx, fake_db_factory, sample_member
+    db_session: AsyncSession, fake_ctx, fake_db_factory, sample_member, sample_event
 ):
-    """Tier 100 with known subject → auto-log attendance."""
+    """Tier 100 with known subject + active event → auto-log attendance."""
     from app.models import Attendance, ComprefaceSubject, Detection, Task
 
     subject = ComprefaceSubject(
@@ -85,7 +89,7 @@ async def test_process_face_crop_tier_100_auto_log(
     result = await process_face_crop(
         face_crop=face,
         camera_id=None,
-        event_id=None,
+        event_id=sample_event.event_id,  # auto-log now requires an active event
         ctx=fake_ctx,
         db_session_factory=fake_db_factory,
     )

@@ -504,7 +504,9 @@ Schema unchanged from initial design — see inline Pydantic schemas for current
 |--------|------|--------|-------------|
 | GET | `/events` | Volunteer | List cached CiviCRM events |
 | POST | `/events/sync` | Admin | Force sync from CiviCRM |
-| GET | `/members` | Volunteer | Search members by name/email |
+| GET | `/events/active-event-id` | Volunteer | Currently active event (camera detections are tagged with it) |
+| POST | `/events/set-active?event_id=` | Admin | Set/clear the active event |
+| GET | `/members` | Volunteer | Search members by name/email (limit clamped ≤100) |
 | POST | `/members/sync` | Admin | Force sync from CiviCRM |
 | GET | `/pit` | Admin | List admin pit queue |
 | POST | `/pit/{id}/enroll` | Admin | Enroll face to member |

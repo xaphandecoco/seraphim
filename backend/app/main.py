@@ -54,15 +54,26 @@ async def lifespan(app: FastAPI):
     except RuntimeError:
         raise
     except Exception:
-        pass
+        # Pre-setup boot is allowed (no DB/settings yet), but log so a real
+        # DB/settings-init failure is visible rather than silently swallowed.
+        import logging
+        logging.getLogger(__name__).warning(
+            "Startup settings init failed (continuing — expected only before setup).",
+            exc_info=True,
+        )
     yield
     await engine.dispose()
 
 
+# Disable interactive API docs in production to avoid exposing the full API surface.
+_is_prod = legacy_settings.ENVIRONMENT == "production"
 app = FastAPI(
     title="Project Seraphim API",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url=None if _is_prod else "/docs",
+    redoc_url=None if _is_prod else "/redoc",
+    openapi_url=None if _is_prod else "/openapi.json",
 )
 
 # ── Rate limiting ──────────────────────────────────────────────────────────────

@@ -125,14 +125,25 @@ async def process_face_crop(
 
         # Auto-log attendance for 100% tier
         if tier == "100" and member_id and event_id:
-            attendance = Attendance(
-                contact_id=member_id,
-                event_id=event_id,
-                detection_id=detection.id,
-                status="confirmed",
-                push_status="pending",
+            # Guard against the (contact_id, event_id) unique constraint: a member
+            # passing the camera again in the same event must NOT raise IntegrityError
+            # (which would abort the whole detection insert).
+            from sqlalchemy import select as _select
+            existing_att = await session.execute(
+                _select(Attendance.id).where(
+                    Attendance.contact_id == member_id,
+                    Attendance.event_id == event_id,
+                )
             )
-            session.add(attendance)
+            if existing_att.scalar_one_or_none() is None:
+                attendance = Attendance(
+                    contact_id=member_id,
+                    event_id=event_id,
+                    detection_id=detection.id,
+                    status="confirmed",
+                    push_status="pending",
+                )
+                session.add(attendance)
         elif tier == "100" and not event_id:
             logger.warning(
                 "Tier-100 detection for member=%s skipped attendance — no active event",

@@ -23,6 +23,7 @@ async def search_members(
     user=Depends(require_volunteer),
 ):
     """Search members by first name, last name, or email."""
+    limit = min(max(limit, 1), 100)
     if not search.strip():
         result = await db.execute(
             select(CiviCRMMember).limit(limit)
