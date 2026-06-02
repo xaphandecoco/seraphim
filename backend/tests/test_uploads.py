@@ -4,6 +4,24 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import numpy as np
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
+
+
+def _sharp_image(h: int, w: int, block: int = 20) -> bytes:
+    """JPEG bytes of a high-variance checkerboard that passes the blur quality gate.
+
+    A flat (np.zeros) image has a Laplacian variance of 0 and fails the gate's
+    MIN_BLUR_SCORE, so any test expecting quality_passed>0 must use real texture.
+    """
+    import cv2
+
+    img = np.zeros((h, w, 3), dtype=np.uint8)
+    for i in range(0, h, block):
+        for j in range(0, w, block):
+            if ((i // block) + (j // block)) % 2 == 0:
+                img[i:i + block, j:j + block] = 255
+    _, buf = cv2.imencode(".jpg", img)
+    return buf.tobytes()
 
 
 @pytest.mark.asyncio
@@ -44,9 +62,9 @@ async def test_upload_faces_invalid_image(client: AsyncClient, admin_auth_header
 
 @pytest.mark.asyncio
 async def test_upload_faces_single_face_tier_100(
-    client: AsyncClient, admin_auth_headers, db_session, sample_member
+    client: AsyncClient, admin_auth_headers, db_session, sample_member, sample_event
 ):
-    """Single face, quality pass, tier 100 → auto-logged."""
+    """Single face, quality pass, tier 100 + active event → auto-logged."""
     from app.models import Attendance, ComprefaceSubject, Detection, Task
 
     # Link member to a Compreface subject
@@ -59,12 +77,8 @@ async def test_upload_faces_single_face_tier_100(
     db_session.add(subject)
     await db_session.commit()
 
-    # Create a valid 200x200 BGR JPEG in memory
-    import cv2
-
-    img = np.zeros((200, 200, 3), dtype=np.uint8)
-    _, buf = cv2.imencode(".jpg", img)
-    image_bytes = buf.tobytes()
+    # High-variance 200x200 JPEG so the crop passes the blur quality gate
+    image_bytes = _sharp_image(200, 200)
 
     mock_recognition = MagicMock()
     mock_recognition.subject_id = "sub_001"
@@ -79,7 +93,7 @@ async def test_upload_faces_single_face_tier_100(
         instance.close = AsyncMock()
 
         res = await client.post(
-            "/uploads/faces",
+            f"/uploads/faces?event_id={sample_event.event_id}",
             files={"file": ("face.jpg", io.BytesIO(image_bytes), "image/jpeg")},
             headers=admin_auth_headers,
         )
@@ -93,7 +107,7 @@ async def test_upload_faces_single_face_tier_100(
     assert data["skipped"] == 0
 
     # Verify Detection record
-    result = await db_session.execute(Detection.__table__.select())
+    result = await db_session.execute(select(Detection))
     detections = result.scalars().all()
     assert len(detections) == 1
     assert detections[0].camera_id is None
@@ -101,13 +115,13 @@ async def test_upload_faces_single_face_tier_100(
     assert detections[0].status == "auto_logged"
 
     # Verify Attendance record
-    result = await db_session.execute(Attendance.__table__.select())
+    result = await db_session.execute(select(Attendance))
     attendances = result.scalars().all()
     assert len(attendances) == 1
     assert attendances[0].contact_id == sample_member.contact_id
 
     # No task created
-    result = await db_session.execute(Task.__table__.select())
+    result = await db_session.execute(select(Task))
     tasks = result.scalars().all()
     assert len(tasks) == 0
 
@@ -119,11 +133,7 @@ async def test_upload_faces_single_face_tier_91_99(
     """Single face, quality pass, tier 91-99 → task created."""
     from app.models import Detection, Task
 
-    import cv2
-
-    img = np.zeros((200, 200, 3), dtype=np.uint8)
-    _, buf = cv2.imencode(".jpg", img)
-    image_bytes = buf.tobytes()
+    image_bytes = _sharp_image(200, 200)
 
     mock_recognition = MagicMock()
     mock_recognition.subject_id = "sub_002"
@@ -150,12 +160,12 @@ async def test_upload_faces_single_face_tier_91_99(
     assert data["tasks_created"] == 1
     assert data["auto_logged"] == 0
 
-    result = await db_session.execute(Task.__table__.select())
+    result = await db_session.execute(select(Task))
     tasks = result.scalars().all()
     assert len(tasks) == 1
     assert tasks[0].required_approvals == 1
 
-    result = await db_session.execute(Detection.__table__.select())
+    result = await db_session.execute(select(Detection))
     detections = result.scalars().all()
     assert len(detections) == 1
     assert detections[0].status == "tasked"
@@ -193,7 +203,7 @@ async def test_upload_faces_quality_fail(
     assert data["skipped"] == 1
     assert data["quality_passed"] == 0
 
-    result = await db_session.execute(Detection.__table__.select())
+    result = await db_session.execute(select(Detection))
     detections = result.scalars().all()
     assert len(detections) == 1
     assert detections[0].status == "skipped"
@@ -207,11 +217,7 @@ async def test_upload_faces_multiple_faces(
     """Multiple faces with mixed results."""
     from app.models import Detection, Task
 
-    import cv2
-
-    img = np.zeros((300, 300, 3), dtype=np.uint8)
-    _, buf = cv2.imencode(".jpg", img)
-    image_bytes = buf.tobytes()
+    image_bytes = _sharp_image(300, 300)
 
     def make_mock(tier, subject_id):
         m = MagicMock()
@@ -251,7 +257,7 @@ async def test_upload_faces_multiple_faces(
     assert data["quality_passed"] == 2
     assert data["tasks_created"] == 2
 
-    result = await db_session.execute(Task.__table__.select())
+    result = await db_session.execute(select(Task))
     tasks = result.scalars().all()
     assert len(tasks) == 2
     approvals = {t.required_approvals for t in tasks}
@@ -324,7 +330,7 @@ async def test_upload_faces_with_event_id(
 
     assert res.status_code == 200
 
-    result = await db_session.execute(Detection.__table__.select())
+    result = await db_session.execute(select(Detection))
     detections = result.scalars().all()
     assert len(detections) == 1
     assert detections[0].event_id == sample_event.event_id

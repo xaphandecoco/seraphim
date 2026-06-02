@@ -35,7 +35,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from conftest import make_token
+from conftest import make_token, TEST_JWT_SECRET
 
 
 # ---------------------------------------------------------------------------
@@ -57,33 +57,17 @@ async def test_login_nonexistent_email_returns_401(client: AsyncClient):
 async def test_login_rate_limit_returns_429_after_5_attempts(
     client: AsyncClient, admin_user
 ):
-    """The /auth/login endpoint is decorated with @limiter.limit('5/minute').
-    We mock the limiter to raise RateLimitExceeded directly so we can test
-    the 429 handler without actually hammering the rate-limit store.
-    """
-    from slowapi.errors import RateLimitExceeded
-    from starlette.requests import Request as StarletteRequest
-
-    # Patch the limiter's __call__ to simulate limit exceeded on 6th call
-    call_count = {"n": 0}
-
-    original_limit = client.app.state.limiter._inject_headers  # type: ignore[attr-defined]
-
-    async def patched_check(request: StarletteRequest, response, *args, **kwargs):
-        call_count["n"] += 1
-        if call_count["n"] > 5:
-            raise RateLimitExceeded("5 per 1 minute")
-
-    with patch.object(
-        client.app.state.limiter,  # type: ignore[attr-defined]
-        "_check_request_limit",
-        side_effect=RateLimitExceeded("5 per 1 minute"),
-    ):
-        resp = await client.post(
+    """/auth/login is decorated with @limiter.limit('5/minute'). With the in-memory
+    limiter (reset per test), the 6th+ attempt within the window returns 429."""
+    statuses = []
+    for _ in range(7):
+        r = await client.post(
             "/auth/login",
-            json={"email": "admin@lightnc.org", "password": "adminpass123"},
+            json={"email": "admin@lightnc.org", "password": "wrong-password"},
         )
-    assert resp.status_code == 429
+        statuses.append(r.status_code)
+    # First 5 are normal auth failures (401); once the limit trips we see 429.
+    assert 429 in statuses
 
 
 # ---------------------------------------------------------------------------
@@ -144,7 +128,7 @@ async def test_refresh_token_expired_returns_401(client: AsyncClient, admin_user
             "name": "Admin",
             "role": admin_user.role,
         },
-        secret=legacy_settings.JWT_SECRET,
+        secret=TEST_JWT_SECRET,
         expires_delta=timedelta(seconds=-1),  # already expired
     )
     resp = await client.post(
@@ -215,7 +199,7 @@ async def test_google_callback_mismatched_state_returns_400(client: AsyncClient)
     from app.config import legacy_settings
 
     real_state = "correct-state-value"
-    serializer = URLSafeTimedSerializer(legacy_settings.JWT_SECRET, salt="oauth-state")
+    serializer = URLSafeTimedSerializer(TEST_JWT_SECRET, salt="oauth-state")
     signed = serializer.dumps(real_state)
 
     resp = await client.get(
@@ -243,9 +227,10 @@ async def test_password_reset_request_as_admin_returns_token(
     )
     assert resp.status_code == 200
     data = resp.json()
+    # Security hardening: the raw token is embedded in the reset link, not a bare field
     assert "reset_link" in data
-    assert "token" in data
-    assert data["message"] == "Reset link generated"
+    assert "token=" in data["reset_link"]
+    assert "Reset link generated" in data["message"]
 
 
 @pytest.mark.asyncio
@@ -261,15 +246,17 @@ async def test_password_reset_request_as_volunteer_returns_403(
 
 
 @pytest.mark.asyncio
-async def test_password_reset_request_nonexistent_user_returns_404(
+async def test_password_reset_request_nonexistent_user_returns_generic_200(
     client: AsyncClient, admin_user, admin_auth_headers
 ):
+    # Anti-enumeration: unknown emails return a generic 200 (no reset_link), not 404
     resp = await client.post(
         "/auth/reset-password",
         json={"email": "nobody@lightnc.org"},
         headers=admin_auth_headers,
     )
-    assert resp.status_code == 404
+    assert resp.status_code == 200
+    assert "reset_link" not in resp.json()
 
 
 @pytest.mark.asyncio
@@ -288,7 +275,9 @@ async def test_password_reset_confirm_updates_password(
         headers=admin_auth_headers,
     )
     assert reset_resp.status_code == 200
-    token = reset_resp.json()["token"]
+    # Token is embedded in the reset link (?token=...&email=...)
+    reset_link = reset_resp.json()["reset_link"]
+    token = reset_link.split("token=")[1].split("&")[0]
 
     # Volunteer confirms reset
     confirm_resp = await client.post(
@@ -296,7 +285,7 @@ async def test_password_reset_confirm_updates_password(
         json={
             "email": volunteer_user.email,
             "token": token,
-            "new_password": "NewPass456!",
+            "new_password": "NewPassword456!",
         },
     )
     assert confirm_resp.status_code == 200
@@ -305,7 +294,7 @@ async def test_password_reset_confirm_updates_password(
     # New password should work
     login_resp = await client.post(
         "/auth/login",
-        json={"email": volunteer_user.email, "password": "NewPass456!"},
+        json={"email": volunteer_user.email, "password": "NewPassword456!"},
     )
     assert login_resp.status_code == 200
 
@@ -329,7 +318,7 @@ async def test_password_reset_confirm_wrong_token_returns_400(
         json={
             "email": volunteer_user.email,
             "token": "completely-wrong-token",
-            "new_password": "NewPass789!",
+            "new_password": "NewPassword789!",
         },
     )
     assert resp.status_code == 400
@@ -346,7 +335,7 @@ async def test_password_reset_confirm_no_active_request_returns_400(
         json={
             "email": volunteer_user.email,
             "token": "some-token",
-            "new_password": "NewPass000!",
+            "new_password": "NewPassword000!",
         },
     )
     assert resp.status_code == 400
@@ -383,7 +372,7 @@ async def test_password_reset_confirm_expired_token_returns_400(
         json={
             "email": volunteer_user.email,
             "token": token_plain,
-            "new_password": "NewPass111!",
+            "new_password": "NewPassword111!",
         },
     )
     assert resp.status_code == 400
@@ -471,7 +460,7 @@ async def test_add_volunteer_duplicate_email_returns_400(
             "email": "dup@lightnc.org",
             "name": "First",
             "role": "volunteer",
-            "temporary_password": "firstpass123",
+            "temporary_password": "FirstPass123!",
         },
         headers=admin_auth_headers,
     )
@@ -482,7 +471,7 @@ async def test_add_volunteer_duplicate_email_returns_400(
             "email": "dup@lightnc.org",
             "name": "Duplicate",
             "role": "volunteer",
-            "temporary_password": "secondpass123",
+            "temporary_password": "SecondPass123!",
         },
         headers=admin_auth_headers,
     )

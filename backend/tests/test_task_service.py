@@ -91,6 +91,22 @@ async def _seed_volunteer(db_session: AsyncSession, email: str, role: str = "vol
     return user
 
 
+async def _seed_member(db_session: AsyncSession, contact_id: int):
+    """add_task/edit_task now validate that the member exists (404 otherwise)."""
+    from app.models import CiviCRMMember
+
+    member = CiviCRMMember(
+        contact_id=contact_id,
+        first_name="Member",
+        last_name=str(contact_id),
+        email=f"member{contact_id}@lnc.test",
+    )
+    db_session.add(member)
+    await db_session.commit()
+    await db_session.refresh(member)
+    return member
+
+
 # ============================================================================
 # get_next_task() tests
 # ============================================================================
@@ -348,6 +364,7 @@ async def test_skip_task_four_skips_from_two_volunteers_moves_to_pit(
 @pytest.mark.asyncio
 async def test_add_task_success_single_approval_resolves(db_session: AsyncSession):
     vol = await _seed_volunteer(db_session, "add1@lnc.test")
+    await _seed_member(db_session, 99)
     detection = await _seed_detection(db_session, matched_name=None)
     task = await _seed_task(db_session, detection, required_approvals=1)
 
@@ -415,6 +432,7 @@ async def test_confirm_task_increments_volunteer_stats(db_session: AsyncSession)
 @pytest.mark.asyncio
 async def test_add_task_increments_tasks_added_stat(db_session: AsyncSession):
     vol = await _seed_volunteer(db_session, "stats2@lnc.test")
+    await _seed_member(db_session, 10)
     detection = await _seed_detection(db_session, matched_name=None)
     task = await _seed_task(db_session, detection, required_approvals=1)
 

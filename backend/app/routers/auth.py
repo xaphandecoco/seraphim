@@ -1,7 +1,7 @@
 import base64
 import hashlib
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from urllib.parse import urlencode
 
 import httpx
@@ -15,7 +15,7 @@ from app.config import dynamic_settings, legacy_settings  # legacy_settings kept
 from app.rate_limit import limiter
 from app.database import get_db
 from app.dependencies import get_current_user, require_admin
-from app.models import User
+from app.models import User, utc_now
 from app.schemas import (
     AddVolunteerRequest,
     LoginRequest,
@@ -177,7 +177,7 @@ async def request_password_reset(
     token = generate_reset_token()
     from app.utils.auth import hash_password as _hash
     user.password_reset_token = _hash(token)  # Store hash, not plaintext
-    user.password_reset_expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+    user.password_reset_expires_at = utc_now() + timedelta(hours=24)
     await db.commit()
 
     return {
@@ -209,7 +209,7 @@ async def confirm_password_reset(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No active password reset request",
         )
-    if datetime.now(timezone.utc) > user.password_reset_expires_at:
+    if utc_now() > user.password_reset_expires_at:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Reset token expired",

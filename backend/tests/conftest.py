@@ -69,6 +69,23 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
 
 
 # ---------------------------------------------------------------------------
+# Reset the in-memory rate-limiter between tests so counters don't leak across
+# tests (otherwise the Nth login in a file trips the 5/min limit).
+# ---------------------------------------------------------------------------
+
+@pytest_asyncio.fixture(autouse=True)
+async def _reset_rate_limiter():
+    from app.rate_limit import limiter
+    storage = getattr(limiter, "_storage", None)
+    if storage is not None and hasattr(storage, "reset"):
+        try:
+            storage.reset()
+        except Exception:
+            pass
+    yield
+
+
+# ---------------------------------------------------------------------------
 # HTTP client fixture — overrides DB and bypasses setup-complete check
 # ---------------------------------------------------------------------------
 

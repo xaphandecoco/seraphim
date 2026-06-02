@@ -92,6 +92,21 @@ async def _make_task(
     return task, det
 
 
+async def _seed_member(db_session: AsyncSession, contact_id: int):
+    """edit_task/add_task now 404 if the assigned member does not exist."""
+    from app.models import CiviCRMMember
+
+    member = CiviCRMMember(
+        contact_id=contact_id,
+        first_name="Member",
+        last_name=str(contact_id),
+        email=f"member{contact_id}@lnc.test",
+    )
+    db_session.add(member)
+    await db_session.commit()
+    return member
+
+
 # ---------------------------------------------------------------------------
 # GET /tasks/next
 # ---------------------------------------------------------------------------
@@ -300,6 +315,7 @@ async def test_edit_task_updates_matched_member(
     volunteer_auth_headers,
 ):
     task, detection = await _make_task(db_session)
+    await _seed_member(db_session, 42)
 
     with patch(COOLDOWN_PATH, new=AsyncMock(return_value=None)):
         resp = await client.post(
@@ -365,6 +381,7 @@ async def test_add_task_assigns_member_and_resolves(
     volunteer_auth_headers,
 ):
     task, detection = await _make_task(db_session, matched_name=None)
+    await _seed_member(db_session, 99)
 
     with patch(COOLDOWN_PATH, new=AsyncMock(return_value=None)):
         resp = await client.post(

@@ -53,6 +53,7 @@ def _validate_password_strength(v: str) -> str:
 
 
 class PasswordResetConfirm(BaseModel):
+    email: EmailStr
     token: str
     new_password: str
 

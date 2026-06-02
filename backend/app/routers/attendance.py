@@ -42,8 +42,9 @@ async def list_attendance(
             end = start.replace(hour=23, minute=59, second=59)
             query = query.where(Attendance.created_at >= start, Attendance.created_at <= end)
         except ValueError:
+            # NB: the `status` query param shadows fastapi.status here — use the literal.
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=400,
                 detail="Invalid date format. Use YYYY-MM-DD.",
             )
 

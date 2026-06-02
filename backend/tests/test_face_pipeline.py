@@ -2,7 +2,17 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import numpy as np
+
+def _checkerboard(size: int = 200, block: int = 10) -> np.ndarray:
+    """Deterministic high-variance image that passes the blur quality gate."""
+    img = np.zeros((size, size, 3), dtype=np.uint8)
+    for i in range(0, size, block):
+        for j in range(0, size, block):
+            if ((i // block) + (j // block)) % 2 == 0:
+                img[i:i+block, j:j+block] = 255
+    return img
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.face_pipeline import process_face_crop
@@ -51,12 +61,12 @@ async def test_process_face_crop_quality_fail(db_session: AsyncSession, fake_ctx
 
     assert result["action"] == "skipped"
 
-    detections = (await db_session.execute(Detection.__table__.select())).scalars().all()
+    detections = (await db_session.execute(select(Detection))).scalars().all()
     assert len(detections) == 1
     assert detections[0].status == "skipped"
     assert detections[0].tier == "unknown"
 
-    tasks = (await db_session.execute(Task.__table__.select())).scalars().all()
+    tasks = (await db_session.execute(select(Task))).scalars().all()
     assert len(tasks) == 0
 
 
@@ -85,7 +95,7 @@ async def test_process_face_crop_tier_100_auto_log(
     mock_rec.tier = "100"
     fake_ctx.compreface.recognize = AsyncMock(return_value=mock_rec)
 
-    face = np.zeros((200, 200, 3), dtype=np.uint8)
+    face = _checkerboard()
     result = await process_face_crop(
         face_crop=face,
         camera_id=None,
@@ -96,16 +106,16 @@ async def test_process_face_crop_tier_100_auto_log(
 
     assert result["action"] == "auto_logged"
 
-    detections = (await db_session.execute(Detection.__table__.select())).scalars().all()
+    detections = (await db_session.execute(select(Detection))).scalars().all()
     assert len(detections) == 1
     assert detections[0].tier == "100"
     assert detections[0].status == "auto_logged"
 
-    attendances = (await db_session.execute(Attendance.__table__.select())).scalars().all()
+    attendances = (await db_session.execute(select(Attendance))).scalars().all()
     assert len(attendances) == 1
     assert attendances[0].contact_id == sample_member.contact_id
 
-    tasks = (await db_session.execute(Task.__table__.select())).scalars().all()
+    tasks = (await db_session.execute(select(Task))).scalars().all()
     assert len(tasks) == 0
 
 
@@ -125,7 +135,7 @@ async def test_process_face_crop_tier_91_99_task(
     mock_rec.tier = "91-99"
     fake_ctx.compreface.recognize = AsyncMock(return_value=mock_rec)
 
-    face = np.zeros((200, 200, 3), dtype=np.uint8)
+    face = _checkerboard()
     result = await process_face_crop(
         face_crop=face,
         camera_id=None,
@@ -136,7 +146,7 @@ async def test_process_face_crop_tier_91_99_task(
 
     assert result["action"] == "tasked"
 
-    tasks = (await db_session.execute(Task.__table__.select())).scalars().all()
+    tasks = (await db_session.execute(select(Task))).scalars().all()
     assert len(tasks) == 1
     assert tasks[0].required_approvals == 1
 
@@ -157,7 +167,7 @@ async def test_process_face_crop_tier_below90_task(
     mock_rec.tier = "below90"
     fake_ctx.compreface.recognize = AsyncMock(return_value=mock_rec)
 
-    face = np.zeros((200, 200, 3), dtype=np.uint8)
+    face = _checkerboard()
     result = await process_face_crop(
         face_crop=face,
         camera_id=None,
@@ -168,7 +178,7 @@ async def test_process_face_crop_tier_below90_task(
 
     assert result["action"] == "tasked"
 
-    tasks = (await db_session.execute(Task.__table__.select())).scalars().all()
+    tasks = (await db_session.execute(select(Task))).scalars().all()
     assert len(tasks) == 1
     assert tasks[0].required_approvals == 2
 
@@ -187,7 +197,7 @@ async def test_process_face_crop_deduplicated(db_session: AsyncSession, fake_ctx
     mock_rec.tier = "100"
     fake_ctx.compreface.recognize = AsyncMock(return_value=mock_rec)
 
-    face = np.zeros((200, 200, 3), dtype=np.uint8)
+    face = _checkerboard()
     result = await process_face_crop(
         face_crop=face,
         camera_id=None,
@@ -198,7 +208,7 @@ async def test_process_face_crop_deduplicated(db_session: AsyncSession, fake_ctx
 
     assert result["action"] == "deduplicated"
 
-    detections = (await db_session.execute(Detection.__table__.select())).scalars().all()
+    detections = (await db_session.execute(select(Detection))).scalars().all()
     assert len(detections) == 0
 
 
@@ -213,7 +223,7 @@ async def test_process_face_crop_recognition_failure(
     fake_ctx.dedup.is_duplicate = MagicMock(return_value=False)
     fake_ctx.compreface.recognize = AsyncMock(side_effect=Exception("compreface down"))
 
-    face = np.zeros((200, 200, 3), dtype=np.uint8)
+    face = _checkerboard()
     result = await process_face_crop(
         face_crop=face,
         camera_id=None,
@@ -224,11 +234,11 @@ async def test_process_face_crop_recognition_failure(
 
     assert result["action"] == "tasked"
 
-    detections = (await db_session.execute(Detection.__table__.select())).scalars().all()
+    detections = (await db_session.execute(select(Detection))).scalars().all()
     assert len(detections) == 1
     assert detections[0].tier == "unknown"
 
-    tasks = (await db_session.execute(Task.__table__.select())).scalars().all()
+    tasks = (await db_session.execute(select(Task))).scalars().all()
     assert len(tasks) == 1
     assert tasks[0].required_approvals == 2
 
@@ -249,7 +259,7 @@ async def test_process_face_crop_with_camera_id_and_event_id(
     mock_rec.tier = "unknown"
     fake_ctx.compreface.recognize = AsyncMock(return_value=mock_rec)
 
-    face = np.zeros((200, 200, 3), dtype=np.uint8)
+    face = _checkerboard()
     await process_face_crop(
         face_crop=face,
         camera_id=sample_camera.id,
@@ -258,7 +268,7 @@ async def test_process_face_crop_with_camera_id_and_event_id(
         db_session_factory=fake_db_factory,
     )
 
-    detections = (await db_session.execute(Detection.__table__.select())).scalars().all()
+    detections = (await db_session.execute(select(Detection))).scalars().all()
     assert len(detections) == 1
     assert detections[0].camera_id == sample_camera.id
     assert detections[0].event_id == sample_event.event_id

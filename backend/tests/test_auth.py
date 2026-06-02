@@ -73,7 +73,7 @@ async def test_add_volunteer_admin_only(client: AsyncClient, volunteer_user):
         "email": "new@lightnc.org",
         "name": "New Volunteer",
         "role": "volunteer",
-        "temporary_password": "temppass123",
+        "temporary_password": "TempPass123!",
     }, headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 403
 
@@ -90,7 +90,7 @@ async def test_add_volunteer_success(client: AsyncClient, admin_user):
         "email": "new@lightnc.org",
         "name": "New Volunteer",
         "role": "volunteer",
-        "temporary_password": "temppass123",
+        "temporary_password": "TempPass123!",
     }, headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
     data = resp.json()
