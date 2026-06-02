@@ -1,22 +1,84 @@
+# ============================================================================
 # Caddyfile — HTTPS reverse proxy for Project Seraphim
-# Replace {$DOMAIN} with your actual domain, or set DOMAIN=... in your environment.
+# ============================================================================
+# Caddy terminates TLS (auto-provisions + renews a Let's Encrypt certificate)
+# and proxies to the frontend nginx container, which in turn serves the SPA and
+# proxies /api/* to the backend (stripping the /api prefix). Because nginx owns
+# the /api and /storage routing, Caddy proxies the whole site to ONE upstream.
 #
-# For LAN-only Unraid (no public domain): use Nginx Proxy Manager instead.
+# Used with:  docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d
+#         or: docker compose -f docker-compose.unraid.yml -f docker-compose.caddy.yml up -d
+#
+# DOMAIN:
+#   Set DOMAIN=seraphim.example.org in your env (see .env.production.template).
+#   It must resolve to this host and have ports 80 + 443 reachable so Caddy can
+#   complete the ACME challenge. For a LAN-only Unraid box with no public
+#   domain, use Nginx Proxy Manager instead.
+# ----------------------------------------------------------------------------
 
+# Replace via the DOMAIN env var, or hardcode your domain here, e.g.:
+#   seraphim.example.org {
 {$DOMAIN} {
-    # Proxy everything to the frontend nginx (which already proxies /api to the backend)
-    reverse_proxy seraphim-frontend:80
 
-    # Increase timeouts for SSE connections (/tasks/feed)
-    transport http {
-        read_timeout 3600s
-    }
+	# --- Compression --------------------------------------------------------
+	# Compress text/JSON responses. (Caddy automatically skips already-
+	# compressed types and does not compress Server-Sent Event streams.)
+	encode zstd gzip
 
-    # Security headers (augment the ones set by the backend middleware)
-    header {
-        Strict-Transport-Security "max-age=31536000; includeSubDomains"
-        -Server
-    }
+	# --- Security headers ---------------------------------------------------
+	# These augment (and stay consistent with) the headers set by the backend
+	# middleware. Applied to every response.
+	header {
+		# Force HTTPS for 1 year, including subdomains. Caddy is the TLS edge.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		# Disable MIME-type sniffing.
+		X-Content-Type-Options "nosniff"
+		# Disallow framing (clickjacking protection). frame-ancestors is the
+		# modern CSP equivalent of X-Frame-Options.
+		X-Frame-Options "DENY"
+		Content-Security-Policy "frame-ancestors 'none'"
+		# Don't leak full URLs to third-party origins.
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# Lock down powerful browser features by default.
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		# Hide upstream/proxy server banners.
+		-Server
+		-X-Powered-By
+	}
 
-    encode zstd gzip
+	# --- Server-Sent Events: /tasks/feed ------------------------------------
+	# The SSE endpoint is reached through the SPA as /api/tasks/feed (nginx
+	# strips /api -> backend /tasks/feed). Streamed responses must NOT be
+	# buffered by Caddy, or events arrive in batches / never flush.
+	# `handle` blocks are mutually exclusive, so this path is routed ONLY here
+	# (with no buffering) and never falls through to the catch-all below.
+	#   flush_interval -1  -> flush every write immediately (no buffering)
+	#   transport timeouts -> allow long-lived connections (no read timeout)
+	@sse path /api/tasks/feed /tasks/feed
+	handle @sse {
+		reverse_proxy seraphim-frontend:80 {
+			flush_interval -1
+			header_up X-Forwarded-Proto {scheme}
+			transport http {
+				# 0 = no timeout, so the SSE stream is never cut off mid-flight.
+				read_timeout 0
+				write_timeout 0
+			}
+		}
+	}
+
+	# --- Everything else ----------------------------------------------------
+	# SPA assets + /api/* + auth-gated /storage/** all live behind the frontend
+	# nginx, so a single catch-all upstream is correct.
+	handle {
+		reverse_proxy seraphim-frontend:80 {
+			header_up X-Forwarded-Proto {scheme}
+			transport http {
+				# Generous timeouts for slow uploads / large image responses,
+				# while still bounding non-SSE requests.
+				read_timeout 300s
+				write_timeout 300s
+			}
+		}
+	}
 }

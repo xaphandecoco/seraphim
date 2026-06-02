@@ -1,30 +1,46 @@
+# ============================================================================
 # Optional: Caddy reverse proxy for HTTPS termination
-# Usage: docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d
+# ============================================================================
+# Usage (layer on top of the base or unraid compose file):
+#   docker compose -f docker-compose.yml         -f docker-compose.caddy.yml up -d
+#   docker compose -f docker-compose.unraid.yml  -f docker-compose.caddy.yml up -d
 #
 # Prerequisites:
-#   1. Set DOMAIN=your-domain.com in .env (or replace below)
-#   2. Open ports 80 and 443 on your firewall/router
-#   3. Point your domain DNS A record to your Unraid IP
+#   1. Set DOMAIN=seraphim.example.org in .env / .env.production (see template).
+#   2. Open ports 80 and 443 on your firewall/router.
+#   3. Point your domain's DNS A/AAAA record to your Unraid public IP.
 #
 # Caddy automatically provisions and renews Let's Encrypt certificates.
 # For a local Unraid box with no public domain, use Nginx Proxy Manager instead
 # (available in the Unraid Community Apps store).
+# ----------------------------------------------------------------------------
 
 services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    # Pass the domain through so {$DOMAIN} in the Caddyfile resolves at runtime.
+    environment:
+      - DOMAIN=${DOMAIN}
     ports:
-      - "80:80"
-      - "443:443"
+      - "80:80"     # HTTP -> redirected to HTTPS + ACME HTTP-01 challenge
+      - "443:443"   # HTTPS (also 443/udp below for HTTP/3)
+      - "443:443/udp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
+      - caddy_data:/data       # certificates + ACME account (must persist!)
       - caddy_config:/config
     networks:
       - seraphim-network
     depends_on:
-      - seraphim-frontend
+      seraphim-frontend:
+        condition: service_healthy
+    healthcheck:
+      # Validate the running config parses; cheap liveness signal for Caddy.
+      test: ["CMD", "caddy", "validate", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 volumes:
   caddy_data:

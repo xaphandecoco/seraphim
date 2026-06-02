@@ -2,6 +2,8 @@
 .env
 .env.local
 .env.*.local
+.env.production
+.env.production.local
 
 # Local data directories
 .local-data/
@@ -37,6 +39,9 @@ build/
 *.swp
 *.swo
 *~
+
+# Claude Code (local tooling state — machine-specific)
+.claude/
 
 # OS
 .DS_Store

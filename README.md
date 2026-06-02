@@ -761,30 +761,49 @@ docker compose build --no-cache seraphim-backend
 
 ## Production Deployment (Unraid)
 
+> 📘 **Full step-by-step go-live procedure, E2E smoke checklist, backup/restore,
+> rollback, and a troubleshooting table live in [`docs/PRODUCTION_RUNBOOK.md`](docs/PRODUCTION_RUNBOOK.md).**
+> An automated smoke test is at [`scripts/smoke_test.py`](scripts/smoke_test.py).
+> The summary below is the short version.
+
 ### File Transfer
 Copy project files to Unraid via USB/SMB.
 
 ### Unraid Configuration
 1. Install **Docker Compose Manager** plugin
 2. Create `/mnt/user/appdata/seraphim/` directory
-3. Copy `docker-compose.yml` (and optionally `docker-compose.unraid.yml`), `.env`, and backend/frontend directories
+3. Copy the repo (incl. `docker-compose.unraid.yml`, `docker-compose.caddy.yml`, `Caddyfile`) and backend/frontend directories
 4. Create data directories:
    ```
    /mnt/user/appdata/seraphim/storage/
    /mnt/user/appdata/seraphim/config/
    ```
-5. Update `.env` with production secrets — especially `ENVIRONMENT=production`
-6. Run `docker compose up -d`
-7. Run `docker compose exec seraphim-backend alembic upgrade head`
-8. Complete setup wizard at `http://unraid-ip:3000`
+5. **Generate secrets:** copy `.env.production.template` and run
+   `chmod +x scripts/generate-secrets.sh && ./scripts/generate-secrets.sh`
+   to mint `JWT_SECRET`/`WEBHOOK_SECRET`/`DB_PASSWORD` into `.env.production`,
+   then fill the remaining `__GENERATE_ME__` values (CompreFace, CiviCRM, Google
+   OAuth) and set `DOMAIN=<your host>`. Rename to `.env` so Compose loads it
+   (`.env.production` is gitignored). Keep `ENVIRONMENT=production`.
+6. Bring up the stack (production base + Caddy TLS edge):
+   ```
+   docker compose -f docker-compose.unraid.yml -f docker-compose.caddy.yml up -d --build
+   ```
+   Migrations run automatically via the backend entrypoint (`alembic upgrade head`).
+7. Complete the setup wizard, then **set the active event** (Events page) so
+   detections are logged.
 
 ### Production URLs
 | Service | URL |
 |---------|-----|
+| HTTPS edge (Caddy, auto-TLS) | https://your-domain |
 | Frontend (nginx, proxies /api) | http://unraid-ip:3000 |
 | Backend API (direct) | http://unraid-ip:3001 |
 
-> For HTTPS, put a reverse proxy (Nginx Proxy Manager, Traefik, Cloudflare Tunnel) in front of port 3000. Set `ENVIRONMENT=production` so cookies get the `Secure` flag.
+> **HTTPS is included** via the bundled Caddy reverse proxy (`Caddyfile` +
+> `docker-compose.caddy.yml`): point your domain's DNS at the box, open ports
+> 80+443, set `DOMAIN`, and Caddy auto-provisions a Let's Encrypt cert. Keep the
+> backend (3001), Postgres, and Redis off the public internet. `ENVIRONMENT=production`
+> gives cookies the `Secure` flag.
 
 ---
 

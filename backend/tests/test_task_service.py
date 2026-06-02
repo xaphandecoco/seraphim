@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Detection, Task, TaskAction, VolunteerStat
@@ -512,3 +513,125 @@ async def test_get_task_count_returns_pending_only(db_session: AsyncSession):
     count = await service.get_task_count()
 
     assert count == 2
+
+
+# ============================================================================
+# Dual-approval concurrency guard (partial unique index on approval actions)
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_duplicate_approval_action_violates_unique_index(
+    db_session: AsyncSession,
+):
+    """The partial unique index must reject a second approval TaskAction for the
+    same (task, volunteer) — closing the race where the 'already acted' pre-check
+    is bypassed by a concurrent duplicate submit."""
+    vol = await _seed_volunteer(db_session, "concuniq1@lnc.test")
+    detection = await _seed_detection(db_session)
+    task = await _seed_task(db_session, detection)
+
+    db_session.add(
+        TaskAction(task_id=task.id, volunteer_id=vol.id, action="confirm")
+    )
+    db_session.add(
+        TaskAction(task_id=task.id, volunteer_id=vol.id, action="confirm")
+    )
+
+    with pytest.raises(IntegrityError):
+        await db_session.commit()
+
+    await db_session.rollback()
+
+
+@pytest.mark.asyncio
+async def test_skip_actions_not_blocked_by_approval_unique_index(
+    db_session: AsyncSession,
+):
+    """Regression: the partial index applies ONLY to approval actions, so the same
+    volunteer can still record multiple skip TaskActions on one task."""
+    vol = await _seed_volunteer(db_session, "concuniq2@lnc.test")
+    detection = await _seed_detection(db_session)
+    task = await _seed_task(db_session, detection)
+
+    db_session.add(
+        TaskAction(task_id=task.id, volunteer_id=vol.id, action="skip")
+    )
+    db_session.add(
+        TaskAction(task_id=task.id, volunteer_id=vol.id, action="skip")
+    )
+
+    # Must NOT raise — two skips by one volunteer are legitimate.
+    await db_session.commit()
+
+    from sqlalchemy import func, select
+
+    count = await db_session.execute(
+        select(func.count(TaskAction.id)).where(
+            (TaskAction.task_id == task.id)
+            & (TaskAction.volunteer_id == vol.id)
+            & (TaskAction.action == "skip")
+        )
+    )
+    assert (count.scalar() or 0) == 2
+
+
+@pytest.mark.asyncio
+async def test_skip_task_twice_via_service_not_blocked_by_index(
+    db_session: AsyncSession,
+):
+    """The service-level skip path (which records a skip TaskAction each call) must
+    still allow the same volunteer to skip the same task twice."""
+    vol = await _seed_volunteer(db_session, "concuniq3@lnc.test")
+    detection = await _seed_detection(db_session)
+    task = await _seed_task(db_session, detection)
+
+    service = TaskService(db_session)
+    await service.skip_task(task.id, vol.id, reason="first skip")
+    result = await service.skip_task(task.id, vol.id, reason="second skip")
+
+    assert result.skip_count == 2
+
+
+@pytest.mark.asyncio
+async def test_confirm_after_resolve_by_other_volunteer_raises_400(
+    db_session: AsyncSession,
+):
+    """Cross-volunteer resolve guard: once a 1-approval task is resolved by vol1, a
+    second distinct volunteer's confirm must get a clean 400 (status guard under the
+    row lock), never a double resolve / double attendance log."""
+    vol1 = await _seed_volunteer(db_session, "concres1a@lnc.test")
+    vol2 = await _seed_volunteer(db_session, "concres1b@lnc.test")
+    detection = await _seed_detection(db_session)
+    task = await _seed_task(db_session, detection, required_approvals=1)
+
+    service = TaskService(db_session)
+    first = await service.confirm_task(task.id, vol1.id)
+    assert first.status == "resolved"
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.confirm_task(task.id, vol2.id)
+
+    assert exc_info.value.status_code == 400
+    assert "no longer pending" in exc_info.value.detail.lower()
+
+
+@pytest.mark.asyncio
+async def test_dual_approval_second_distinct_volunteer_resolves_once(
+    db_session: AsyncSession,
+):
+    """For a 2-approval task, two distinct volunteers each confirm once: the second
+    confirm resolves the task exactly once with current_approvals == 2."""
+    vol1 = await _seed_volunteer(db_session, "concres2a@lnc.test")
+    vol2 = await _seed_volunteer(db_session, "concres2b@lnc.test")
+    detection = await _seed_detection(db_session)
+    task = await _seed_task(db_session, detection, required_approvals=2)
+
+    service = TaskService(db_session)
+    first = await service.confirm_task(task.id, vol1.id)
+    assert first.status == "pending"
+    assert first.current_approvals == 1
+
+    second = await service.confirm_task(task.id, vol2.id)
+    assert second.status == "resolved"
+    assert second.current_approvals == 2

@@ -102,6 +102,7 @@
 - Timestamps are naive UTC (`utc_now()`); query code must compare with naive `datetime.now(timezone.utc).replace(tzinfo=None)`
 - Index hot/growing columns (see migration `e2f3a4b5c6d7`); foreign keys with `ON DELETE` specified explicitly
 - SQLAlchemy `default=0` only applies at flush — initialize counters explicitly before `+=` (see `VolunteerStat`)
+- **Dual-approval concurrency** — approval actions (`confirm`/`edit`/`add`) are guarded by a *partial* unique index `uq_task_action_approval` on `task_actions(task_id, volunteer_id)` (declared in the model `__table_args__` with `postgresql_where`/`sqlite_where` so it exists under both `create_all` tests and Postgres, plus a migration). The predicate excludes `skip` on purpose — a volunteer may skip the same task more than once. The approval methods in `task_service.py` load the task `with_for_update()` and convert an `IntegrityError` on commit into a clean 400.
 
 ### Domain rules
 - **Active event** — camera detections are tagged with `dynamic_settings.get_active_event_id()`; attendance is only logged when it's set. Set via `POST /events/set-active`.
@@ -112,8 +113,9 @@
 - All services must have `healthcheck` blocks
 - Use `restart: unless-stopped`
 - `privileged: true` is **not** permitted — use `cap_add` if a specific capability is required
-- `.env` file for secrets (never commit)
+- `.env` file for secrets (never commit; `.env`/`.env.production` are gitignored)
 - Set `ENVIRONMENT=production` in production compose
+- Production deploy: base file is `docker-compose.unraid.yml` + `docker-compose.caddy.yml` (Caddy auto-TLS edge). Mint secrets with `scripts/generate-secrets.sh` from `.env.production.template`. Full go-live + E2E smoke procedure: [`docs/PRODUCTION_RUNBOOK.md`](docs/PRODUCTION_RUNBOOK.md); automated check: `scripts/smoke_test.py`. CI verifies `alembic upgrade head` is clean + idempotent on Postgres.
 
 ## Key Security Rules
 

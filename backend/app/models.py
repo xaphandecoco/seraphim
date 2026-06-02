@@ -5,11 +5,13 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy import JSON
 from sqlalchemy.dialects.postgresql import JSONB as _PG_JSONB
@@ -164,6 +166,22 @@ class TaskAction(Base):
     )  # confirm | edit | add | skip | admin_override | audit_confirm | audit_deny | audit_edit
     reason: Mapped[Optional[str]] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+    # Partial unique index: a volunteer may take at most ONE approval action
+    # (confirm/edit/add) on a given task, but may still skip the same task multiple
+    # times. Declared in the model (not only the migration) because the test suite
+    # builds its schema via `create_all`. Both dialect predicates are provided so the
+    # partial constraint applies on SQLite (tests) and Postgres (prod).
+    __table_args__ = (
+        Index(
+            "uq_task_action_approval",
+            "task_id",
+            "volunteer_id",
+            unique=True,
+            postgresql_where=text("action IN ('confirm', 'edit', 'add')"),
+            sqlite_where=text("action IN ('confirm', 'edit', 'add')"),
+        ),
+    )
 
 
 class Attendance(Base):

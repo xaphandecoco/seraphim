@@ -40,6 +40,52 @@ jobs:
         working-directory: backend
         run: pip-audit -r requirements.txt || true   # advisory
 
+  migrations:
+    # Prove Alembic migrations apply cleanly on a FRESH Postgres and are
+    # idempotent when re-run against the SAME (already-migrated) database.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine   # match the production database image
+        env:
+          POSTGRES_USER: seraphim
+          POSTGRES_PASSWORD: seraphim
+          POSTGRES_DB: seraphim_attendance
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U seraphim -d seraphim_attendance"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      # Alembic reads the DB URL from app.config.legacy_settings.DATABASE_URL,
+      # i.e. the DATABASE_URL env var (async driver, same as production).
+      DATABASE_URL: "postgresql+asyncpg://seraphim:seraphim@localhost:5432/seraphim_attendance"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"   # match the production image
+      - name: Install backend deps
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Upgrade to head on a fresh database
+        working-directory: backend
+        run: alembic upgrade head
+      - name: Re-run upgrade (must be a no-op on an existing DB)
+        working-directory: backend
+        run: alembic upgrade head
+      - name: Show current revision (must be at head)
+        working-directory: backend
+        run: alembic current
+      - name: Check for model/migration drift
+        working-directory: backend
+        # Advisory: flags ORM changes not captured in a migration. Kept
+        # non-blocking (like the other audit steps) because autogenerate can
+        # report cosmetic diffs (server defaults, JSON/JSONB variant) that are
+        # not real problems. The two hard steps above are the idempotency proof.
+        run: alembic check || true
+
   frontend:
     runs-on: ubuntu-latest
     steps:

@@ -3,6 +3,7 @@ from typing import Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy import exists, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import dynamic_settings
@@ -54,7 +55,13 @@ class TaskService:
         self, task_id: int, volunteer_id: int
     ) -> Task:
         """Handle confirm action with dual approval logic."""
-        task = await self.session.get(Task, task_id)
+        # Lock the task row so concurrent approvers serialize on Postgres (no-op on
+        # SQLite, harmless): the second approver then observes the resolved status set
+        # by the first and gets a clean 400 instead of double-resolving the task.
+        result = await self.session.execute(
+            select(Task).where(Task.id == task_id).with_for_update()
+        )
+        task = result.scalar_one_or_none()
         if not task:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Task not found"
@@ -96,7 +103,17 @@ class TaskService:
         else:
             task.status = "pending"
 
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError:
+            # Partial-unique violation: the same volunteer already has an approval
+            # action on this task (e.g. a concurrent duplicate submit slipped past the
+            # pre-check). Convert to a clean 400 instead of a 500.
+            await self.session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="You have already acted on this task",
+            )
         return task
 
     async def _require_member(self, member_id: int) -> None:
@@ -115,7 +132,13 @@ class TaskService:
         member_id: int,
     ) -> Task:
         """Handle edit action — change assigned member."""
-        task = await self.session.get(Task, task_id)
+        # Lock the task row so concurrent approvers serialize on Postgres (no-op on
+        # SQLite, harmless): the second approver then observes the resolved status set
+        # by the first and gets a clean 400 instead of double-resolving the task.
+        result = await self.session.execute(
+            select(Task).where(Task.id == task_id).with_for_update()
+        )
+        task = result.scalar_one_or_none()
         if not task:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Task not found"
@@ -163,7 +186,17 @@ class TaskService:
         else:
             task.status = "pending"
 
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError:
+            # Partial-unique violation: the same volunteer already has an approval
+            # action on this task (e.g. a concurrent duplicate submit slipped past the
+            # pre-check). Convert to a clean 400 instead of a 500.
+            await self.session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="You have already acted on this task",
+            )
         return task
 
     async def add_task(
@@ -173,7 +206,13 @@ class TaskService:
         member_id: int,
     ) -> Task:
         """Handle add action — assign unidentified face to member."""
-        task = await self.session.get(Task, task_id)
+        # Lock the task row so concurrent approvers serialize on Postgres (no-op on
+        # SQLite, harmless): the second approver then observes the resolved status set
+        # by the first and gets a clean 400 instead of double-resolving the task.
+        result = await self.session.execute(
+            select(Task).where(Task.id == task_id).with_for_update()
+        )
+        task = result.scalar_one_or_none()
         if not task:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Task not found"
@@ -222,7 +261,17 @@ class TaskService:
         else:
             task.status = "pending"
 
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError:
+            # Partial-unique violation: the same volunteer already has an approval
+            # action on this task (e.g. a concurrent duplicate submit slipped past the
+            # pre-check). Convert to a clean 400 instead of a 500.
+            await self.session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="You have already acted on this task",
+            )
         return task
 
     async def skip_task(
