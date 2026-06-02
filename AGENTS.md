@@ -98,8 +98,15 @@
 ### Database
 - Alembic migrations for all schema changes
 - Never modify migration files after they are applied
-- Use `TIMESTAMP WITH TIME ZONE` for all timestamps
-- Foreign keys with `ON DELETE` specified explicitly
+- JSON columns use `JSON().with_variant(JSONB, "postgresql")` (jsonb in prod, JSON for SQLite tests) — see `models.py`
+- Timestamps are naive UTC (`utc_now()`); query code must compare with naive `datetime.now(timezone.utc).replace(tzinfo=None)`
+- Index hot/growing columns (see migration `e2f3a4b5c6d7`); foreign keys with `ON DELETE` specified explicitly
+- SQLAlchemy `default=0` only applies at flush — initialize counters explicitly before `+=` (see `VolunteerStat`)
+
+### Domain rules
+- **Active event** — camera detections are tagged with `dynamic_settings.get_active_event_id()`; attendance is only logged when it's set. Set via `POST /events/set-active`.
+- **Member resolution** — the pipeline maps CompreFace `subject_id` → `ComprefaceSubject.contact_id` and stores `matched_name="member:{id}"`; resolve to a display name in API responses.
+- **List endpoints** — always paginate/clamp (`/tasks`, `/logs`, `/attendance`, `/members`).
 
 ### Docker
 - All services must have `healthcheck` blocks
@@ -117,11 +124,11 @@
 - **Face images** — served only through the authenticated `/storage/{path}` route with path-containment checks.
 
 ## Testing
-- Every backend service function should have a unit test
-- Every frontend component with logic should have a component test
-- E2E tests cover: login → task confirm → leaderboard → logout
-- Mock external services (Compreface, CiviCRM, Google OAuth) in unit tests
-- Tests reference `legacy_settings.JWT_SECRET` (not `SECRET_KEY`)
+- Run inside the backend image (Python 3.11, matches prod): `docker compose run --rm seraphim-backend pytest tests/ -q`
+- `conftest.py` uses the app's own engine over a file SQLite DB (so HTTP + pipeline sessions share one DB), creates/drops schema per test, sets `REDIS_URL=memory://`, and pre-loads a ≥32-char test JWT secret
+- CI (`.github/workflows/ci.yml`) runs pytest (+ Redis service), frontend build/lint, and `pip-audit`/`npm audit`
+- Mock external services (CompreFace, CiviCRM, Google OAuth) in unit tests
+- When changing behavior, update the tests that assert it (don't leave them asserting old behavior)
 
 ## Git Workflow
 - Do not run `git commit`, `git push`, or any git mutations unless explicitly asked

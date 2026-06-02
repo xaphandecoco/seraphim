@@ -604,10 +604,22 @@ All password fields (setup admin, add-volunteer, reset-confirm) require:
 
 | Similarity Score | Tier | Action | Volunteer Approvals |
 |-----------------|------|--------|---------------------|
-| ≥ 0.98 | `"100"` | Auto-logged to attendance | None |
+| ≥ 0.98 | `"100"` | Auto-logged to attendance (requires active event) | None |
 | 0.91 – 0.979 | `"91-99"` | Task created, 1 volunteer confirms | 1 |
 | < 0.91 | `"below90"` | Task created, 2 volunteers confirm | 2 |
 | No match / Error | `"unknown"` | Task created, 2 volunteers confirm | 2 |
+
+The pipeline resolves the CompreFace subject → CiviCRM `contact_id` for **all** tiers, so review cards show the
+real member name and a plain "Confirm" attributes the correct member. Tier-100 auto-log de-dupes against the
+`(contact_id, event_id)` unique constraint, so a member passing the camera repeatedly in one event yields a single
+attendance row (no crash).
+
+### Active Event
+
+Camera detections are tagged with the **active event** (`active_event_id` admin setting). An admin sets it from the
+**Events** page (`POST /events/set-active`); the RTSP worker reads it via `dynamic_settings.get_active_event_id()`.
+If no active event is set, detections are still created but attendance is **not** logged, and a banner warns on the
+Tasks page. This is the link between a live camera feed and "who attended which service."
 
 ### Dual-Approval Guard
 
@@ -795,14 +807,21 @@ Copy project files to Unraid via USB/SMB.
 | CORS | Restricted to `FRONTEND_URL` only |
 | Webhook | Empty/short `WEBHOOK_SECRET` → process refuses to start; binds `127.0.0.1` |
 | Container privilege | `privileged: true` removed from RTSP worker |
+| API docs | `/docs`, `/redoc`, `/openapi.json` disabled when `ENVIRONMENT=production` |
+| Rate limiting | Keyed on real client IP (`--forwarded-allow-ips=*` behind the proxy); fails **open** if Redis is down (`swallow_errors`) so auth keeps working |
+| List endpoints | `/attendance`, `/members`, `/logs`, `/tasks` all bounded/paginated |
+| DB performance | Indexes on hot columns (`detections.status/created_at`, `tasks.status`, `attendance.push_status`, `logs.timestamp`) |
+| Frontend errors | React `ErrorBoundary` prevents white-screen on render error |
+| CI | `.github/workflows/ci.yml` runs pytest (py3.11 + Redis), build, lint, and dependency audits |
 
 ### Known Gaps
 
 | Priority | Issue | Recommendation |
 |----------|-------|----------------|
-| High | No HTTPS enforcement | Deploy behind reverse proxy with HTTPS termination |
-| Medium | Rate limiting keyed on socket IP | Configure `--forwarded-allow-ips` when behind a proxy |
+| High | No HTTPS enforcement (app sets Secure cookies under `ENVIRONMENT=production`) | **Required:** deploy behind an HTTPS reverse proxy (see `docker-compose.caddy.yml` / `Caddyfile`) |
 | Low | Password reset link in query string | Deliver token out-of-band if higher security needed |
+| Low | No refresh-token revocation list | A stolen refresh token is valid until expiry (7 days); acceptable for on-prem |
+| Low | Secrets at rest in `admin_settings` (plaintext JSONB) | Acceptable on an access-controlled on-prem DB; encrypt if the volume is untrusted |
 
 ---
 
