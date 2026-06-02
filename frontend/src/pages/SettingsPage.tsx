@@ -5,6 +5,7 @@ import { buildPostgresUrl, parsePostgresUrl, buildRedisUrl, parseRedisUrl } from
 import { LogOut, Shield, Users, Camera, Power, AlertTriangle, Database, Settings2, Plug, Upload } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { api } from '@/services/api';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import type { Camera as CameraType } from '@/types';
 
 interface SettingItem {
@@ -187,6 +188,7 @@ export function SettingsPage() {
   const [previewCamera, setPreviewCamera] = useState<{ id: number; name: string } | null>(null);
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -261,9 +263,9 @@ export function SettingsPage() {
   };
 
   const deleteCamera = async (id: number) => {
-    if (!window.confirm('Delete this camera?')) return;
     try {
       await api.delete(`/cameras/${id}`);
+      setConfirmDelete(null);
       fetchData();
       toast.success('Camera deleted');
     } catch (err: any) {
@@ -575,8 +577,9 @@ export function SettingsPage() {
                   Reconnect
                 </button>
                 <button
-                  onClick={() => deleteCamera(cam.id)}
+                  onClick={() => setConfirmDelete(cam.id)}
                   className="rounded-xl bg-red-50 px-2 py-1 text-xs font-medium text-red-600 border border-red-200 transition-all hover:bg-red-100"
+                  aria-label={`Delete ${cam.name}`}
                 >
                   Delete
                 </button>
@@ -891,6 +894,17 @@ export function SettingsPage() {
           </div>
         </div>
       </main>
+
+      {/* Camera delete confirmation */}
+      {confirmDelete !== null && (
+        <ConfirmDialog
+          message="Delete this camera? The stream will stop and its settings will be permanently removed."
+          confirmLabel="Delete Camera"
+          destructive
+          onConfirm={() => deleteCamera(confirmDelete)}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      )}
 
       {/* Camera preview modal */}
       {previewCamera && (

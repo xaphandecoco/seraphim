@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { ArrowLeft, Send, Eye, RotateCcw, AlertCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@/services/api';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 interface AttendanceRecord {
   id: number;
@@ -47,6 +48,7 @@ export function AttendancePage() {
   const [previewing, setPreviewing] = useState(false);
   const [pushing, setPushing] = useState(false);
   const [activeTab, setActiveTab] = useState<'push' | 'deadletter'>('push');
+  const [confirmPush, setConfirmPush] = useState(false);
 
   const { data: events = [] } = useQuery<ChurchEvent[]>({
     queryKey: ['events-list'],
@@ -74,7 +76,12 @@ export function AttendancePage() {
 
   const pushAttendance = async () => {
     if (!selectedEventId) return;
-    if (!window.confirm(`Push attendance for "${previewData?.event_title}"? This will create participant records in CiviCRM.`)) return;
+    setConfirmPush(true);
+  };
+
+  const executePush = async () => {
+    if (!selectedEventId) return;
+    setConfirmPush(false);
     setPushing(true);
     try {
       const res = await api.post(`/attendance/push?event_id=${selectedEventId}`);
@@ -99,6 +106,14 @@ export function AttendancePage() {
 
   return (
     <div className="flex h-screen flex-col pb-20">
+      {confirmPush && previewData && (
+        <ConfirmDialog
+          message={`Push ${previewData.will_attend.length} attendance record${previewData.will_attend.length !== 1 ? 's' : ''} for "${previewData.event_title}" to CiviCRM?`}
+          confirmLabel="Push to CiviCRM"
+          onConfirm={executePush}
+          onCancel={() => setConfirmPush(false)}
+        />
+      )}
       <header className="border-b border-border bg-card/95 px-4 py-3 backdrop-blur-sm">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate('/settings')} aria-label="Back" className="text-foreground/50 hover:text-foreground">

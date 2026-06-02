@@ -11,8 +11,14 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column
+
+# Use SQLAlchemy's cross-dialect JSON type so tests can run on SQLite.
+# On Postgres this is the `json` type; the existing columns in production are `jsonb`
+# (created by migrations) — Alembic autogenerate won't flag a difference since we
+# don't use autogenerate. We gain no JSONB-specific operators, but we don't use any.
+JSONB = JSON
 
 from app.database import Base
 

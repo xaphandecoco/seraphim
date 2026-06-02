@@ -223,7 +223,7 @@ export function SetupPage() {
         </div>
 
         {/* Step indicator */}
-        <div className="mb-6 rounded-2xl border border-border bg-white/90 p-4 shadow-lg shadow-[#F5D547]/10 backdrop-blur-sm">
+        <div className="mb-6 rounded-2xl border border-border bg-white/90 p-4 shadow-lg shadow-primary/10 backdrop-blur-sm">
           <div className="flex items-center justify-between">
             {steps.map((s, idx) => {
               const Icon = s.icon;
@@ -796,7 +796,7 @@ export function SetupPage() {
             <button
               onClick={handleSubmit}
               disabled={loading}
-              className="flex h-12 items-center justify-center gap-1.5 rounded-xl bg-primary px-6 text-sm font-bold text-foreground shadow-md shadow-[#F5D547]/30 transition-all hover:bg-primary/85 active:scale-[0.98] disabled:opacity-50"
+              className="flex h-12 items-center justify-center gap-1.5 rounded-xl bg-primary px-6 text-sm font-bold text-foreground shadow-md shadow-primary/30 transition-all hover:bg-primary/85 active:scale-[0.98] disabled:opacity-50"
             >
               {loading ? 'Setting up...' : 'Complete Setup'}
               <Check size={16} />

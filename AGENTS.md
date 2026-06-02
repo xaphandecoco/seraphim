@@ -40,7 +40,7 @@
 │   │   ├── components/
 │   │   │   ├── layout/      # BottomNav, ProtectedRoute, AdminRoute
 │   │   │   ├── tasks/       # TaskCard, TaskFeed, MemberSearchModal
-│   │   │   └── ui/          # Shared: StateViews (LoadingState, EmptyState, ErrorState)
+│   │   │   └── ui/          # Shared: LoadingState, EmptyState, ErrorState, ConfirmDialog
 │   │   ├── hooks/           # useAuth (in-memory token + refresh)
 │   │   ├── pages/           # Route-level pages (see App.tsx for full list)
 │   │   ├── services/
@@ -83,6 +83,7 @@
 - Mobile-first: all designs start at 375px width
 - `zustand` for auth/task state; `tanstack-query` for server state
 - Toasts via `sonner` — never use `alert()` or `confirm()`; always surface server `detail` messages
+- Destructive confirmations use the `ConfirmDialog` component (`frontend/src/components/ui/ConfirmDialog.tsx`)
 
 ### Auth / Token handling
 - Access token lives **in-memory only** (Zustand) — never in localStorage

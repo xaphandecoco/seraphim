@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { ArrowLeft, UserPlus, UserX, RotateCcw, Copy, Shield, User } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@/services/api';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 interface UserRecord {
   id: number;
@@ -35,6 +36,7 @@ export function UserManagementPage() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [adding, setAdding] = useState(false);
   const [resetLinks, setResetLinks] = useState<Record<number, string>>({});
+  const [confirmDeactivate, setConfirmDeactivate] = useState<{ id: number; email: string } | null>(null);
   const [form, setForm] = useState<AddForm>({
     email: '', name: '', role: 'volunteer', temporary_password: '', confirm_password: '',
   });
@@ -68,10 +70,10 @@ export function UserManagementPage() {
     }
   };
 
-  const deactivate = async (userId: number, email: string) => {
-    if (!window.confirm(`Deactivate ${email}?`)) return;
+  const deactivate = async (userId: number) => {
     try {
       await api.post(`/auth/deactivate/${userId}`);
+      setConfirmDeactivate(null);
       toast.success('Account deactivated');
       queryClient.invalidateQueries({ queryKey: ['users'] });
     } catch (err: any) {
@@ -191,7 +193,7 @@ export function UserManagementPage() {
                     </button>
                     {u.is_active && (
                       <button
-                        onClick={() => deactivate(u.id, u.email)}
+                        onClick={() => setConfirmDeactivate({ id: u.id, email: u.email })}
                         aria-label={`Deactivate ${u.email}`}
                         className="flex h-8 w-8 items-center justify-center rounded-xl border border-red-200 bg-red-50 text-red-500 hover:bg-red-100"
                         title="Deactivate account"
@@ -222,6 +224,16 @@ export function UserManagementPage() {
           </div>
         )}
       </main>
+
+      {confirmDeactivate && (
+        <ConfirmDialog
+          message={`Deactivate ${confirmDeactivate.email}? Their account will be disabled but history is retained.`}
+          confirmLabel="Deactivate"
+          destructive
+          onConfirm={() => deactivate(confirmDeactivate.id)}
+          onCancel={() => setConfirmDeactivate(null)}
+        />
+      )}
     </div>
   );
 }

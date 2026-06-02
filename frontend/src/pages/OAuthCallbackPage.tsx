@@ -31,7 +31,7 @@ export function OAuthCallbackPage() {
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-primary via-[#F9E79F] to-[#FBF8F0]">
       <div className="text-center" aria-live="polite">
         <div
-          className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-[#1F2128]"
+          className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-foreground"
           role="status"
           aria-label="Signing you in"
         />

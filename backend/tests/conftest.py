@@ -4,10 +4,12 @@ from typing import AsyncGenerator
 
 import pytest
 import pytest_asyncio
+import httpx
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
+from app.config import dynamic_settings
 from app.database import Base, get_db
 from app.dependencies import check_setup_complete
 from app.main import app
@@ -19,6 +21,14 @@ TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 engine = create_async_engine(TEST_DATABASE_URL, echo=False)
 AsyncTestSession = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
+# Stable test secret — must be ≥32 chars (matches our fail-fast assertion)
+TEST_JWT_SECRET = "seraphim-test-secret-do-not-use-in-production-x"
+
+# Pre-load the test secret into dynamic_settings so verify_token works in request handlers
+dynamic_settings._settings["jwt_secret"] = TEST_JWT_SECRET
+dynamic_settings._settings["setup_complete"] = True
+dynamic_settings._initialized = True
+
 
 # ---------------------------------------------------------------------------
 # Helper: generate a JWT token for a user dict (no DB call needed)
@@ -26,10 +36,9 @@ AsyncTestSession = sessionmaker(engine, class_=AsyncSession, expire_on_commit=Fa
 
 def make_token(user_id: int, email: str, role: str, name: str = "") -> str:
     """Create a short-lived access token for test auth headers."""
-    from app.config import legacy_settings
     return create_access_token(
         {"sub": str(user_id), "email": email, "name": name, "role": role},
-        secret=legacy_settings.JWT_SECRET,
+        secret=TEST_JWT_SECRET,
         expires_delta=timedelta(minutes=30),
     )
 
@@ -68,7 +77,9 @@ async def client(db_session) -> AsyncGenerator[AsyncClient, None]:
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[check_setup_complete] = override_setup_complete
-    async with AsyncClient(app=app, base_url="http://test") as ac:
+    # httpx 0.23+ requires ASGITransport instead of the deprecated `app=` kwarg
+    transport = httpx.ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
     app.dependency_overrides.clear()
 

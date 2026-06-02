@@ -68,7 +68,7 @@ export function LoginPage() {
           </p>
         </div>
 
-        <div className="rounded-2xl border border-border bg-white/90 p-6 shadow-lg shadow-[#F5D547]/20 backdrop-blur-sm">
+        <div className="rounded-2xl border border-border bg-white/90 p-6 shadow-lg shadow-primary/20 backdrop-blur-sm">
           {googleEnabled && (
             <>
               <button
@@ -133,7 +133,7 @@ export function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary font-bold text-foreground shadow-md shadow-[#F5D547]/30 transition-all hover:bg-primary/85 active:scale-[0.98] disabled:opacity-50"
+              className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary font-bold text-foreground shadow-md shadow-primary/30 transition-all hover:bg-primary/85 active:scale-[0.98] disabled:opacity-50"
             >
               {loading ? 'Signing in…' : 'Sign in'}
               <ArrowRight size={16} aria-hidden="true" />

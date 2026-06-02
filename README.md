@@ -30,6 +30,73 @@ docker compose exec seraphim-backend alembic upgrade head
 
 ---
 
+## Production-Readiness: Go-Live Checklist
+
+All items below were audited and resolved before this system is considered production-ready.
+
+### Part 1 — Security & QA
+
+| # | Item | Status |
+|---|------|--------|
+| A1 | JWT signed with empty secret → fail-fast startup assertion; no silent `or ""` fallback | ✅ |
+| A2 | Setup wizard never reloaded in-memory settings (app → 503 post-setup) → `reload()` called at end of wizard | ✅ |
+| A3 | OAuth state serializer built at import with stale secret → lazy factory per request | ✅ |
+| A4 | Password strength enforced on setup admin only → shared validator applied to all password fields | ✅ |
+| A5 | Access token persisted to localStorage (XSS theft) → in-memory only (Zustand); 401 retries refresh cookie | ✅ |
+| A6 | User enumeration on password-reset → generic "if that email exists" response | ✅ |
+| A7 | `User` model had no `name` column → column added; display names used throughout | ✅ |
+| B1 | Unauthenticated SSRF on `/setup/test-*` → 410 GONE after bootstrap completes | ✅ |
+| B2 | Webhook listener started with empty `WEBHOOK_SECRET` → startup check: refuses if < 32 chars; binds `127.0.0.1` | ✅ |
+| B3 | RTSP worker ran `privileged: true` → removed; FFmpeg needs no host privileges | ✅ |
+| B4 | FFmpeg accepted arbitrary `file://`/`http://` protocols → `rtsp://`/`rtsps://` scheme validation on camera create/update | ✅ |
+| C1 | Single volunteer could double-act (edit→edit) to bypass dual-approval → "already acted" guard on all action types | ✅ |
+| C2 | `skip_reasons` JSONB mutated in-place (silently not saved) → always reassigned | ✅ |
+| C3 | `role` unconstrained string → `Literal["volunteer","admin"]` in schema | ✅ |
+| C4 | Attendance list leaked internal push error fields → explicit `response_model` excluding internals | ✅ |
+| D1 | Prod nginx had no `/api` proxy → `/api/` proxy_pass + SSE headers added | ✅ |
+| D2 | No route served face images → authenticated `/storage/{path}` with path-containment check | ✅ |
+| D3 | SSE `EventSource` cannot send `Authorization` header → `?_t=<token>` query-param auth | ✅ |
+| D4 | Dead setup allow-list in `check_setup_complete` → removed; setup routes ungated | ✅ |
+| D5 | Rate limiter keyed on socket IP (ineffective behind proxy) → documented; configure `--forwarded-allow-ips` when proxy is in place | ⚠️ Operational |
+| E | `python-multipart`, `fastapi`, `Pillow`, `opencv-python-headless`, `cryptography` had known CVEs → bumped to patched releases | ✅ |
+| F1 | Upload accepted unbounded file size → 10 MB byte limit + 25 MP pixel cap | ✅ |
+| F2 | CSP missing `object-src 'none'` / `frame-ancestors 'none'` → added | ✅ |
+| F3 | Dev: SQL echo in prod (`ENVIRONMENT` unset → "development") → `ENVIRONMENT=production` in all prod compose files | ✅ |
+
+### Part 2 — UI/UX & Product
+
+| # | Item | Status |
+|---|------|--------|
+| H1 | Dead "Manage Users / Members" buttons with no `onClick` → replaced with real screen navigation | ✅ |
+| H2 | Google login shown even when OAuth disabled; callback read wrong param → conditional on `/auth/config`; reads `?token=` | ✅ |
+| H3 | SSE event contract mismatch (3 vocabularies) → unified `task_update` event; React-Query fallback polling | ✅ |
+| H4 | `alert()`/`confirm()` browser dialogs → sonner toast + `ConfirmDialog` component | ✅ |
+| H5 | `matched_name` stored as `"member:123"` shown verbatim → resolved to display name in all API responses | ✅ |
+| H6 | Safe Mode banner polled admin-only `/settings` endpoint → moved to public `/health/queue` (no 403) | ✅ |
+| H7 | Logout only cleared local state; refresh cookie persisted → calls `POST /auth/logout` | ✅ |
+| I1 | No UI for add/deactivate/reset-password → `UserManagementPage` | ✅ |
+| I2 | No UI for attendance push → `AttendancePage` with preview, push, dead-letter retry | ✅ |
+| I3 | Settings showed raw key/value dump → `TunablesEditor` grouped form | ✅ |
+| I4 | Events/Members pages listed only → Sync buttons added | ✅ |
+| I5 | Camera list had no preview → Preview button + modal in SettingsPage | ✅ |
+| I6 | Audit backend existed but no UI → `AuditPage` | ✅ |
+| J1 | Components used hardcoded hex values → Tailwind design tokens everywhere | ✅ |
+| J2 | `user-scalable=no` (WCAG fail) → removed; `aria-label` on all icon-only controls | ✅ |
+| J3 | Ad-hoc "Loading…" text → `LoadingState`, `EmptyState`, `ErrorState` components | ✅ |
+| J4 | URL helpers duplicated in SetupPage and SettingsPage → extracted to `connectionUrl.ts` | ✅ |
+| J5 | Setup wizard: Next not gated; Redis password toggle shared state with DB → fixed | ✅ |
+| J6 | Admin bottom-nav 7 tabs at 375 px → "More" sheet groups admin items | ✅ |
+| K1 | Dark mode requested → `darkMode: 'class'` + `.dark` token block + persisted toggle | ✅ |
+| K2 | README claimed PWA but had no manifest/SW → `vite-plugin-pwa` with Workbox SW + manifest | ✅ |
+| K3 | No analytics screen → `DashboardPage` (attendance per event, tiers, volunteer performance, daily queue) | ✅ |
+| K4 | No CSV export → streaming `/analytics/export/attendance` and `/analytics/export/logs` endpoints | ✅ |
+| L1 | `.qoder/agents/*` dead IDE prompts → removed | ✅ |
+| L2 | `contracts/schemas.py` unreferenced by code → removed | ✅ |
+
+> **⚠️ Operational note (D5):** When a reverse proxy sits in front of the backend, configure `uvicorn --forwarded-allow-ips='*'` or equivalent to key rate limiting on real client IPs rather than the proxy IP.
+
+---
+
 ## Table of Contents
 
 - [System Overview](#system-overview)
