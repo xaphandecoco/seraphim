@@ -1,8 +1,12 @@
 # Cloudflare named Tunnel overlay for Project Seraphim.
+# OPTIONAL: Skip this file if you already run a cloudflared connector on Unraid —
+# instead add a Public Hostname ingress rule on your existing tunnel targeting
+# the frontend only (see docs/PRODUCTION_RUNBOOK.md, Option C).
 #
-# Layer it on top of the Unraid base so TLS terminates at Cloudflare's edge and
-# traffic reaches the frontend over the internal Docker network — no inbound host
-# ports, no public DNS A record, and no Let's Encrypt/Caddy needed:
+# For operators WITHOUT an existing tunnel: layer it on top of the Unraid base so TLS
+# terminates at Cloudflare's edge and traffic reaches the frontend over the internal
+# Docker network — no inbound host ports, no public DNS A record, and no
+# Let's Encrypt/Caddy needed:
 #
 #   docker compose -f docker-compose.unraid.yml -f docker-compose.cloudflared.yml up -d
 #

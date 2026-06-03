@@ -771,12 +771,18 @@ docker compose build --no-cache seraphim-backend
 
 ### Deployment Options
 
-**Three access paths now supported:**
+**Four access paths now supported:**
 
-1. **Cloudflare named Tunnel** (recommended for public internet without inbound ports)
-   - Use `docker-compose.unraid.yml` + `docker-compose.cloudflared.yml`
-   - Requires `CLOUDFLARE_TUNNEL_TOKEN` in `.env` (from the Cloudflare Zero Trust dashboard)
-   - SSE works through the named tunnel (15s heartbeat survives the ~100-second idle timeout)
+1. **Cloudflare Tunnel**
+   - **1a. Existing Cloudflare tunnel on Unraid** (no new container)
+     - If you already run a persistent `cloudflared` connector on Unraid (managed separately), add a Public Hostname ingress on your **existing tunnel** targeting the frontend only.
+     - Use `docker-compose.unraid.yml` alone (skip `docker-compose.cloudflared.yml`).
+     - Ingress setup in the Cloudflare Zero Trust dashboard (see `docs/PRODUCTION_RUNBOOK.md`, Option C).
+   - **1b. New Cloudflare named Tunnel**
+     - Use `docker-compose.unraid.yml` + `docker-compose.cloudflared.yml`
+     - Requires `CLOUDFLARE_TUNNEL_TOKEN` in `.env` (from the Cloudflare Zero Trust dashboard)
+     - SSE works through the named tunnel (15s heartbeat survives the ~100-second idle timeout)
+     - Note: `docker-compose.cloudflared.yml` is only needed if you do NOT already run a persistent `cloudflared` connector on Unraid.
 
 2. **Caddy auto-TLS edge** (traditional HTTPS with Let's Encrypt)
    - Use `docker-compose.unraid.yml` + `docker-compose.caddy.yml`

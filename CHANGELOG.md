@@ -6,7 +6,7 @@
 
 - **CompreFace dual-key model (P1)** — Support separate Detection Service and Recognition Service API keys via `COMPREFACE_DETECT_API_KEY` and `COMPREFACE_API_KEY` settings; backward-compatible single-key fallback when either is blank.
 
-- **Cloudflare named Tunnel compose layer (P1)** — New `docker-compose.cloudflared.yml` with pinned cloudflared image (2025.10.0), dashboard-configured ingress, token-based auth (`TUNNEL_TOKEN` env), CLI healthcheck, and integration with Unraid base (use: `docker compose -f docker-compose.unraid.yml -f docker-compose.cloudflared.yml up -d`).
+- **Cloudflare tunnel deployment options (P1)** — `docker-compose.cloudflared.yml` overlay is now **optional** for operators who already run a persistent `cloudflared` connector on Unraid. The existing-tunnel path (add a Public Hostname ingress on your existing tunnel → frontend `:3000` only, no new container) is now first-class and documented in PRODUCTION_RUNBOOK.md Option C. See README Deployment Options for both 1a (existing tunnel) and 1b (new named tunnel) paths.
 
 - **Gitea CI workflow (P1)** — `.gitea/workflows/ci.yml` runs backend pytest (Python 3.11) + frontend build on Gitea Actions; uses `actions/checkout@v4`, `setup-python@v5`, `setup-node@v4`; SQLite + `memory://` Redis for tests; matches prod 3.11 baseline.
 

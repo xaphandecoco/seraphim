@@ -90,14 +90,18 @@ If you are terminating TLS with the bundled Caddy edge:
 - [ ] Confirm the domain resolves: `dig +short seraphim.example.org` returns
       your IP.
 
-> **LAN-only Unraid with no public domain?** You have two good options:
+> **LAN-only Unraid with no public domain?** You have three good options:
 >
 > - **Plain HTTP on the LAN IP** — bring up the base stack alone
 >   (`docker compose -f docker-compose.unraid.yml up -d`). Auth cookies are now
 >   marked `Secure` **per request** (only when the request arrives over HTTPS), so
 >   plain-HTTP access on the LAN IP works without the old login/refresh loop.
 >   HTTPS access still receives hardened `Secure` cookies.
-> - **Cloudflare named Tunnel** — terminate TLS at Cloudflare's edge with no open
+> - **Existing Cloudflare tunnel on Unraid** — if you already run a persistent
+>   `cloudflared` connector on Unraid (managed independently), add a Public
+>   Hostname ingress rule on your **existing tunnel** targeting the frontend only,
+>   with no new Docker container. See **Option C** below.
+> - **New Cloudflare named Tunnel** — terminate TLS at Cloudflare's edge with no open
 >   ports, no DNS A record, and no Let's Encrypt:
 >   1. Create a named Tunnel in the Cloudflare Zero Trust dashboard, copy its
 >      token, and set `CLOUDFLARE_TUNNEL_TOKEN=` in `.env.production`.
@@ -245,6 +249,132 @@ docker compose -f docker-compose.unraid.yml -f docker-compose.caddy.yml logs -f 
 
 > A fast end-to-end sanity check at this point: run the automated smoke test
 > (Section 8) with `--write` once an admin exists (after Section 3).
+
+---
+
+## Option C — Existing Cloudflare tunnel (no new container)
+
+If you already run a persistent `cloudflared` connector on your Unraid host
+(managed from the Cloudflare Zero Trust dashboard independently), you do NOT need
+a second Docker container. Instead, add a Public Hostname ingress rule on your
+**existing tunnel** to expose Seraphim. This path is faster than spinning up a
+new tunnel and reuses your existing connector infrastructure.
+
+### Setup in the Cloudflare Zero Trust Dashboard
+
+1. **Named Tunnels** → Select your existing tunnel.
+2. **Public Hostname** → **Add a public hostname**:
+   - **Public Hostname:** Your chosen domain (e.g., `seraphim.example.org`)
+   - **Service:** `http://<unraid-ip>:3000` (the frontend nginx container port)
+   - Click **Save**. Cloudflare auto-creates a CNAME record pointing to the tunnel.
+
+**Critical:** Do **NOT** add hostnames for `:3001` (backend API), port 5432
+(Postgres), or 6379 (Redis). The frontend is the only public entry point.
+
+### Traffic Flow
+
+```
+Your Browser (HTTPS) → Cloudflare Edge (TLS)
+  → existing cloudflared daemon on Unraid
+  → Frontend nginx (port 3000, :80 inside container)
+  → X-Forwarded-Proto=https (nginx proxy_pass to backend)
+  → Backend (port 3001, :8000 inside container)
+```
+
+The nginx configuration at `frontend/nginx.conf:17–18` forwards
+`X-Forwarded-Proto=https` (added by Cloudflare edge) to the backend, so the
+backend knows the origin was HTTPS. This signals the per-request `_cookie_secure()`
+logic to mark the refresh token `Secure`, and downstream SSE does not drop the
+connection.
+
+### Bring-up & Smoke Test
+
+Start the stack using only the **Unraid base** (no cloudflared overlay):
+
+```bash
+cd /mnt/user/appdata/seraphim/repo
+docker compose -f docker-compose.unraid.yml up -d --build
+```
+
+Then follow the standard bring-up (Sections 2.2–2.4) and first-run (Section 3)
+steps. When the app is live, test end-to-end with the smoke checklist below.
+
+### Securing the Tunneled Deployment
+
+Before announcing the system as live, verify all of the following:
+
+**(a) Ingress rules → frontend only**
+- In the dashboard, confirm only the frontend Public Hostname exists; no hostname
+  targets `:3001`, 5432, or 6379.
+- **Caveat:** The frontend nginx on `:3000` is reachable from anywhere on the
+  Unraid LAN without Cloudflare. The app's own JWT login is the gate for users
+  inside the LAN. If LAN isolation is required, use Cloudflare Access (item (f)
+  below) or restrict the LAN IP with firewall rules.
+
+**(b) `ENVIRONMENT=production` disables API docs**
+- Set `ENVIRONMENT=production` in `.env.production` to disable `/docs`, `/redoc`,
+  and `/openapi.json` (return 404). This is the **primary mitigation** for a
+  misconfigured public hostname that accidentally exposes the OpenAPI UI.
+- Verify: `curl https://<hostname>/docs` returns 404.
+
+**(c) Secrets via `scripts/generate-secrets.sh`**
+- Run the helper to generate JWT secret (≥ 32 bytes), DB password, and webhook
+  secret.
+- Verify no `__GENERATE_ME__` sentinel remains:
+  `grep __GENERATE_ME__ .env.production` (should output nothing).
+
+**(d) Browser refresh → still logged in (Secure cookie check)**
+- Log in to the app over the public hostname.
+- Open **Browser DevTools → Application → Cookies**.
+- Reload the page.
+- **Expected:** The `refresh_token` cookie shows the **`Secure`** flag (✓), and
+  you remain logged in after reload.
+- **If it fails:** The cookie was dropped (likely served over plain HTTP, or
+  missing `ENVIRONMENT=production`). Re-check the proxy setup and try again.
+
+**(e) SSE streams events incrementally (GET buffering check)**
+- Open **Browser DevTools → Network** tab.
+- On the Tasks page, ensure an **active event** is set.
+- Trigger a new detection (via camera or `POST /uploads/faces`).
+- In the Network tab, find `GET /api/tasks/feed` and click it.
+- Scroll to **Response**.
+- **Expected:** The response shows events arriving incrementally over time as
+  they are generated (e.g., `data: {"type":"new_task",...}` lines appearing as
+  the request progresses), **not** all buffered and delivered at once when the
+  connection closes.
+- **If events arrive all at once at the end:** Cloudflare's edge (or a proxy in
+  front) is buffering the stream. As a fallback, use plain HTTP on the LAN
+  (`http://<unraid-ip>:3000`, which bypasses Cloudflare), or deploy via Caddy
+  (`docker-compose.caddy.yml`) for now and open a Cloudflare support issue about
+  named-tunnel GET request buffering (referenced in cloudflared#1449).
+
+**(f) Cloudflare Access SSO (optional, but recommended)**
+- **What it adds:** A second login gate in front of the app. Users must
+  authenticate with a provider (Google, GitHub, Azure, etc.) at the edge before
+  reaching the app.
+- **What it does NOT add:** It does not replace the app's JWT login. Two
+  sequential prompts (Access SSO, then app login) are **expected behavior**.
+- **How to set up:**
+  1. In the Cloudflare dashboard, **Access → Applications → Create an
+     Application → Cloudflare (Dash)** (or equivalent for your account type).
+  2. Set the app domain to `seraphim.example.org` (your Public Hostname).
+  3. Define an **Access Policy** (e.g., allow anyone in a specific email domain,
+     or specific identity providers).
+  4. Save and test from a fresh browser window (you'll see the Access login page
+     before the app login).
+- **Why optional:** The app's own login is sufficient for access control. Access
+  is an additional operational gate to prevent bots and enforce SSO across your
+  organization.
+
+**(g) No public hostname for backend / database**
+- `docker compose exec postgres ...` (internal network, not exposed).
+- Direct backend (`:3001`) is not publicly accessible; only reachable from the
+  Unraid LAN.
+- Verify: `curl https://<hostname>:3001/health` times out (Cloudflare does not
+  route to it).
+
+**When all boxes are checked**, the system is go-live ready over the Cloudflare
+tunnel.
 
 ---
 
