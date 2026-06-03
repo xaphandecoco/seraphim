@@ -98,6 +98,8 @@ class ConnectionTestResponse(BaseModel):
 class ServiceTestRequest(BaseModel):
     compreface_url: Optional[str] = None
     compreface_api_key: Optional[str] = None
+    compreface_detect_api_key: Optional[str] = None
+    compreface_recognize_api_key: Optional[str] = None
     civicrm_url: Optional[str] = None
 
 
@@ -108,25 +110,9 @@ class ServiceTestResponse(BaseModel):
     civicrm_message: str = ""
 
 
-class SetupRequest(BaseModel):
-    database_url: str
-    redis_url: str = "redis://redis:6379/0"
-    compreface_url: str
-    compreface_api_key: str
-    civicrm_url: Optional[str] = None
-    civicrm_api_key: Optional[str] = None
-    civicrm_site_key: Optional[str] = None
-    admin_email: str
-    admin_password: str
-    admin_name: str = "Admin"
-    cameras: List[dict] = []
-    jwt_secret: Optional[str] = None
-
-    @field_validator("admin_password")
-    @classmethod
-    def validate_password_strength(cls, v: str) -> str:
-        return _validate_password_strength(v)
-
+# SetupRequest is defined later in this file (after CameraCreateRequest) so that
+# the List[CameraCreateRequest] annotation resolves at class-body parse time
+# without requiring a forward reference or model_rebuild().
 
 # ============================================================================
 # Tasks
@@ -216,6 +202,30 @@ class CameraUpdateRequest(BaseModel):
         if v is not None:
             return _validate_rtsp_url(v)
         return v
+
+
+class SetupRequest(BaseModel):
+    database_url: str
+    redis_url: str = "redis://redis:6379/0"
+    compreface_url: str
+    compreface_api_key: str = ""
+    compreface_detect_api_key: Optional[str] = None
+    compreface_recognize_api_key: Optional[str] = None
+    civicrm_url: Optional[str] = None
+    civicrm_api_key: Optional[str] = None
+    civicrm_site_key: Optional[str] = None
+    admin_email: str
+    admin_password: str
+    admin_name: str = "Admin"
+    # Typed list ensures rtsp:// validation fires at setup time, not later in the worker.
+    # Defined here (after CameraCreateRequest) to avoid a forward-reference NameError.
+    cameras: List[CameraCreateRequest] = []
+    jwt_secret: Optional[str] = None
+
+    @field_validator("admin_password")
+    @classmethod
+    def validate_password_strength(cls, v: str) -> str:
+        return _validate_password_strength(v)
 
 
 class CameraResponse(BaseModel):

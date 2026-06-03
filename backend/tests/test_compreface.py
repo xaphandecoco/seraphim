@@ -7,9 +7,29 @@ from app.services.compreface import ComprefaceClient, RecognitionResult, _map_ti
 
 @pytest.fixture
 def client():
+    """Dual-key fixture: Detection key and Recognition key are distinct."""
     with patch("app.services.compreface.dynamic_settings") as mock_settings:
         mock_settings.get_compreface_url.return_value = "http://compreface:8000"
-        mock_settings.get_compreface_api_key.return_value = "test-api-key"
+        mock_settings.get_compreface_api_key.return_value = "legacy-api-key"
+        mock_settings.get_compreface_detect_api_key.return_value = "detect-api-key"
+        mock_settings.get_compreface_recognize_api_key.return_value = "recognize-api-key"
+        mock_settings.get_similarity_threshold_high.return_value = 0.98
+        mock_settings.get_similarity_threshold_medium.return_value = 0.91
+        c = ComprefaceClient()
+        yield c
+
+
+@pytest.fixture
+def client_single_key():
+    """Single-key (legacy) fixture: both service-specific keys are blank so the
+    client falls back to the legacy compreface_api_key for both paths."""
+    with patch("app.services.compreface.dynamic_settings") as mock_settings:
+        mock_settings.get_compreface_url.return_value = "http://compreface:8000"
+        mock_settings.get_compreface_api_key.return_value = "legacy-api-key"
+        mock_settings.get_compreface_detect_api_key.return_value = ""
+        mock_settings.get_compreface_recognize_api_key.return_value = ""
+        mock_settings.get_similarity_threshold_high.return_value = 0.98
+        mock_settings.get_similarity_threshold_medium.return_value = 0.91
         c = ComprefaceClient()
         yield c
 
@@ -256,3 +276,140 @@ async def test_detect_connect_error_exhaustion_raises_after_three_attempts(clien
         await client.detect(b"fake_image")
 
     assert client._client.post.call_count == 3
+
+
+# ============================================================================
+# Dual-key routing assertions (ML-S3)
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_detect_sends_detection_service_key(client):
+    """detect() must use the Detection-service key, not the Recognition key."""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"result": []}
+    client._client.post = AsyncMock(return_value=mock_response)
+
+    await client.detect(b"fake_image")
+
+    call_kwargs = client._client.post.call_args
+    sent_headers = call_kwargs.kwargs.get("headers", {})
+    assert sent_headers.get("x-api-key") == "detect-api-key", (
+        "detect() must use detect_api_key (Detection Service), got: "
+        f"{sent_headers.get('x-api-key')}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_recognize_sends_recognition_service_key(client):
+    """recognize() must use the Recognition-service key, not the Detection key."""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"result": []}
+    client._client.post = AsyncMock(return_value=mock_response)
+
+    await client.recognize(b"fake_image")
+
+    call_kwargs = client._client.post.call_args
+    sent_headers = call_kwargs.kwargs.get("headers", {})
+    assert sent_headers.get("x-api-key") == "recognize-api-key", (
+        "recognize() must use recognize_api_key (Recognition Service), got: "
+        f"{sent_headers.get('x-api-key')}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_add_subject_sends_recognition_service_key(client):
+    """add_subject() must use the Recognition-service key."""
+    mock_response = MagicMock()
+    mock_response.status_code = 201
+    client._client.post = AsyncMock(return_value=mock_response)
+
+    await client.add_subject("member:99")
+
+    call_kwargs = client._client.post.call_args
+    sent_headers = call_kwargs.kwargs.get("headers", {})
+    assert sent_headers.get("x-api-key") == "recognize-api-key"
+
+
+@pytest.mark.asyncio
+async def test_add_example_sends_recognition_service_key(client):
+    """add_example() must use the Recognition-service key."""
+    mock_response = MagicMock()
+    mock_response.status_code = 201
+    client._client.post = AsyncMock(return_value=mock_response)
+
+    await client.add_example("member:99", b"fake_image")
+
+    call_kwargs = client._client.post.call_args
+    sent_headers = call_kwargs.kwargs.get("headers", {})
+    assert sent_headers.get("x-api-key") == "recognize-api-key"
+
+
+@pytest.mark.asyncio
+async def test_list_subjects_sends_recognition_service_key(client):
+    """list_subjects() must use the Recognition-service key."""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"subjects": []}
+    client._client.get = AsyncMock(return_value=mock_response)
+
+    await client.list_subjects()
+
+    call_kwargs = client._client.get.call_args
+    sent_headers = call_kwargs.kwargs.get("headers", {})
+    assert sent_headers.get("x-api-key") == "recognize-api-key"
+
+
+@pytest.mark.asyncio
+async def test_delete_subject_sends_recognition_service_key(client):
+    """delete_subject() must use the Recognition-service key."""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    client._client.delete = AsyncMock(return_value=mock_response)
+
+    await client.delete_subject("member:99")
+
+    call_kwargs = client._client.delete.call_args
+    sent_headers = call_kwargs.kwargs.get("headers", {})
+    assert sent_headers.get("x-api-key") == "recognize-api-key"
+
+
+# ============================================================================
+# Single-key fallback assertions (ML-S3 backward-compat)
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_single_key_fallback_detect_uses_legacy_key(client_single_key):
+    """When service-specific keys are blank, detect() falls back to the legacy key."""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"result": []}
+    client_single_key._client.post = AsyncMock(return_value=mock_response)
+
+    await client_single_key.detect(b"fake_image")
+
+    call_kwargs = client_single_key._client.post.call_args
+    sent_headers = call_kwargs.kwargs.get("headers", {})
+    assert sent_headers.get("x-api-key") == "legacy-api-key", (
+        "With blank service-specific keys, detect() must fall back to the legacy key"
+    )
+
+
+@pytest.mark.asyncio
+async def test_single_key_fallback_recognize_uses_legacy_key(client_single_key):
+    """When service-specific keys are blank, recognize() falls back to the legacy key."""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"result": []}
+    client_single_key._client.post = AsyncMock(return_value=mock_response)
+
+    await client_single_key.recognize(b"fake_image")
+
+    call_kwargs = client_single_key._client.post.call_args
+    sent_headers = call_kwargs.kwargs.get("headers", {})
+    assert sent_headers.get("x-api-key") == "legacy-api-key", (
+        "With blank service-specific keys, recognize() must fall back to the legacy key"
+    )

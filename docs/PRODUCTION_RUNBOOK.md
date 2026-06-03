@@ -90,11 +90,24 @@ If you are terminating TLS with the bundled Caddy edge:
 - [ ] Confirm the domain resolves: `dig +short seraphim.example.org` returns
       your IP.
 
-> **LAN-only Unraid with no public domain?** Skip Caddy and use **Nginx Proxy
-> Manager** from the Unraid Community Apps store instead. You still want HTTPS:
-> the app sets `Secure` cookies under `ENVIRONMENT=production`, and those cookies
-> are dropped over plain HTTP, which causes login/refresh loops (see
-> Troubleshooting).
+> **LAN-only Unraid with no public domain?** You have two good options:
+>
+> - **Plain HTTP on the LAN IP** — bring up the base stack alone
+>   (`docker compose -f docker-compose.unraid.yml up -d`). Auth cookies are now
+>   marked `Secure` **per request** (only when the request arrives over HTTPS), so
+>   plain-HTTP access on the LAN IP works without the old login/refresh loop.
+>   HTTPS access still receives hardened `Secure` cookies.
+> - **Cloudflare named Tunnel** — terminate TLS at Cloudflare's edge with no open
+>   ports, no DNS A record, and no Let's Encrypt:
+>   1. Create a named Tunnel in the Cloudflare Zero Trust dashboard, copy its
+>      token, and set `CLOUDFLARE_TUNNEL_TOKEN=` in `.env.production`.
+>   2. Point the tunnel's public-hostname ingress at `http://seraphim-frontend:80`.
+>   3. Start the stack with the cloudflared overlay **instead of** the Caddy one:
+>      `docker compose -f docker-compose.unraid.yml -f docker-compose.cloudflared.yml up -d`
+>   4. For the other commands in this runbook, substitute
+>      `-f docker-compose.cloudflared.yml` wherever you see
+>      `-f docker-compose.caddy.yml`. The `/tasks/feed` SSE endpoint emits a 15s
+>      keepalive so live updates survive Cloudflare's ~100s idle timeout.
 
 ### 1.3 CompreFace reachable (URL + API key)
 

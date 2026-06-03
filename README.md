@@ -32,7 +32,7 @@ docker compose exec seraphim-backend alembic upgrade head
 
 ## Production-Readiness: Go-Live Checklist
 
-All items below were audited and resolved before this system is considered production-ready.
+All items below were audited and resolved before this system is considered production-ready. The system is now deployable on two real-world access paths: **Cloudflare named Tunnel** (HTTPS, no inbound ports) and **plain-HTTP LAN access** (on private networks).
 
 ### Part 1 — Security & QA
 
@@ -45,6 +45,8 @@ All items below were audited and resolved before this system is considered produ
 | A5 | Access token persisted to localStorage (XSS theft) → in-memory only (Zustand); 401 retries refresh cookie | ✅ |
 | A6 | User enumeration on password-reset → generic "if that email exists" response | ✅ |
 | A7 | `User` model had no `name` column → column added; display names used throughout | ✅ |
+| A8 | SSE `/tasks/feed` idle connections drop behind Cloudflare (100-second timeout) → heartbeat keepalive emitted every ≤15s | ✅ |
+| A9 | CompreFace dual-key model (separate Detection / Recognition service keys) not supported → both keys configurable, single-key backward-compat | ✅ |
 | B1 | Unauthenticated SSRF on `/setup/test-*` → 410 GONE after bootstrap completes | ✅ |
 | B2 | Webhook listener started with empty `WEBHOOK_SECRET` → startup check: refuses if < 32 chars; binds `127.0.0.1` | ✅ |
 | B3 | RTSP worker ran `privileged: true` → removed; FFmpeg needs no host privileges | ✅ |
@@ -58,6 +60,7 @@ All items below were audited and resolved before this system is considered produ
 | D3 | SSE `EventSource` cannot send `Authorization` header → `?_t=<token>` query-param auth | ✅ |
 | D4 | Dead setup allow-list in `check_setup_complete` → removed; setup routes ungated | ✅ |
 | D5 | Rate limiter keyed on socket IP (ineffective behind proxy) → documented; configure `--forwarded-allow-ips` when proxy is in place | ⚠️ Operational |
+| D6 | Plain HTTP on LAN breaks login (Secure cookies dropped) → per-request `_cookie_secure()` sets flag only over HTTPS; HTTP works on LAN | ✅ |
 | E | `python-multipart`, `fastapi`, `Pillow`, `opencv-python-headless`, `cryptography` had known CVEs → bumped to patched releases | ✅ |
 | F1 | Upload accepted unbounded file size → 10 MB byte limit + 25 MP pixel cap | ✅ |
 | F2 | CSP missing `object-src 'none'` / `frame-ancestors 'none'` → added | ✅ |
@@ -766,13 +769,32 @@ docker compose build --no-cache seraphim-backend
 > An automated smoke test is at [`scripts/smoke_test.py`](scripts/smoke_test.py).
 > The summary below is the short version.
 
+### Deployment Options
+
+**Three access paths now supported:**
+
+1. **Cloudflare named Tunnel** (recommended for public internet without inbound ports)
+   - Use `docker-compose.unraid.yml` + `docker-compose.cloudflared.yml`
+   - Requires `CLOUDFLARE_TUNNEL_TOKEN` in `.env` (from the Cloudflare Zero Trust dashboard)
+   - SSE works through the named tunnel (15s heartbeat survives the ~100-second idle timeout)
+
+2. **Caddy auto-TLS edge** (traditional HTTPS with Let's Encrypt)
+   - Use `docker-compose.unraid.yml` + `docker-compose.caddy.yml`
+   - Requires `DOMAIN` set to your public hostname
+   - Ports 80 + 443 must be reachable for ACME challenge
+
+3. **Plain HTTP on LAN** (private Unraid on internal network)
+   - Use `docker-compose.unraid.yml` alone
+   - No TLS termination; Secure cookies only set over HTTPS
+   - Works on private networks with per-request `_cookie_secure()` logic
+
 ### File Transfer
 Copy project files to Unraid via USB/SMB.
 
 ### Unraid Configuration
 1. Install **Docker Compose Manager** plugin
 2. Create `/mnt/user/appdata/seraphim/` directory
-3. Copy the repo (incl. `docker-compose.unraid.yml`, `docker-compose.caddy.yml`, `Caddyfile`) and backend/frontend directories
+3. Copy the repo (incl. `docker-compose.unraid.yml`, `docker-compose.caddy.yml`, `docker-compose.cloudflared.yml`, `Caddyfile`) and backend/frontend directories
 4. Create data directories:
    ```
    /mnt/user/appdata/seraphim/storage/
@@ -781,29 +803,38 @@ Copy project files to Unraid via USB/SMB.
 5. **Generate secrets:** copy `.env.production.template` and run
    `chmod +x scripts/generate-secrets.sh && ./scripts/generate-secrets.sh`
    to mint `JWT_SECRET`/`WEBHOOK_SECRET`/`DB_PASSWORD` into `.env.production`,
-   then fill the remaining `__GENERATE_ME__` values (CompreFace, CiviCRM, Google
-   OAuth) and set `DOMAIN=<your host>`. Rename to `.env` so Compose loads it
-   (`.env.production` is gitignored). Keep `ENVIRONMENT=production`.
-6. Bring up the stack (production base + Caddy TLS edge):
-   ```
+   then fill the remaining `__GENERATE_ME__` values (CompreFace, CiviCRM, Google OAuth).
+   - For Caddy: set `DOMAIN=<your host>`
+   - For Cloudflare: set `CLOUDFLARE_TUNNEL_TOKEN=<from dashboard>`
+   - Rename to `.env` so Compose loads it (`.env.production` is gitignored). Keep `ENVIRONMENT=production`.
+6. Bring up the stack using your chosen TLS path:
+   ```bash
+   # Caddy (auto-TLS, requires ports 80+443):
    docker compose -f docker-compose.unraid.yml -f docker-compose.caddy.yml up -d --build
+   
+   # OR Cloudflare Tunnel (no inbound ports):
+   docker compose -f docker-compose.unraid.yml -f docker-compose.cloudflared.yml up -d --build
+   
+   # OR plain HTTP on LAN:
+   docker compose -f docker-compose.unraid.yml up -d --build
    ```
    Migrations run automatically via the backend entrypoint (`alembic upgrade head`).
 7. Complete the setup wizard, then **set the active event** (Events page) so
    detections are logged.
 
 ### Production URLs
-| Service | URL |
-|---------|-----|
-| HTTPS edge (Caddy, auto-TLS) | https://your-domain |
-| Frontend (nginx, proxies /api) | http://unraid-ip:3000 |
-| Backend API (direct) | http://unraid-ip:3001 |
 
-> **HTTPS is included** via the bundled Caddy reverse proxy (`Caddyfile` +
-> `docker-compose.caddy.yml`): point your domain's DNS at the box, open ports
-> 80+443, set `DOMAIN`, and Caddy auto-provisions a Let's Encrypt cert. Keep the
-> backend (3001), Postgres, and Redis off the public internet. `ENVIRONMENT=production`
-> gives cookies the `Secure` flag.
+| Path | Caddy | Cloudflare | LAN HTTP |
+|------|-------|-----------|----------|
+| User-facing app | `https://your-domain` | `https://<your-cloudflare-hostname>` | `http://unraid-ip:3000` |
+| Backend direct | `http://unraid-ip:3001` | `http://unraid-ip:3001` | `http://unraid-ip:3001` |
+
+**TLS / Secure Cookie Logic:**
+- **Caddy** (`docker-compose.caddy.yml`): Point your domain's DNS at the box, open ports 80+443, set `DOMAIN`, and Caddy auto-provisions a Let's Encrypt cert.
+- **Cloudflare Tunnel** (`docker-compose.cloudflared.yml`): No inbound ports needed; tunnel token authenticates to Cloudflare edge. HTTPS is automatic.
+- **LAN HTTP**: Plain HTTP works on private networks via per-request `Secure` flag (only set when serving over HTTPS).
+
+Keep the backend (3001), Postgres, and Redis off the public internet. `ENVIRONMENT=production` enables the `Secure` and `SameSite=lax` flags on cookies.
 
 ---
 

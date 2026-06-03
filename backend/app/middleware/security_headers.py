@@ -14,9 +14,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-XSS-Protection"] = "1; mode=block"
-        response.headers["Strict-Transport-Security"] = (
-            "max-age=31536000; includeSubDomains"
-        )
+        # Only assert HSTS on HTTPS responses. Emitting it on plain-HTTP (LAN access)
+        # would pin HSTS against the plain-HTTP host, causing browsers to refuse
+        # future plain-HTTP connections.
+        if request.url.scheme == "https":
+            response.headers["Strict-Transport-Security"] = (
+                "max-age=31536000; includeSubDomains"
+            )
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             "img-src 'self' data: blob:; "

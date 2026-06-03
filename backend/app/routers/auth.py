@@ -11,7 +11,7 @@ from itsdangerous import URLSafeTimedSerializer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import dynamic_settings, legacy_settings  # legacy_settings kept for ENVIRONMENT/FRONTEND_URL only
+from app.config import dynamic_settings, legacy_settings  # legacy_settings kept for FRONTEND_URL only
 from app.rate_limit import limiter
 from app.database import get_db
 from app.dependencies import get_current_user, require_admin
@@ -43,6 +43,19 @@ def _get_state_serializer() -> URLSafeTimedSerializer:
     if not secret:
         raise HTTPException(status_code=503, detail="Auth not yet configured")
     return URLSafeTimedSerializer(secret, salt="oauth-state")
+
+
+def _cookie_secure(request: Request) -> bool:
+    """Mark auth cookies Secure only when the request actually arrived over HTTPS.
+
+    Behind Cloudflare Tunnel / a TLS-terminating proxy the origin app speaks plain
+    HTTP, but ``request.url.scheme`` reflects ``X-Forwarded-Proto`` (uvicorn runs with
+    ``--proxy-headers --forwarded-allow-ips=*``). On a plain-HTTP LAN address the scheme
+    is ``http`` so we must NOT set Secure, or the browser silently drops the cookie and
+    login appears to fail. This keeps cookies hardened over HTTPS while still working on
+    the LAN IP.
+    """
+    return request.url.scheme == "https"
 
 
 @router.get("/config")
@@ -107,7 +120,7 @@ async def login(
         key="refresh_token",
         value=refresh_token,
         httponly=True,
-        secure=legacy_settings.ENVIRONMENT == "production",
+        secure=_cookie_secure(request),
         samesite="lax",
         max_age=dynamic_settings.get_refresh_token_expire_days() * 86400,
     )
@@ -325,7 +338,7 @@ async def google_login(request: Request, response: Response):
         value=serializer.dumps(state),
         max_age=600,
         httponly=True,
-        secure=legacy_settings.ENVIRONMENT == "production",
+        secure=_cookie_secure(request),
         samesite="lax",
     )
     response.set_cookie(
@@ -333,7 +346,7 @@ async def google_login(request: Request, response: Response):
         value=code_verifier,
         max_age=600,
         httponly=True,
-        secure=legacy_settings.ENVIRONMENT == "production",
+        secure=_cookie_secure(request),
         samesite="lax",
     )
     return response
@@ -433,7 +446,7 @@ async def google_callback(
         key="refresh_token",
         value=refresh_token,
         httponly=True,
-        secure=legacy_settings.ENVIRONMENT == "production",
+        secure=_cookie_secure(request),
         samesite="lax",
         max_age=dynamic_settings.get_refresh_token_expire_days() * 86400,
     )

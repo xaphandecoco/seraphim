@@ -1,3 +1,4 @@
+import json
 import pytest
 import httpx
 from unittest.mock import AsyncMock, patch, MagicMock
@@ -225,8 +226,9 @@ async def test_push_attendance_missing_contact_id_passes_through(client):
     result = await client.push_attendance(contact_id=0, event_id=10)
 
     assert result is True
-    call_kwargs = client._client.post.call_args[1]["data"]
-    assert call_kwargs["contact_id"] == 0
+    data = client._client.post.call_args[1]["data"]
+    params = json.loads(data["json"])
+    assert params["contact_id"] == 0
 
 
 # ============================================================================

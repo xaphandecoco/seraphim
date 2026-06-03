@@ -144,8 +144,56 @@ async def task_feed(request: Request, _t: str | None = None):
         return _Resp(status_code=401)
 
     async def event_generator():
-        async for data in broadcaster.subscribe():
-            yield f"data: {data}\n\n"
+        import asyncio as _asyncio
+        from app.config import dynamic_settings as _ds
+
+        heartbeat = _ds.get_int("sse_heartbeat_seconds", 15)
+        # Sentinel placed by the feeder when broadcaster.subscribe() exits so the
+        # outer loop detects the end-of-stream rather than stalling on keepalives.
+        _EOF = object()
+        queue: _asyncio.Queue = _asyncio.Queue()
+
+        async def _feeder():
+            # broadcaster.subscribe() owns its own pubsub lifecycle (unsubscribe +
+            # close in its finally block), so we just cancel this task to clean up.
+            _cancelled = False
+            try:
+                async for message in broadcaster.subscribe():
+                    await queue.put(message)
+            except _asyncio.CancelledError:
+                _cancelled = True
+                raise
+            finally:
+                # Only signal EOF on normal exit or Redis error — not on cancellation.
+                # When cancelled, the outer generator is already tearing down and will
+                # never read from the queue again.
+                if not _cancelled:
+                    await queue.put(_EOF)
+
+        feeder = _asyncio.ensure_future(_feeder())
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    data = await _asyncio.wait_for(
+                        queue.get(), timeout=heartbeat
+                    )
+                    if data is _EOF:
+                        # Broadcaster exited (Redis error or clean shutdown); stop.
+                        break
+                    yield f"data: {data}\n\n"
+                except _asyncio.TimeoutError:
+                    # SSE comment frame — browsers ignore it; keeps the Cloudflare
+                    # named-tunnel origin connection alive (100s idle timeout).
+                    yield ": keepalive\n\n"
+        except _asyncio.CancelledError:
+            # Re-raise: Starlette relies on CancelledError propagation to detect
+            # client disconnect and stop the generator.
+            raise
+        finally:
+            feeder.cancel()
+            await _asyncio.gather(feeder, return_exceptions=True)
 
     return StreamingResponse(
         event_generator(),

@@ -4,6 +4,7 @@ CiviCRM API v3 client.
 Implements REST API calls for member sync, event sync, and attendance push.
 """
 
+import json
 import logging
 from typing import List, Optional
 
@@ -40,6 +41,24 @@ class CiviCRMClient:
     async def close(self):
         await self._client.aclose()
 
+    def _rest_url(self) -> str:
+        """Build the CiviCRM v3 REST endpoint URL.
+
+        Uses the server-to-server endpoint (extern/rest.php), which authenticates
+        with the site key + user api_key. (civicrm/ajax/rest is for in-browser
+        AJAX inside an authenticated CiviCRM session and is not appropriate for a
+        headless service.)
+
+        The configured civicrm_url may be either the site root
+        (https://example.org) or the CiviCRM dashboard path
+        (https://example.org/civicrm); both resolve to the same extern endpoint.
+        This path is for CiviCRM on WordPress; change it for another CMS.
+        """
+        root = self.base_url.rstrip("/")
+        if root.endswith("/civicrm"):
+            root = root[: -len("/civicrm")]
+        return f"{root}/wp-content/plugins/civicrm/civicrm/extern/rest.php"
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=2, min=2, max=10),
@@ -48,20 +67,24 @@ class CiviCRMClient:
         reraise=True,
     )
     async def _call(self, entity: str, action: str, params: dict) -> dict:
-        """Make a CiviCRM API v3 call."""
+        """Make a CiviCRM API v3 call against extern/rest.php.
+
+        All API parameters are sent as a single JSON-encoded ``json`` field so
+        nested operators like ``{"start_date": {">=": ...}}`` and
+        ``{"options": {"limit": ...}}`` serialize correctly. (Form-encoding a
+        nested dict value silently breaks the request.)
+        """
         if not self.base_url:
             raise RuntimeError("CiviCRM URL not configured")
 
-        url = f"{self.base_url.rstrip('/')}/civicrm/ajax/rest"
         payload = {
             "entity": entity,
             "action": action,
             "api_key": self.api_key,
             "key": self.site_key,
-            "json": 1,
-            **params,
+            "json": json.dumps(params),
         }
-        resp = await self._client.post(url, data=payload)
+        resp = await self._client.post(self._rest_url(), data=payload)
         resp.raise_for_status()
         data = resp.json()
         if data.get("is_error"):
@@ -78,7 +101,7 @@ class CiviCRMClient:
             {
                 "contact_type": "Individual",
                 "return": "id,first_name,last_name,email",
-                "options[limit]": limit,
+                "options": {"limit": limit},
             },
         )
         values = data.get("values", {})
@@ -89,7 +112,7 @@ class CiviCRMClient:
         logger.info("Syncing events from CiviCRM")
         params = {
             "return": "id,title,start_date,end_date",
-            "options[limit]": limit,
+            "options": {"limit": limit},
             "is_active": 1,
         }
         if start_date:
@@ -122,7 +145,7 @@ class CiviCRMClient:
             {
                 "event_id": event_id,
                 "return": "contact_id,contact_id.first_name,contact_id.last_name,contact_id.email",
-                "options[limit]": 2000,
+                "options": {"limit": 2000},
             },
         )
         values = data.get("values", {})

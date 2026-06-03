@@ -60,11 +60,21 @@ class DynamicSettings:
     
     def get_int(self, key: str, default: int = 0) -> int:
         val = self._settings.get(key, default)
-        return int(val) if val is not None else default
-    
+        if val is None:
+            return default
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            return default
+
     def get_float(self, key: str, default: float = 0.0) -> float:
         val = self._settings.get(key, default)
-        return float(val) if val is not None else default
+        if val is None:
+            return default
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return default
     
     def get_bool(self, key: str, default: bool = False) -> bool:
         val = self._settings.get(key, default)
@@ -80,6 +90,12 @@ class DynamicSettings:
     
     def get_compreface_api_key(self) -> str:
         return self.get_str("compreface_api_key", "")
+
+    def get_compreface_detect_api_key(self) -> str:
+        return self.get_str("compreface_detect_api_key", "")
+
+    def get_compreface_recognize_api_key(self) -> str:
+        return self.get_str("compreface_recognize_api_key", "")
     
     def get_civicrm_url(self) -> str:
         return self.get_str("civicrm_url", "")

@@ -1,0 +1,36 @@
+# Cloudflare named Tunnel overlay for Project Seraphim.
+#
+# Layer it on top of the Unraid base so TLS terminates at Cloudflare's edge and
+# traffic reaches the frontend over the internal Docker network — no inbound host
+# ports, no public DNS A record, and no Let's Encrypt/Caddy needed:
+#
+#   docker compose -f docker-compose.unraid.yml -f docker-compose.cloudflared.yml up -d
+#
+# Ingress (which public hostname -> seraphim-frontend:80) is configured in the
+# Cloudflare Zero Trust dashboard for this named tunnel; only the token is needed
+# here. Put the token in your .env as CLOUDFLARE_TUNNEL_TOKEN (see
+# .env.production.template). This overlay is independent of the Caddy overlay —
+# use one or the other, not both.
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:2025.10.0   # pinned — bump deliberately, never use :latest
+    restart: unless-stopped
+    # The tunnel dials OUTBOUND to Cloudflare; it publishes NO host ports.
+    command: tunnel --no-autoupdate run
+    environment:
+      # cloudflared reads TUNNEL_TOKEN; source it from CLOUDFLARE_TUNNEL_TOKEN in .env.
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    networks:
+      - seraphim-network
+    depends_on:
+      - seraphim-frontend
+    healthcheck:
+      # CLI liveness check — cloudflared exposes no local HTTP port to probe.
+      test: ["CMD", "cloudflared", "--version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+networks:
+  seraphim-network:
+    driver: bridge

@@ -1,0 +1,53 @@
+# Primary CI for Project Seraphim — self-hosted Gitea Actions (git.lightnc.org).
+#
+# Mirrors .github/workflows/ci.yml but uses SQLite + in-memory Redis so it needs
+# NO service containers and NO actions/cache backend (the LNC Gitea Act runner has
+# neither). Matches the production Python 3.11 baseline.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"   # match the production image
+      - name: Install backend deps
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff
+      - name: Lint (ruff)
+        working-directory: backend
+        run: ruff check app || true   # advisory until the codebase is fully ruff-clean
+      - name: Tests (SQLite + in-memory Redis — no service containers needed)
+        working-directory: backend
+        env:
+          DATABASE_URL: "sqlite+aiosqlite:///./ci_test.db"
+          REDIS_URL: "memory://"
+          ENVIRONMENT: "test"
+        run: pytest tests/ -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install
+        working-directory: frontend
+        run: npm ci
+      - name: Build (type-check + bundle)
+        working-directory: frontend
+        run: npm run build
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint || true   # advisory

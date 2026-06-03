@@ -29,12 +29,22 @@ class Subject:
     subject: str
 
 
-def _map_tier(similarity: Optional[float]) -> Literal["100", "91-99", "below90", "unknown"]:
+def _map_tier(
+    similarity: Optional[float],
+    high: float = 0.98,
+    medium: float = 0.91,
+) -> Literal["100", "91-99", "below90", "unknown"]:
+    """Map a CompreFace similarity score to a confidence tier.
+
+    Thresholds default to the domain values (≥0.98 → "100", ≥0.91 → "91-99")
+    but callers pass the admin-configurable thresholds from dynamic_settings so
+    the tuning surfaced in the Settings UI actually takes effect.
+    """
     if similarity is None:
         return "unknown"
-    if similarity >= 0.98:
+    if similarity >= high:
         return "100"
-    if similarity >= 0.91:
+    if similarity >= medium:
         return "91-99"
     return "below90"
 
@@ -42,7 +52,18 @@ def _map_tier(similarity: Optional[float]) -> Literal["100", "91-99", "below90",
 class ComprefaceClient:
     def __init__(self):
         self.base_url = dynamic_settings.get_compreface_url().rstrip("/")
-        self.api_key = dynamic_settings.get_compreface_api_key()
+        # Legacy single key — used as fallback when the service-specific keys are blank.
+        _legacy_key = dynamic_settings.get_compreface_api_key()
+        # Detection Service key (POST /api/v1/detection/detect).
+        # Falls back to the legacy key so single-key installs (Recognition-only
+        # service) are unaffected.
+        self.detect_api_key = (
+            dynamic_settings.get_compreface_detect_api_key() or _legacy_key
+        )
+        # Recognition Service key (POST /api/v1/recognition/*, subject CRUD).
+        self.recognize_api_key = (
+            dynamic_settings.get_compreface_recognize_api_key() or _legacy_key
+        )
         self._client = httpx.AsyncClient(timeout=30.0)
 
     async def close(self):
@@ -58,7 +79,7 @@ class ComprefaceClient:
     async def detect(self, image_bytes: bytes) -> List[dict]:
         """Detect faces in image. Returns list of face boxes."""
         url = f"{self.base_url}/api/v1/detection/detect"
-        headers = {"x-api-key": self.api_key}
+        headers = {"x-api-key": self.detect_api_key}
         files = {"file": ("image.jpg", image_bytes, "image/jpeg")}
         resp = await self._client.post(url, headers=headers, files=files)
         resp.raise_for_status()
@@ -85,7 +106,7 @@ class ComprefaceClient:
     )
     async def recognize(self, image_bytes: bytes) -> RecognitionResult:
         url = f"{self.base_url}/api/v1/recognition/recognize"
-        headers = {"x-api-key": self.api_key}
+        headers = {"x-api-key": self.recognize_api_key}
         files = {"file": ("image.jpg", image_bytes, "image/jpeg")}
         resp = await self._client.post(url, headers=headers, files=files)
         resp.raise_for_status()
@@ -114,7 +135,11 @@ class ComprefaceClient:
         best = subjects[0]
         similarity = best.get("similarity")
         subject_id = best.get("subject")
-        tier = _map_tier(similarity)
+        tier = _map_tier(
+            similarity,
+            dynamic_settings.get_similarity_threshold_high(),
+            dynamic_settings.get_similarity_threshold_medium(),
+        )
 
         return RecognitionResult(
             subject_id=subject_id,
@@ -125,20 +150,20 @@ class ComprefaceClient:
 
     async def add_subject(self, subject_id: str) -> bool:
         url = f"{self.base_url}/api/v1/recognition/subjects"
-        headers = {"x-api-key": self.api_key, "Content-Type": "application/json"}
+        headers = {"x-api-key": self.recognize_api_key}
         resp = await self._client.post(url, headers=headers, json={"subject": subject_id})
         return resp.status_code in (200, 201)
 
     async def add_example(self, subject_id: str, image_bytes: bytes) -> bool:
         url = f"{self.base_url}/api/v1/recognition/faces?subject={subject_id}"
-        headers = {"x-api-key": self.api_key}
+        headers = {"x-api-key": self.recognize_api_key}
         files = {"file": ("image.jpg", image_bytes, "image/jpeg")}
         resp = await self._client.post(url, headers=headers, files=files)
         return resp.status_code in (200, 201)
 
     async def list_subjects(self) -> List[Subject]:
         url = f"{self.base_url}/api/v1/recognition/subjects"
-        headers = {"x-api-key": self.api_key}
+        headers = {"x-api-key": self.recognize_api_key}
         resp = await self._client.get(url, headers=headers)
         resp.raise_for_status()
         data = resp.json()
@@ -146,6 +171,6 @@ class ComprefaceClient:
 
     async def delete_subject(self, subject_id: str) -> bool:
         url = f"{self.base_url}/api/v1/recognition/subjects/{subject_id}"
-        headers = {"x-api-key": self.api_key}
+        headers = {"x-api-key": self.recognize_api_key}
         resp = await self._client.delete(url, headers=headers)
         return resp.status_code in (200, 204)

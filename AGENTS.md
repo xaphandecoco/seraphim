@@ -115,7 +115,13 @@
 - `privileged: true` is **not** permitted — use `cap_add` if a specific capability is required
 - `.env` file for secrets (never commit; `.env`/`.env.production` are gitignored)
 - Set `ENVIRONMENT=production` in production compose
-- Production deploy: base file is `docker-compose.unraid.yml` + `docker-compose.caddy.yml` (Caddy auto-TLS edge). Mint secrets with `scripts/generate-secrets.sh` from `.env.production.template`. Full go-live + E2E smoke procedure: [`docs/PRODUCTION_RUNBOOK.md`](docs/PRODUCTION_RUNBOOK.md); automated check: `scripts/smoke_test.py`. CI verifies `alembic upgrade head` is clean + idempotent on Postgres.
+- Production deploy: base file is `docker-compose.unraid.yml` + optional TLS edge:
+  - **Caddy** (auto-renewing Let's Encrypt): `docker compose -f docker-compose.unraid.yml -f docker-compose.caddy.yml up -d` (recommended for public internet)
+  - **Cloudflare named Tunnel** (no inbound ports): `docker compose -f docker-compose.unraid.yml -f docker-compose.cloudflared.yml up -d` (requires `CLOUDFLARE_TUNNEL_TOKEN` in `.env`; see `docker-compose.cloudflared.yml` for config)
+  - **Plain HTTP on LAN** (Unraid private network): `docker compose -f docker-compose.unraid.yml up -d` alone; cookies work via per-request `Secure` flag (plain HTTP = no Secure)
+- Mint secrets with `scripts/generate-secrets.sh` from `.env.production.template`
+- Full go-live + E2E smoke procedure: [`docs/PRODUCTION_RUNBOOK.md`](docs/PRODUCTION_RUNBOOK.md); automated check: `scripts/smoke_test.py`
+- CI verifies `alembic upgrade head` is clean + idempotent on Postgres
 
 ## Key Security Rules
 
@@ -128,7 +134,8 @@
 ## Testing
 - Run inside the backend image (Python 3.11, matches prod): `docker compose run --rm seraphim-backend pytest tests/ -q`
 - `conftest.py` uses the app's own engine over a file SQLite DB (so HTTP + pipeline sessions share one DB), creates/drops schema per test, sets `REDIS_URL=memory://`, and pre-loads a ≥32-char test JWT secret
-- CI (`.github/workflows/ci.yml`) runs pytest (+ Redis service), frontend build/lint, and `pip-audit`/`npm audit`
+- **CI — Primary**: `.gitea/workflows/ci.yml` (self-hosted Gitea Actions at `git.lightnc.org`) — backend pytest (Python 3.11), frontend build/lint; runs on `acts_runner` with `runs-on: ubuntu-latest`; uses `setup-python@v5`, `setup-node@v4`, `actions/checkout@v4`
+- **CI — Mirror**: `.github/workflows/ci.yml` (GitHub Actions) mirrors the Gitea workflow for visibility; primary is Gitea
 - Mock external services (CompreFace, CiviCRM, Google OAuth) in unit tests
 - When changing behavior, update the tests that assert it (don't leave them asserting old behavior)
 

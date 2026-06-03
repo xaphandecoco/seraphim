@@ -44,3 +44,4 @@ pytest-asyncio==0.24.0
 pytest-mock==3.14.0
 respx==0.21.1
 aiosqlite==0.20.0
+PyYAML==6.0.2  # tests/test_deploy_artifacts.py parses compose + CI YAML

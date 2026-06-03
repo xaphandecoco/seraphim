@@ -32,7 +32,8 @@ export function SetupPage() {
     database_url: '',
     redis_url: '',
     compreface_url: '',
-    compreface_api_key: '',
+    compreface_detect_api_key: '',
+    compreface_recognize_api_key: '',
     civicrm_url: '',
     civicrm_api_key: '',
     civicrm_site_key: '',
@@ -51,6 +52,8 @@ export function SetupPage() {
   const [showRedisPassword, setShowRedisPassword] = useState(false);
   const [showAdminPassword, setShowAdminPassword] = useState(false);
   const [showAdminPasswordConfirm, setShowAdminPasswordConfirm] = useState(false);
+  const [showComprefaceDetectKey, setShowComprefaceDetectKey] = useState(false);
+  const [showComprefaceRecognizeKey, setShowComprefaceRecognizeKey] = useState(false);
 
   const [testResult, setTestResult] = useState<{
     database_ok?: boolean;
@@ -119,7 +122,8 @@ export function SetupPage() {
     try {
       const res = await api.post('/setup/test-services', {
         compreface_url: form.compreface_url || undefined,
-        compreface_api_key: form.compreface_api_key || undefined,
+        compreface_detect_api_key: form.compreface_detect_api_key || undefined,
+        compreface_recognize_api_key: form.compreface_recognize_api_key || undefined,
         civicrm_url: form.civicrm_url || undefined,
       });
       setServiceTestResult(res.data);
@@ -164,7 +168,8 @@ export function SetupPage() {
         database_url,
         redis_url,
         compreface_url: form.compreface_url,
-        compreface_api_key: form.compreface_api_key,
+        compreface_detect_api_key: form.compreface_detect_api_key || undefined,
+        compreface_recognize_api_key: form.compreface_recognize_api_key || undefined,
         civicrm_url: form.civicrm_url || undefined,
         civicrm_api_key: form.civicrm_api_key || undefined,
         civicrm_site_key: form.civicrm_site_key || undefined,
@@ -344,10 +349,11 @@ export function SetupPage() {
                     />
                     <button
                       type="button"
+                      aria-label={showDbPassword ? 'Hide Database Password' : 'Show Database Password'}
                       onClick={() => setShowDbPassword(!showDbPassword)}
                       className="absolute right-3 top-[26px] text-foreground/40 hover:text-foreground"
                     >
-                      {showDbPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      {showDbPassword ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
                     </button>
                   </div>
                   <div>
@@ -470,27 +476,62 @@ export function SetupPage() {
 
               {/* Compreface */}
               <div className="rounded-2xl border border-border bg-white/90 p-4 shadow-sm backdrop-blur-sm">
-                <p className="mb-3 text-sm font-bold text-foreground">Compreface</p>
+                <p className="mb-1 text-sm font-bold text-foreground">CompreFace</p>
+                <p className="mb-3 text-xs text-foreground/50">
+                  CompreFace issues one API key per service. Paste the key from each service's application page in the CompreFace dashboard.
+                </p>
                 <div className="space-y-3">
                   <div>
-                    <label className={labelClass}>Service URL</label>
+                    <label htmlFor="compreface-url" className={labelClass}>Service URL</label>
                     <input
+                      id="compreface-url"
                       type="text"
                       value={form.compreface_url}
                       onChange={(e) => setForm({ ...form, compreface_url: e.target.value })}
                       placeholder="http://compreface-api:8080"
                       className={inputClass}
+                      autoComplete="off"
                     />
                   </div>
-                  <div>
-                    <label className={labelClass}>API Key</label>
+                  <div className="relative">
+                    <label htmlFor="compreface-detect-key" className={labelClass}>Detection Service API Key</label>
                     <input
-                      type="text"
-                      value={form.compreface_api_key}
-                      onChange={(e) => setForm({ ...form, compreface_api_key: e.target.value })}
-                      placeholder="Compreface API Key"
-                      className={inputClass}
+                      id="compreface-detect-key"
+                      type={showComprefaceDetectKey ? 'text' : 'password'}
+                      value={form.compreface_detect_api_key}
+                      onChange={(e) => setForm({ ...form, compreface_detect_api_key: e.target.value })}
+                      placeholder="Detection service UUID key"
+                      className={`${inputClass} pr-10`}
+                      autoComplete="off"
                     />
+                    <button
+                      type="button"
+                      aria-label={showComprefaceDetectKey ? 'Hide Detection Service API Key' : 'Show Detection Service API Key'}
+                      onClick={() => setShowComprefaceDetectKey(!showComprefaceDetectKey)}
+                      className="absolute right-3 top-[26px] text-foreground/40 hover:text-foreground"
+                    >
+                      {showComprefaceDetectKey ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <label htmlFor="compreface-recognize-key" className={labelClass}>Recognition Service API Key</label>
+                    <input
+                      id="compreface-recognize-key"
+                      type={showComprefaceRecognizeKey ? 'text' : 'password'}
+                      value={form.compreface_recognize_api_key}
+                      onChange={(e) => setForm({ ...form, compreface_recognize_api_key: e.target.value })}
+                      placeholder="Recognition service UUID key"
+                      className={`${inputClass} pr-10`}
+                      autoComplete="off"
+                    />
+                    <button
+                      type="button"
+                      aria-label={showComprefaceRecognizeKey ? 'Hide Recognition Service API Key' : 'Show Recognition Service API Key'}
+                      onClick={() => setShowComprefaceRecognizeKey(!showComprefaceRecognizeKey)}
+                      className="absolute right-3 top-[26px] text-foreground/40 hover:text-foreground"
+                    >
+                      {showComprefaceRecognizeKey ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -613,10 +654,11 @@ export function SetupPage() {
                     />
                     <button
                       type="button"
+                      aria-label={showAdminPassword ? 'Hide Admin Password' : 'Show Admin Password'}
                       onClick={() => setShowAdminPassword(!showAdminPassword)}
                       className="absolute right-3 top-[26px] text-foreground/40 hover:text-foreground"
                     >
-                      {showAdminPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      {showAdminPassword ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
                     </button>
                   </div>
                   <div className="relative">
@@ -630,10 +672,11 @@ export function SetupPage() {
                     />
                     <button
                       type="button"
+                      aria-label={showAdminPasswordConfirm ? 'Hide Confirm Password' : 'Show Confirm Password'}
                       onClick={() => setShowAdminPasswordConfirm(!showAdminPasswordConfirm)}
                       className="absolute right-3 top-[26px] text-foreground/40 hover:text-foreground"
                     >
-                      {showAdminPasswordConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
+                      {showAdminPasswordConfirm ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
                     </button>
                   </div>
 
@@ -725,7 +768,7 @@ export function SetupPage() {
                   <div className="border-t border-border pt-2">
                     <span className="font-semibold text-foreground/60">Redis</span>
                     <p className="mt-0.5 break-all font-mono text-xs text-foreground">
-                      {buildRedisUrl(redisFields.host, redisFields.port, redisFields.db, redisFields.password)}
+                      {buildRedisUrl(redisFields.host, redisFields.port, redisFields.db, redisFields.password ? '****' : '')}
                     </p>
                   </div>
                   <div className="border-t border-border pt-2">

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { buildPostgresUrl, parsePostgresUrl, buildRedisUrl, parseRedisUrl } from '@/services/connectionUrl';
-import { LogOut, Shield, Users, Camera, Power, AlertTriangle, Database, Settings2, Plug, Upload } from 'lucide-react';
+import { LogOut, Shield, Users, Camera, Power, AlertTriangle, Database, Settings2, Plug, Upload, Server } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { api } from '@/services/api';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -162,6 +162,9 @@ export function SettingsPage() {
   const [redisFields, setRedisFields] = useState({
     host: '', port: '6379', db: '0', password: '',
   });
+  // CompreFace service-specific key editing (empty = keep existing DB value)
+  const [comprefaceDetectKey, setComprefaceDetectKey] = useState('');
+  const [comprefaceRecognizeKey, setComprefaceRecognizeKey] = useState('');
 
   const [testResult, setTestResult] = useState<{
     database_ok?: boolean;
@@ -315,12 +318,14 @@ export function SettingsPage() {
 
     setSystemSaving(true);
     try {
-      await api.put('/settings', {
-        settings: {
-          database_url,
-          redis_url,
-        },
-      });
+      const payload: Record<string, string> = { database_url, redis_url };
+      // Only include CompreFace keys when the operator typed a new value.
+      // Leaving the field blank preserves the existing masked value in the DB.
+      if (comprefaceDetectKey) payload.compreface_detect_api_key = comprefaceDetectKey;
+      if (comprefaceRecognizeKey) payload.compreface_recognize_api_key = comprefaceRecognizeKey;
+      await api.put('/settings', { settings: payload });
+      setComprefaceDetectKey('');
+      setComprefaceRecognizeKey('');
       setShowSystemEdit(false);
       fetchData();
     } catch (err: any) {
@@ -828,6 +833,40 @@ export function SettingsPage() {
                     />
                   </div>
 
+                  <div className="border-t border-border pt-3">
+                    <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                      <Server size={16} />
+                      CompreFace API Keys
+                    </div>
+                    <p className="mt-1 text-xs text-foreground/50">
+                      Leave blank to keep the existing value. CompreFace issues one UUID key per service.
+                    </p>
+                  </div>
+                  <div>
+                    <label htmlFor="settings-compreface-detect-key" className={labelClass}>Detection Service API Key</label>
+                    <input
+                      id="settings-compreface-detect-key"
+                      type="password"
+                      value={comprefaceDetectKey}
+                      onChange={(e) => setComprefaceDetectKey(e.target.value)}
+                      placeholder="Detection service UUID key"
+                      className={inputClass}
+                      autoComplete="off"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="settings-compreface-recognize-key" className={labelClass}>Recognition Service API Key</label>
+                    <input
+                      id="settings-compreface-recognize-key"
+                      type="password"
+                      value={comprefaceRecognizeKey}
+                      onChange={(e) => setComprefaceRecognizeKey(e.target.value)}
+                      placeholder="Recognition service UUID key"
+                      className={inputClass}
+                      autoComplete="off"
+                    />
+                  </div>
+
                   <button
                     onClick={runConnectionTest}
                     disabled={testing}
@@ -854,7 +893,11 @@ export function SettingsPage() {
 
                   <div className="flex gap-2 pt-1">
                     <button
-                      onClick={() => setShowSystemEdit(false)}
+                      onClick={() => {
+                        setShowSystemEdit(false);
+                        setComprefaceDetectKey('');
+                        setComprefaceRecognizeKey('');
+                      }}
                       className="flex h-10 flex-1 items-center justify-center rounded-xl border border-border bg-card text-xs font-semibold text-foreground transition-all hover:bg-background active:scale-[0.98]"
                     >
                       Cancel

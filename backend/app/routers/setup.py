@@ -96,6 +96,10 @@ async def test_services(req: ServiceTestRequest):
 
     if req.compreface_url:
         try:
+            # Health probe only — /api/v1/health requires no API key.
+            # The compreface_detect_api_key / compreface_recognize_api_key fields on
+            # ServiceTestRequest are accepted but intentionally unused here; key
+            # correctness is validated at first inference time, not during setup.
             async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.get(f"{req.compreface_url}/api/v1/health")
                 if resp.status_code == 200:
@@ -111,10 +115,14 @@ async def test_services(req: ServiceTestRequest):
     if req.civicrm_url:
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
+                # Use extern/rest.php (System.check) — the same path the runtime
+                # client uses — so the wizard's connectivity result matches actual
+                # runtime behaviour (B-S5: setup parity fix).
                 resp = await client.get(
-                    f"{req.civicrm_url}/civicrm/ajax/rest",
+                    f"{req.civicrm_url}/extern/rest.php",
                     params={"entity": "System", "action": "check", "json": "1"},
                 )
+                # 200/401/403 all indicate the endpoint exists and CiviCRM is up.
                 if resp.status_code in (200, 401, 403):
                     civicrm_ok = True
                     civicrm_msg = "Endpoint reachable"
@@ -175,7 +183,12 @@ async def create_setup(
         "database_url": req.database_url,
         "redis_url": req.redis_url,
         "compreface_url": req.compreface_url,
+        # Legacy single key (kept for backward-compat fallback in ComprefaceClient)
         "compreface_api_key": req.compreface_api_key,
+        # Per-service keys (Detection / Recognition).  Empty string if not provided;
+        # ComprefaceClient falls back to compreface_api_key when either is blank.
+        "compreface_detect_api_key": req.compreface_detect_api_key or "",
+        "compreface_recognize_api_key": req.compreface_recognize_api_key or "",
         "civicrm_url": req.civicrm_url or "",
         "civicrm_api_key": req.civicrm_api_key or "",
         "civicrm_site_key": req.civicrm_site_key or "",
@@ -200,7 +213,16 @@ async def create_setup(
             key=key,
             value={"value": value},
             category="general",
-            sensitive=key in ("database_url", "redis_url", "compreface_api_key", "civicrm_api_key", "civicrm_site_key", "jwt_secret"),
+            sensitive=key in (
+                "database_url",
+                "redis_url",
+                "compreface_api_key",
+                "compreface_detect_api_key",
+                "compreface_recognize_api_key",
+                "civicrm_api_key",
+                "civicrm_site_key",
+                "jwt_secret",
+            ),
             requires_restart=key in ("database_url", "redis_url"),
         )
         db.add(setting)
@@ -215,14 +237,15 @@ async def create_setup(
     )
     db.add(admin)
 
-    # Create initial cameras if provided
+    # Create initial cameras if provided.  req.cameras is List[CameraCreateRequest]
+    # so rtsp:// validation and field defaults have already been enforced by Pydantic.
     for cam in req.cameras:
         camera = Camera(
-            name=cam.get("name", "Camera"),
-            rtsp_url=cam.get("rtsp_url", ""),
-            zone_label=cam.get("zone_label"),
-            fps=cam.get("fps", 1),
-            enable_health_check=cam.get("enable_health_check", True),
+            name=cam.name,
+            rtsp_url=cam.rtsp_url,
+            zone_label=cam.zone_label,
+            fps=cam.fps,
+            enable_health_check=cam.enable_health_check,
             status="streaming",
         )
         db.add(camera)
