@@ -159,11 +159,32 @@ Uses `ProxyHeadersMiddleware(trusted_hosts="*")` to mirror production uvicorn co
 
 ---
 
+## Backlog Hardening Sprint — Triage Results
+
+| Item | Priority | Status | Notes |
+|------|----------|--------|-------|
+| H1: Test isolation (deterministic double-run green) | High | Done | Session-scoped DB cleanup + `asyncio_default_fixture_loop_scope=session` |
+| H2: Wire `aclose_redis()` into lifespan shutdown | High | Done | FastAPI lifespan now calls `aclose_redis()` for graceful Redis pool release |
+| M2: Rename `verify_token` param `require_type` → `reject_type` | Medium | Done | Renamed across 5 call sites; no behavior change |
+| M3: Annotate `backup.sh` alembic restore hint with code-rollback warning | Medium | Done | Clear caution that `alembic upgrade head` only runs on current images |
+| M4: React-router CVE GHSA-2j2x-hqr9-3h42 fix | Medium | Done | Bumped react-router-dom to 6.30.4 (open-redirect fix) |
+| M5: Add integration smoke test for refresh-token rejection on storage/SSE | Medium | Open | Deferred to next sprint (L9/L10 tests cover core flows) |
+| M6: Document fail-open Redis denylist + biometric consent in RUNBOOK | Medium | Open | Deferred — linked to L9 (GPG encryption docs); document when encryption lands |
+| L4: Remove unused `response: Response` from `/auth/refresh` + `/auth/logout` | Low | Done | Both endpoints now build own Response; no Set-Cookie behavior change |
+| L5: Redis singleton + cleanup (guarantee connection cleanup) | Low | Done | Module-level singleton + `aclose_redis()` for graceful shutdown |
+| L6: nginx log scrubbing on parent `/api/` and `/` blocks | Low | Done | Added `access_log scrubbed;` for defense-in-depth |
+| L7: `isAdmin` re-derived on silent refresh (no stale admin bug) | Low | Done | JWT role decoder in `authStore.setToken()`; comprehensive unit tests |
+| L8: CI uvicorn-pin advisory step (non-blocking, both `.gitea` and `.github`) | Low | Done | Added to both CI workflows; flags pin changes for `test_rate_limit_proxy.py` re-verification |
+| L9: Backup at-rest GPG encryption (env-gated, opt-in) | Low | Open | Deferred to next sprint (architectural decision deferred) |
+| L10: Header bg-card regression (Vitest assertion) | Low | Done | AttendeesPage.test.tsx asserts header uses design token, not hardcoded white |
+| D11: XFF spoofing hardening acceptance (no code change) | Done | Documented | Accepted tradeoff + escalation path already in PRODUCTION_RUNBOOK §7a |
+| D12: Gitea actions/cache unblock | Open | Blocked | Awaiting LNC Gitea cache server; documented as blocked, not to be attempted |
+
 ## Summary
 
-| Category | Count | Notes |
-|----------|-------|-------|
-| High priority (P1) | 0 | All P1 items completed (Cloudflare, SSE, dual-key, Gitea CI) |
-| Medium priority (P2) | 0 | All medium items completed (integration test, nginx scrubbing, token restriction, backup hardening, AGENTS update, background suite, rate-limit test) |
-| Low priority (P3) | 4 | f-string to json.dumps, resource limits, cache setup, Google OAuth docs |
+| Category | Count | Status |
+|----------|-------|--------|
+| Done this sprint (H1–H2, M2–M4, L4–L8, L10) | 10 | Fully implemented, tested, passing CI |
+| Open (defer to next sprint) | 3 | M5, M6, L9 — architectural decisions or larger scope |
+| Blocked (not in scope) | 2 | D11 (already documented), D12 (external dependency) |
 
