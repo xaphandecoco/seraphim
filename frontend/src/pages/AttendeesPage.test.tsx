@@ -179,3 +179,20 @@ describe('AttendeesPage — Sync now (I4)', () => {
     });
   });
 });
+
+describe('AttendeesPage — header token (bg-card regression)', () => {
+  it('header uses bg-card design token, not hardcoded bg-white', async () => {
+    const { container } = renderWithClient();
+    // Wait for the page to settle (attendees query resolves).
+    await screen.findByRole('heading', { name: /attendees/i });
+
+    const header = container.querySelector('header');
+    expect(header).not.toBeNull();
+
+    // Must carry the bg-card design token (currently "bg-card/95").
+    expect(header?.className).toContain('bg-card');
+
+    // Must NOT carry any hardcoded white background class.
+    expect(header?.className).not.toContain('bg-white');
+  });
+});
