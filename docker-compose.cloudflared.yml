@@ -28,6 +28,11 @@ services:
       - seraphim-network
     depends_on:
       - seraphim-frontend
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128m
     healthcheck:
       # CLI liveness check — cloudflared exposes no local HTTP port to probe.
       test: ["CMD", "cloudflared", "--version"]

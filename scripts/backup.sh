@@ -12,7 +12,7 @@ echo "=== Seraphim backup started at $(date) ==="
 # 1. PostgreSQL database dump
 DB_FILE="$BACKUP_DIR/db-$DATE.sql.gz"
 echo "Backing up PostgreSQL..."
-docker exec seraphim-postgres pg_dump -U seraphim seraphim_attendance | gzip > "$DB_FILE"
+docker compose -f docker-compose.unraid.yml exec -T postgres pg_dump -U seraphim seraphim_attendance | gzip > "$DB_FILE"
 echo "  Database: $DB_FILE"
 
 # 2. Face image storage (enrolled + detection snapshots)
@@ -41,7 +41,7 @@ find "$BACKUP_DIR" -name "config-*.tar.gz" -mtime +14 -delete
 echo "=== Backup completed at $(date) ==="
 echo ""
 echo "To restore:"
-echo "  DB:      zcat $DB_FILE | docker exec -i seraphim-postgres psql -U seraphim seraphim_attendance"
+echo "  DB:      zcat $DB_FILE | docker compose -f docker-compose.unraid.yml exec -T postgres psql -U seraphim seraphim_attendance"
 echo "  Storage: tar -xzf $STORAGE_FILE -C /mnt/user/appdata/seraphim/"
 echo "  Config:  tar -xzf $CONFIG_FILE -C /mnt/user/appdata/seraphim/"
 echo "  Then:    docker compose exec seraphim-backend alembic upgrade head"

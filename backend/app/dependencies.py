@@ -18,7 +18,8 @@ async def get_current_user(
         )
 
     secret = dynamic_settings.get_jwt_secret()
-    payload = verify_token(credentials.credentials, secret)
+    # S1/B-1 Critical: Bearer-only path must reject refresh tokens (type="refresh")
+    payload = verify_token(credentials.credentials, secret, require_type="refresh")
     if not payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

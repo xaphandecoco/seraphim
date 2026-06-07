@@ -113,6 +113,34 @@ If you are terminating TLS with the bundled Caddy edge:
 >      `-f docker-compose.caddy.yml`. The `/tasks/feed` SSE endpoint emits a 15s
 >      keepalive so live updates survive Cloudflare's ~100s idle timeout.
 
+### 1.2a Google OAuth — single redirect-origin limit
+
+**Google OAuth single redirect origin** — Google Console allows only **one**
+Authorized Redirect URI per OAuth client credential. `FRONTEND_URL` sets both the
+app origin and the OAuth redirect URI (e.g. `https://seraphim.example.org`). If you
+expose the app on a **second origin** (e.g. a LAN IP such as
+`http://192.168.1.50:3000`), logins from that second origin will fail with
+`redirect_uri_mismatch` unless you take one of these steps:
+
+1. Add the second origin as a second **Authorized Redirect URI** in the Google Cloud
+   Console for that OAuth client.
+2. Use only one origin for Google-authenticated logins (e.g. the Cloudflare Tunnel
+   hostname); users on the LAN IP can still log in with a local password account.
+
+### 1.2b nginx log scrubbing
+
+**JWT tokens and access logs** — `/api/tasks/feed` and `/api/storage/` use a
+`?_t=<JWT>` query parameter for EventSource and image requests (browsers cannot set
+Authorization headers for these). The bundled `frontend/nginx.conf` uses the
+`scrubbed` log format for these two location blocks: it logs `$uri` (the path only)
+rather than the full `$request` (which would include `$args`), so JWTs are never
+written to plaintext access logs.
+
+If you replace the bundled nginx with a custom proxy (Caddy, Traefik, etc.), reproduce
+this filtering — a JWT visible in access logs means any reader of those logs can
+replay that token for its remaining lifetime. `access_log off` for those locations is
+also acceptable.
+
 ### 1.3 CompreFace reachable (URL + API key)
 
 CompreFace is external. From the host, confirm it answers:
@@ -373,6 +401,25 @@ Before announcing the system as live, verify all of the following:
 - Verify: `curl https://<hostname>:3001/health` times out (Cloudflare does not
   route to it).
 
+**(h) Google OAuth single-origin note**
+The backend builds the OAuth `redirect_uri` from `request.base_url` at runtime and
+reads `FRONTEND_URL` for the post-login redirect. Google OAuth requires every
+`redirect_uri` to be pre-registered in the Google Cloud Console under Credentials
+-> Authorized Redirect URIs.
+
+If you expose the app on **two origins simultaneously** (e.g., the Cloudflare tunnel
+hostname `https://seraphim.example.org` AND the LAN IP `http://192.168.1.x:3000`),
+Google will reject the OAuth callback for whichever origin is not registered. You
+must either:
+- Register both redirect URIs in Google Console:
+  - `https://seraphim.example.org/auth/google/callback`
+  - `http://192.168.1.x:3000/auth/google/callback` (or the LAN backend port)
+- Or choose one canonical origin and set `FRONTEND_URL` to match it.
+
+Recommended: use the tunnel hostname as the single canonical origin and access the
+LAN only via plain-password login. OAuth via LAN IP requires a second Google Console
+entry and an HTTP-origin (non-Secure) cookie, which browsers increasingly restrict.
+
 **When all boxes are checked**, the system is go-live ready over the Cloudflare
 tunnel.
 
@@ -627,6 +674,83 @@ leave the DB ahead of the code. In that case:
 | No tasks appearing at all | **Safe Mode** on, or queue **saturated** (>= 500 pending) | Check the banners on the Tasks page (and `GET /health/queue` -> `safe_mode` / `saturated`). Turn Safe Mode off in Settings; let the queue drain below the resume limit (400). Verify a camera is `streaming` in Settings. |
 | Face thumbnails show broken icons | Storage volume not mounted into the backend, or not authenticated | Confirm the backend container can read `STORAGE_PATH` and the volume is mounted. Images only serve via authenticated `/storage/{path}`; an unauthenticated request 401s. |
 | Camera offline / no frames | Wrong RTSP URL, scheme rejected, or network unreachable | URL must start with `rtsp://`/`rtsps://`. Test with `ffprobe` (Section 1.5). Use **Preview** in Settings to grab one frame; try **Reconnect**. Verify the camera is powered and on-network. |
+
+---
+
+## 7a. Operational Security Notes
+
+### nginx log scrubbing
+
+`/api/tasks/feed` and `/api/storage/` are served via nginx `location` blocks that
+use a custom `log_format scrubbed`. This format logs `$uri` (the normalized path
+only) instead of `$request` (which includes the full query string). Without this,
+the `?_t=<JWT>` token that EventSource uses for authentication would be written in
+plaintext to `/var/log/nginx/access.log` on every SSE connection and every
+authenticated image load.
+
+The scrubbed format still records: client IP, timestamp, HTTP method, path, status
+code, bytes sent, referer, and user-agent — sufficient for access-pattern analysis
+and debugging, without persisting bearer tokens.
+
+**If you ever re-enable full request logging** (e.g., for a debugging session), treat
+the resulting log files as sensitive material: restrict read access (`chmod 640`,
+readable only by the `nginx` user and a privileged ops group), rotate them promptly,
+and purge them when the debugging session ends. Do not ship unrestricted access logs
+to external log aggregators without scrubbing `?_t=` values at the collector.
+
+### Rate-limit proxy keying (D5)
+
+**How per-client-IP rate limiting works behind nginx / Cloudflare.**
+
+`slowapi.util.get_remote_address` returns `request.client.host`.  The rewrite from
+`X-Forwarded-For` to `request.client.host` is performed by uvicorn's
+`ProxyHeadersMiddleware`, enabled at the server level via:
+
+```
+uvicorn --proxy-headers --forwarded-allow-ips='*'
+```
+
+This flag is set in the Unraid/prod entrypoint.  It is **not** part of the FastAPI
+app object — middleware added via `app.add_middleware(...)` cannot perform this
+rewrite.
+
+**XFF chain through Cloudflare tunnel:**
+
+```
+Browser (real IP) → Cloudflare edge → cloudflared → nginx → backend (uvicorn)
+```
+
+Cloudflare sets `X-Forwarded-For: <visitor-IP>`.  nginx appends its own peer
+(`proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for`), so by the time
+uvicorn sees the header it is `<visitor-IP>, <nginx-peer>`.  With `always-trust`
+(`*`) uvicorn uses the **leftmost** value (`<visitor-IP>`), so rate-limit buckets
+key on the real visitor IP — they do **not** collapse onto the shared cloudflared
+or nginx peer address.
+
+**Decision: nginx XFF reseed is not required.**  Seeding from
+`$http_cf_connecting_ip` is not needed for bucket separation in this
+single-tunnel/LAN deployment.
+
+**Accepted tradeoff — spoofability with `*` trust:**
+
+With `trusted_hosts="*"` the leftmost XFF value is client-spoofable: an attacker
+can send `X-Forwarded-For: <fake-IP>` and nginx will append the real peer address,
+but the fake IP stays leftmost.  This is an accepted tradeoff for a LAN/single-tunnel
+church deployment with no multi-tenant edge exposure.
+
+*Escalation path* if stricter anti-spoofing is needed:
+1. Change `--forwarded-allow-ips` from `*` to the specific cloudflared/nginx peer
+   subnet (e.g. `172.18.0.0/16` for the Docker bridge).
+2. Reseed XFF from `$http_cf_connecting_ip` (or Cloudflare published real-IP ranges)
+   in nginx, so the trusted-peer logic picks the CF-attested IP rather than the
+   leftmost value.
+
+**Version sensitivity:** uvicorn ≥0.40 changed multi-value XFF handling compared
+to 0.32.1 (the pinned production version).  The single-value behavior both versions
+agree on is what this deployment relies on and what the regression test
+(`backend/tests/test_rate_limit_proxy.py`) asserts.  Any `uvicorn` pin bump must
+re-verify rate-limit keying behavior against the new version's `ProxyHeadersMiddleware`
+source before deploying.
 
 ---
 

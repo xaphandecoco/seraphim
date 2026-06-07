@@ -497,3 +497,111 @@ async def test_logout_clears_refresh_token_cookie(client: AsyncClient, admin_use
     logout_resp = await client.post("/auth/logout")
     assert logout_resp.status_code == 200
     assert logout_resp.json()["message"] == "Logged out"
+
+
+# ---------------------------------------------------------------------------
+# S6 — Refresh token rotation + JTI denylist
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_refresh_issues_new_different_cookie(client: AsyncClient, admin_user):
+    """After /auth/refresh, the Set-Cookie header carries a NEW refresh token
+    that is different from the original (rotation proof)."""
+    login_resp = await client.post(
+        "/auth/login",
+        json={"email": "admin@lightnc.org", "password": "adminpass123"},
+    )
+    assert login_resp.status_code == 200
+    # Capture raw Set-Cookie to compare after rotation
+    original_cookie_header = ""
+    for k, v in login_resp.headers.multi_items():
+        if k.lower() == "set-cookie" and v.startswith("refresh_token="):
+            original_cookie_header = v
+    assert original_cookie_header, "no refresh_token cookie on login"
+
+    original_val = original_cookie_header.split("refresh_token=", 1)[1].split(";", 1)[0]
+
+    refresh_resp = await client.post(
+        "/auth/refresh",
+        headers={"Cookie": f"refresh_token={original_val}"},
+    )
+    assert refresh_resp.status_code == 200
+    assert "access_token" in refresh_resp.json()
+
+    # New cookie must be present and different
+    new_cookie_header = ""
+    for k, v in refresh_resp.headers.multi_items():
+        if k.lower() == "set-cookie" and v.startswith("refresh_token="):
+            new_cookie_header = v
+    assert new_cookie_header, "no new refresh_token cookie after rotation"
+    new_val = new_cookie_header.split("refresh_token=", 1)[1].split(";", 1)[0]
+    assert new_val != original_val, "refresh token was NOT rotated (same value returned)"
+
+
+@pytest.mark.asyncio
+async def test_refresh_denied_jti_returns_401(client: AsyncClient, admin_user):
+    """When is_jti_denied returns True for the token's JTI, /auth/refresh must 401."""
+    from app.utils.auth import create_refresh_token
+
+    tok = create_refresh_token(
+        {
+            "sub": str(admin_user.id),
+            "email": admin_user.email,
+            "name": "Admin",
+            "role": admin_user.role,
+        },
+        secret=TEST_JWT_SECRET,
+    )
+
+    # Patch the router-imported name (Constraint #3)
+    with patch("app.routers.auth.is_jti_denied", return_value=True):
+        resp = await client.post(
+            "/auth/refresh",
+            headers={"Cookie": f"refresh_token={tok}"},
+        )
+    assert resp.status_code == 401
+    assert "revoked" in resp.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_logout_still_200_when_cookie_missing(client: AsyncClient):
+    """Logout is always 200 even when no cookie is present (best-effort deny-list)."""
+    resp = await client.post("/auth/logout")
+    assert resp.status_code == 200
+    assert resp.json()["message"] == "Logged out"
+
+
+@pytest.mark.asyncio
+async def test_legacy_refresh_token_without_jti_still_rotates(client: AsyncClient, admin_user):
+    """A refresh token minted before S6 (no jti claim) should still rotate successfully
+    (the old-deny step is skipped; a new token with a fresh jti is issued)."""
+    import jwt as _jwt
+    from datetime import datetime, timezone, timedelta
+
+    # Mint a legacy token manually — no jti
+    payload = {
+        "sub": str(admin_user.id),
+        "email": admin_user.email,
+        "name": "Admin",
+        "role": admin_user.role,
+        "type": "refresh",
+        "exp": datetime.now(timezone.utc) + timedelta(days=7),
+        "iat": datetime.now(timezone.utc),
+    }
+    legacy_tok = _jwt.encode(payload, TEST_JWT_SECRET, algorithm="HS256")
+
+    with patch("app.routers.auth.is_jti_denied", return_value=False):
+        resp = await client.post(
+            "/auth/refresh",
+            headers={"Cookie": f"refresh_token={legacy_tok}"},
+        )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "access_token" in data
+    # New cookie must be present (rotation happened)
+    new_cookie = ""
+    for k, v in resp.headers.multi_items():
+        if k.lower() == "set-cookie" and v.startswith("refresh_token="):
+            new_cookie = v
+    assert new_cookie, "no rotation cookie for legacy (no-jti) token"

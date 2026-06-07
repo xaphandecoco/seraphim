@@ -1,3 +1,5 @@
+import json as _json
+
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -135,7 +137,10 @@ async def confirm_task(
         )
     service = TaskService(db)
     task = await service.confirm_task(task_id, int(user["sub"]))
-    await broadcaster.publish(f'{{"type":"task_update","task_id":{task.id},"status":"{task.status}"}}')
+    await broadcaster.publish(_json.dumps(
+        {"type": "task_update", "task_id": task.id, "status": task.status},
+        separators=(",", ":"),
+    ))
     
     detection = await db.get(Detection, task.detection_id)
     return TaskResponse(
@@ -172,7 +177,10 @@ async def edit_task(
         )
     service = TaskService(db)
     task = await service.edit_task(task_id, int(user["sub"]), member_id)
-    await broadcaster.publish(f'{{"type":"task_update","task_id":{task.id},"status":"{task.status}"}}')
+    await broadcaster.publish(_json.dumps(
+        {"type": "task_update", "task_id": task.id, "status": task.status},
+        separators=(",", ":"),
+    ))
     
     detection = await db.get(Detection, task.detection_id)
     return TaskResponse(
@@ -209,7 +217,10 @@ async def add_task(
         )
     service = TaskService(db)
     task = await service.add_task(task_id, int(user["sub"]), member_id)
-    await broadcaster.publish(f'{{"type":"task_update","task_id":{task.id},"status":"{task.status}"}}')
+    await broadcaster.publish(_json.dumps(
+        {"type": "task_update", "task_id": task.id, "status": task.status},
+        separators=(",", ":"),
+    ))
     
     detection = await db.get(Detection, task.detection_id)
     return TaskResponse(
@@ -246,7 +257,10 @@ async def skip_task(
         )
     service = TaskService(db)
     task = await service.skip_task(task_id, int(user["sub"]), reason)
-    await broadcaster.publish(f'{{"type":"task_update","task_id":{task.id},"status":"{task.status}"}}')
+    await broadcaster.publish(_json.dumps(
+        {"type": "task_update", "task_id": task.id, "status": task.status},
+        separators=(",", ":"),
+    ))
     
     detection = await db.get(Detection, task.detection_id)
     return TaskResponse(
@@ -282,7 +296,10 @@ async def admin_override_task(
     
     service = TaskService(db)
     task = await service.admin_override(task_id, int(user["sub"]))
-    await broadcaster.publish(f'{{"type":"task_update","task_id":{task.id},"status":"{task.status}"}}')
+    await broadcaster.publish(_json.dumps(
+        {"type": "task_update", "task_id": task.id, "status": task.status},
+        separators=(",", ":"),
+    ))
     
     detection = await db.get(Detection, task.detection_id)
     return TaskResponse(

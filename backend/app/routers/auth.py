@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import secrets
+import time
 from datetime import timedelta
 from urllib.parse import urlencode
 
@@ -33,6 +34,7 @@ from app.utils.auth import (
     verify_password,
     verify_token,
 )
+from app.utils.token_denylist import deny_jti, is_jti_denied
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -128,7 +130,21 @@ async def login(
 
 
 @router.post("/logout")
-async def logout(response: Response):
+async def logout(request: Request, response: Response):
+    """Clear the refresh cookie and deny-list the current jti (best-effort)."""
+    refresh_tok = request.cookies.get("refresh_token")
+    if refresh_tok:
+        secret = dynamic_settings.get_jwt_secret()
+        payload = verify_token(refresh_tok, secret)
+        if payload:
+            jti = payload.get("jti")
+            exp = payload.get("exp")
+            if jti and exp:
+                try:
+                    await deny_jti(jti, int(exp))
+                except Exception:
+                    pass  # fail-open: still clear the cookie
+
     response.delete_cookie(key="refresh_token")
     return {"message": "Logged out"}
 
@@ -145,7 +161,14 @@ async def me(current_user: dict = Depends(get_current_user)):
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh_token(request: Request):
+async def refresh_token(request: Request, response: Response):
+    """Issue a new access token and rotate the refresh token (S6).
+
+    Rotation: the old refresh token's jti is added to the denylist; a brand-new
+    refresh token (new jti) is issued and set as the cookie.  Works cleanly under
+    memory:// (deny-list write is best-effort / fail-open).
+    Legacy tokens without a jti still rotate (skip old-deny step).
+    """
     refresh_tok = request.cookies.get("refresh_token")
     if not refresh_tok:
         raise HTTPException(
@@ -161,6 +184,25 @@ async def refresh_token(request: Request):
             detail="Invalid refresh token",
         )
 
+    # Check denylist — reuse of a rotated-away or logged-out refresh token
+    jti = payload.get("jti")
+    if jti and await is_jti_denied(jti):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token has been revoked",
+        )
+
+    # Deny the old jti (rotation) — best-effort, skip if no jti or already expired
+    exp = payload.get("exp")
+    if jti and exp:
+        ttl = int(exp) - int(time.time())
+        if ttl > 0:
+            try:
+                await deny_jti(jti, int(exp))
+            except Exception:
+                pass  # fail-open
+
+    # Issue new access token
     access_token = create_access_token(
         {
             "sub": payload["sub"],
@@ -171,7 +213,32 @@ async def refresh_token(request: Request):
         secret=secret,
         expires_delta=timedelta(minutes=dynamic_settings.get_access_token_expire_minutes()),
     )
-    return TokenResponse(access_token=access_token)
+
+    # Issue new refresh token (new jti — completes rotation)
+    new_refresh = create_refresh_token(
+        {
+            "sub": payload["sub"],
+            "email": payload["email"],
+            "name": payload.get("name"),
+            "role": payload["role"],
+        },
+        secret=secret,
+        expires_delta=timedelta(days=dynamic_settings.get_refresh_token_expire_days()),
+    )
+
+    resp = Response(
+        content=TokenResponse(access_token=access_token).model_dump_json(),
+        media_type="application/json",
+    )
+    resp.set_cookie(
+        key="refresh_token",
+        value=new_refresh,
+        httponly=True,
+        secure=_cookie_secure(request),
+        samesite="lax",
+        max_age=dynamic_settings.get_refresh_token_expire_days() * 86400,
+    )
+    return resp
 
 
 @router.post("/reset-password", response_model=dict)

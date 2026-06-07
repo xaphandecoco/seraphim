@@ -1,5 +1,27 @@
 ## [Unreleased]
 
+### Security
+
+- **PyJWT[crypto] bumped to >=2.13.0** — closes CVE-2026-32597 / GHSA-752w-5fwx-jx9f
+  (critical-header bypass, CVSS 7.5) and four related Snyk issues. All JWT verification
+  calls go through `verify_token()` in `backend/app/utils/auth.py`.
+
+- **Token-type lockdown (S1)** — `verify_token()` now accepts `require_type="refresh"`;
+  Bearer and `?_t=` query-param paths in `/tasks/feed`, `/storage/*`, and all
+  `require_volunteer`/`require_admin` routes now reject tokens with `type="refresh"`,
+  preventing refresh-token replay against the API surface. The HttpOnly cookie path
+  remains permissive (browser `<img>` tags cannot set Authorization headers).
+
+- **Refresh token rotation + JTI denylist (S6)** — `/auth/refresh` now rotates the
+  refresh token on every call (old token deny-listed in Redis by JTI; new token with a
+  fresh JTI issued as the cookie). `/auth/logout` best-effort deny-lists the current JTI
+  before clearing the cookie. The denylist is fail-open under `REDIS_URL=memory://`
+  (tests/CI): rotation still works; only the revocation guarantee degrades.
+
+- **nginx log scrubbing (S2)** — `?_t=<JWT>` query parameters are omitted from nginx
+  access logs for `/api/tasks/feed` and `/api/storage/` via the `scrubbed` log format
+  (logs `$uri`, omits `$args`).
+
 ### Added
 
 - **SSE heartbeat (P1)** — `/tasks/feed` now emits a keepalive heartbeat (`: keepalive\n\n`) every 15 seconds (configurable via `sse_heartbeat_seconds` admin setting), so connections survive idle periods behind Cloudflare's 100-second timeout. Uses Queue-bridge pattern: feeder task + asyncio.Queue with per-request timeout, Broadcaster's existing `finally` cleanup on cancellation.

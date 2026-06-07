@@ -125,15 +125,16 @@ async def task_feed(request: Request, _t: str | None = None):
     secret = dynamic_settings.get_jwt_secret()
     payload = None
 
-    # 1. Bearer header
+    # 1. Bearer header — access tokens only (block type="refresh", S1/Design B)
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
-        payload = verify_token(auth_header.split(" ", 1)[1], secret)
+        payload = verify_token(auth_header.split(" ", 1)[1], secret, require_type="refresh")
 
-    # 2. Query-string token (used by EventSource which can't set headers)
+    # 2. Query-string token (used by EventSource which can't set headers) — access tokens only
     if payload is None and _t:
-        payload = verify_token(_t, secret)
+        payload = verify_token(_t, secret, require_type="refresh")
 
+    # 3. HttpOnly refresh cookie (same-origin, browser EventSource fallback) — any valid token
     if payload is None:
         refresh_tok = request.cookies.get("refresh_token")
         if refresh_tok:
