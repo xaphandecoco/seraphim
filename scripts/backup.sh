@@ -45,3 +45,8 @@ echo "  DB:      zcat $DB_FILE | docker compose -f docker-compose.unraid.yml exe
 echo "  Storage: tar -xzf $STORAGE_FILE -C /mnt/user/appdata/seraphim/"
 echo "  Config:  tar -xzf $CONFIG_FILE -C /mnt/user/appdata/seraphim/"
 echo "  Then:    docker compose exec seraphim-backend alembic upgrade head"
+echo ""
+echo "  ⚠ CAUTION: 'alembic upgrade head' must ONLY be run when restoring to the"
+echo "    CURRENT (unrolled-back) image. If you rolled back the code, do NOT run"
+echo "    this — a rolled-back image may not support the latest migration head."
+echo "    See PRODUCTION_RUNBOOK.md §6.2 for rollback-aware restore procedures."
