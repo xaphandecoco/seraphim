@@ -50,6 +50,45 @@ def make_token(user_id: int, email: str, role: str, name: str = "") -> str:
 
 
 # ---------------------------------------------------------------------------
+# Session-level DB cleanup (H1 — deterministic test isolation)
+#
+# Deletes the SQLite file (+ WAL/SHM siblings) at the START of every test
+# session so that run N+1 starts from a pristine database rather than
+# the leftover state from run N.  Guarded strictly to file-based sqlite
+# URLs so future Postgres URLs (and in-memory :memory: URLs) are no-ops.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="session", autouse=True)
+def _cleanup_sqlite_db_at_session_start():
+    """Remove the SQLite test DB file before the session begins.
+
+    This makes ``pytest tests/ -q`` reproducible across consecutive runs
+    without any manual ``rm`` step.  The per-test ``db_session`` fixture
+    still creates tables on entry and drops them on exit — this fixture
+    only removes the stale file so SQLite opens a fresh empty database.
+    """
+    import pathlib
+
+    url = os.environ.get("DATABASE_URL", "")
+    # Only act on file-based sqlite (not :memory: or postgres)
+    if not url.startswith("sqlite") or ":memory:" in url:
+        return
+
+    # Strip dialect prefixes: sqlite+aiosqlite:///./path or sqlite:///./path
+    # URL format after the scheme is: ///relative or ////absolute
+    after_scheme = url.split("///", 1)[-1]
+    # Normalize: ./file -> file (pathlib resolves it relative to cwd)
+    db_path = pathlib.Path(after_scheme)
+    for suffix in ("", "-wal", "-shm"):
+        candidate = pathlib.Path(str(db_path) + suffix)
+        if candidate.exists():
+            try:
+                candidate.unlink()
+            except OSError:
+                pass
+
+
+# ---------------------------------------------------------------------------
 # DB engine / session fixtures
 # ---------------------------------------------------------------------------
 
