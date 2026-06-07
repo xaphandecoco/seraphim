@@ -27,7 +27,7 @@ const PASSWORD_RULES = [
   { label: 'One uppercase letter', test: (v: string) => /[A-Z]/.test(v) },
   { label: 'One lowercase letter', test: (v: string) => /[a-z]/.test(v) },
   { label: 'One number', test: (v: string) => /[0-9]/.test(v) },
-  { label: 'One special character', test: (v: string) => /[!@#$%^&*()_+\-=\[\]{}|;':",./<>?]/.test(v) },
+  { label: 'One special character', test: (v: string) => /[!@#$%^&*()_+\-=[\]{}|;':",./<>?]/.test(v) },
 ];
 
 export function UserManagementPage() {

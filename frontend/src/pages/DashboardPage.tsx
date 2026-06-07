@@ -4,13 +4,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pi
 import { ArrowLeft, Download } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@/services/api';
-
-const TIER_COLORS: Record<string, string> = {
-  '100': '#22c55e',
-  '91-99': '#f59e0b',
-  'below90': '#ef4444',
-  'unknown': '#9ca3af',
-};
+import { TIER_COLORS, TIER_COLOR_FALLBACK, BAR_COLOR_ACCENT, BAR_COLOR_MUTED } from '@/lib/chartColors';
 
 function downloadCsv(url: string, filename: string) {
   api.get(url, { responseType: 'blob' })
@@ -100,7 +94,7 @@ export function DashboardPage() {
                   formatter={(v: number) => [v, 'Attendees']}
                   contentStyle={{ fontSize: 12, borderRadius: 8 }}
                 />
-                <Bar dataKey="count" fill="hsl(48 90% 62%)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="count" fill={BAR_COLOR_ACCENT} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -123,8 +117,8 @@ export function DashboardPage() {
                 />
                 <YAxis tick={{ fontSize: 10 }} width={28} />
                 <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-                <Bar dataKey="total" name="Total" fill="hsl(220 9% 70%)" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="resolved" name="Resolved" fill="hsl(48 90% 62%)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="total" name="Total" fill={BAR_COLOR_MUTED} radius={[4, 4, 0, 0]} />
+                <Bar dataKey="resolved" name="Resolved" fill={BAR_COLOR_ACCENT} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -149,7 +143,7 @@ export function DashboardPage() {
                   labelLine={false}
                 >
                   {tierData.map((entry: { tier: string }) => (
-                    <Cell key={entry.tier} fill={TIER_COLORS[entry.tier] || '#9ca3af'} />
+                    <Cell key={entry.tier} fill={TIER_COLORS[entry.tier] || TIER_COLOR_FALLBACK} />
                   ))}
                 </Pie>
                 <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />

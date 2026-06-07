@@ -208,7 +208,7 @@ export function SetupPage() {
     { label: 'One uppercase letter', valid: /[A-Z]/.test(form.admin_password) },
     { label: 'One lowercase letter', valid: /[a-z]/.test(form.admin_password) },
     { label: 'One number', valid: /[0-9]/.test(form.admin_password) },
-    { label: 'One special character', valid: /[!@#$%^&*()_+\-=\[\]{}|;':",./<>?]/.test(form.admin_password) },
+    { label: 'One special character', valid: /[!@#$%^&*()_+\-=[\]{}|;':",./<>?]/.test(form.admin_password) },
   ];
 
   const passwordsMatch = form.admin_password_confirm === '' || form.admin_password === form.admin_password_confirm;
