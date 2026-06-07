@@ -62,6 +62,8 @@ async def lifespan(app: FastAPI):
             exc_info=True,
         )
     yield
+    from app.utils.token_denylist import aclose_redis
+    await aclose_redis()
     await engine.dispose()
 
 
@@ -128,11 +130,11 @@ async def task_feed(request: Request, _t: str | None = None):
     # 1. Bearer header — access tokens only (block type="refresh", S1/Design B)
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
-        payload = verify_token(auth_header.split(" ", 1)[1], secret, require_type="refresh")
+        payload = verify_token(auth_header.split(" ", 1)[1], secret, reject_type="refresh")
 
     # 2. Query-string token (used by EventSource which can't set headers) — access tokens only
     if payload is None and _t:
-        payload = verify_token(_t, secret, require_type="refresh")
+        payload = verify_token(_t, secret, reject_type="refresh")
 
     # 3. HttpOnly refresh cookie (same-origin, browser EventSource fallback) — any valid token
     if payload is None:

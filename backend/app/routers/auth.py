@@ -130,7 +130,7 @@ async def login(
 
 
 @router.post("/logout")
-async def logout(request: Request, response: Response):
+async def logout(request: Request):
     """Clear the refresh cookie and deny-list the current jti (best-effort)."""
     refresh_tok = request.cookies.get("refresh_token")
     if refresh_tok:
@@ -145,8 +145,12 @@ async def logout(request: Request, response: Response):
                 except Exception:
                     pass  # fail-open: still clear the cookie
 
-    response.delete_cookie(key="refresh_token")
-    return {"message": "Logged out"}
+    resp = Response(
+        content='{"message": "Logged out"}',
+        media_type="application/json",
+    )
+    resp.delete_cookie(key="refresh_token")
+    return resp
 
 
 @router.get("/me", response_model=UserResponse)
@@ -161,7 +165,7 @@ async def me(current_user: dict = Depends(get_current_user)):
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh_token(request: Request, response: Response):
+async def refresh_token(request: Request):
     """Issue a new access token and rotate the refresh token (S6).
 
     Rotation: the old refresh token's jti is added to the denylist; a brand-new

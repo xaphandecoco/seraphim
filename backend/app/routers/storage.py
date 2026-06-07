@@ -16,7 +16,7 @@ _STORAGE_ROOT = Path(os.environ.get("STORAGE_PATH", legacy_settings.STORAGE_PATH
 async def _authenticate(request: Request) -> bool:
     """Authenticate via Bearer header, ?_t= query param, or HttpOnly refresh cookie.
 
-    Bearer and ?_t= reject refresh tokens (require_type="refresh") — a stolen refresh
+    Bearer and ?_t= reject refresh tokens (reject_type="refresh") — a stolen refresh
     cookie must not be replayable as an Authorization header or query param (S1/Design B).
     The HttpOnly refresh cookie path is intentionally permissive: browser <img> tags
     send cookies automatically (same-origin) and cannot set Authorization headers.
@@ -32,14 +32,14 @@ async def _authenticate(request: Request) -> bool:
     # 1. Bearer header — access tokens only (block type="refresh")
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
-        payload = verify_token(auth_header.split(" ", 1)[1], secret, require_type="refresh")
+        payload = verify_token(auth_header.split(" ", 1)[1], secret, reject_type="refresh")
         if payload:
             return True
 
     # 2. ?_t= query param (EventSource / explicit token) — access tokens only
     token_param = request.query_params.get("_t")
     if token_param:
-        payload = verify_token(token_param, secret, require_type="refresh")
+        payload = verify_token(token_param, secret, reject_type="refresh")
         if payload:
             return True
 

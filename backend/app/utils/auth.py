@@ -48,20 +48,20 @@ def create_refresh_token(data: dict, secret: str, expires_delta: Optional[timede
     return jwt.encode(to_encode, secret, algorithm="HS256")
 
 
-def verify_token(token: str, secret: str, *, require_type: Optional[str] = None) -> Optional[dict]:
+def verify_token(token: str, secret: str, *, reject_type: Optional[str] = None) -> Optional[dict]:
     """Decode and validate a JWT.
 
     Args:
         token: Raw JWT string.
         secret: HMAC secret.
-        require_type: If provided, return None when ``payload.get("type") == require_type``.
-                      Use ``require_type="refresh"`` on Bearer/query-param paths to block
-                      refresh tokens from being replayed against the API surface (S1/Design B).
-                      Access tokens carry no ``type`` claim, so they are unaffected.
+        reject_type: If provided, return None when ``payload.get("type") == reject_type``.
+                     Use ``reject_type="refresh"`` on Bearer/query-param paths to block
+                     refresh tokens from being replayed against the API surface (S1/Design B).
+                     Access tokens carry no ``type`` claim, so they are unaffected.
     """
     try:
         payload = jwt.decode(token, secret, algorithms=["HS256"])
-        if require_type is not None and payload.get("type") == require_type:
+        if reject_type is not None and payload.get("type") == reject_type:
             return None
         return payload
     except ExpiredSignatureError:
