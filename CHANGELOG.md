@@ -69,6 +69,8 @@ Also included: react-router CVE GHSA-2j2x-hqr9-3h42 fixed (open-redirect in 6.7.
 
 - **README.md** — Added dual-access model note in TLS/secure-cookie section; clarified plain-HTTP works on LAN with per-request Secure flag.
 
+- **README.md (security sync)** — Documented the token-hardening sprint in the Security, Token Architecture, and SSE Authentication sections: refresh-token rotation + JTI denylist, token-type lockdown (`reject_type="refresh"`), `/storage` denylist parity, nginx log scrubbing, and the PyJWT (CVE-2026-32597) + react-router-dom 6.30.4 (GHSA-2j2x-hqr9-3h42) CVE fixes. Corrected the now-false "No refresh-token revocation list" known-gap entry.
+
 - **Testing methodology** — pytest always runs inside the Docker backend image with Python 3.11; Gitea CI matches this baseline.
 
 ### Fixed

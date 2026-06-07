@@ -567,15 +567,19 @@ On first startup, the setup wizard at `/setup`:
 | Token | Storage | Lifetime | Notes |
 |-------|---------|----------|-------|
 | Access token | Zustand (in-memory only) | 15 min (configurable) | Never written to localStorage |
-| Refresh token | HttpOnly cookie | 7 days (configurable) | `Secure` in production, `SameSite=lax` |
+| Refresh token | HttpOnly cookie | 7 days (configurable) | `Secure` in production, `SameSite=lax`; rotated on every refresh (JTI denylist) |
 
 On app load, `useAuth` silently calls `/auth/refresh` to re-issue an access token from the cookie. On 401, the Axios interceptor attempts a single refresh before redirecting to `/login`. Logout calls `POST /auth/logout` to clear the server-side cookie.
+
+**Refresh-token rotation & revocation:** every `/auth/refresh` call rotates the refresh token — the old token's JTI is added to a Redis denylist and a brand-new refresh token (fresh JTI) is issued as the cookie. Replaying a rotated-away (or logged-out) refresh token returns `401 "Refresh token has been revoked"`. `POST /auth/logout` best-effort deny-lists the current JTI before clearing the cookie. The denylist is keyed by JTI with a TTL equal to the token's remaining lifetime; under `REDIS_URL=memory://` (tests/CI) it fails **open** — rotation still works, only the revocation guarantee degrades.
 
 ### SSE Authentication
 
 `GET /tasks/feed` accepts authentication via:
 1. `Authorization: Bearer <token>` header (dev/Postman)
 2. `?_t=<token>` query parameter (browser `EventSource`, which cannot set headers)
+
+> **Token-type lockdown:** the Bearer and `?_t=` paths — and every `require_volunteer` / `require_admin` route — reject tokens whose `type` is `"refresh"` (`verify_token(reject_type="refresh")`), so only access tokens are accepted on the API surface. This prevents a stolen refresh token from being replayed against the API. The HttpOnly-cookie path that serves `<img>`-loaded `/storage/*` face images additionally checks the JTI denylist, so a logged-out / rotated refresh cookie can no longer load biometric images.
 
 ### Roles & Permissions
 
@@ -853,6 +857,9 @@ Keep the backend (3001), Postgres, and Redis off the public internet. `ENVIRONME
 | JWT secret | Fail-fast on startup if setup complete and secret missing/short; no empty-string fallback |
 | Token storage | Access token in-memory only (Zustand); refresh token in HttpOnly cookie |
 | Authentication | bcrypt + JWT; refresh cookie; role-based access |
+| Token rotation | Refresh token rotated on every `/auth/refresh`; old JTI deny-listed in Redis (fails open under `memory://`) |
+| Token-type lockdown | Bearer / `?_t=` / `require_*` routes reject `type="refresh"` tokens — no refresh-token replay against the API |
+| Token revocation | `/auth/logout` deny-lists the JTI; `/storage/*` cookie path checks the denylist before serving face images |
 | SQL injection | SQLAlchemy ORM used exclusively |
 | Command injection | `create_subprocess_exec` with list args (no shell); RTSP URL scheme validated |
 | SSRF | Setup test endpoints locked (410) after setup completes |
@@ -868,6 +875,8 @@ Keep the backend (3001), Postgres, and Redis off the public internet. `ENVIRONME
 | List endpoints | `/attendance`, `/members`, `/logs`, `/tasks` all bounded/paginated |
 | DB performance | Indexes on hot columns (`detections.status/created_at`, `tasks.status`, `attendance.push_status`, `logs.timestamp`) |
 | Frontend errors | React `ErrorBoundary` prevents white-screen on render error |
+| Log hygiene | nginx `scrubbed` log format omits `?_t=<JWT>` query params on `/api/tasks/feed`, `/api/storage/`, and the parent `/api/` + catch-all blocks |
+| Dependencies | `PyJWT[crypto]≥2.13.0` (CVE-2026-32597 critical-header bypass) and `react-router-dom` 6.30.4 (GHSA-2j2x-hqr9-3h42 open-redirect) patched |
 | CI | `.github/workflows/ci.yml` runs pytest (py3.11 + Redis), build, lint, and dependency audits |
 
 ### Known Gaps
@@ -876,7 +885,7 @@ Keep the backend (3001), Postgres, and Redis off the public internet. `ENVIRONME
 |----------|-------|----------------|
 | High | No HTTPS enforcement (app sets Secure cookies under `ENVIRONMENT=production`) | **Required:** deploy behind an HTTPS reverse proxy (see `docker-compose.caddy.yml` / `Caddyfile`) |
 | Low | Password reset link in query string | Deliver token out-of-band if higher security needed |
-| Low | No refresh-token revocation list | A stolen refresh token is valid until expiry (7 days); acceptable for on-prem |
+| Low | Refresh-token revocation depends on Redis | JTI denylist + per-refresh rotation are in place, but fail **open** during a Redis outage (a revoked refresh token could be replayed until it expires) |
 | Low | Secrets at rest in `admin_settings` (plaintext JSONB) | Acceptable on an access-controlled on-prem DB; encrypt if the volume is untrusted |
 
 ---
