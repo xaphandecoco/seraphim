@@ -104,3 +104,29 @@ async def test_storage_refresh_token_via_cookie_passes_auth(client: AsyncClient,
 async def test_storage_no_token_returns_401(client: AsyncClient):
     resp = await client.get("/storage/some/image.jpg")
     assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Cookie path revocation parity — a deny-listed refresh JTI must not read files
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_storage_denylisted_refresh_cookie_returns_401(
+    client: AsyncClient, admin_user, monkeypatch
+):
+    """A deny-listed (logged-out/rotated) refresh cookie must NOT read files.
+
+    Brings /storage/* to revocation parity with /auth/refresh. Under memory:// the
+    real denylist is fail-open, so we patch is_jti_denied to assert the wiring.
+    """
+    async def _denied(_jti):
+        return True
+
+    monkeypatch.setattr("app.routers.storage.is_jti_denied", _denied)
+    tok = make_refresh_token(admin_user.id, admin_user.email, admin_user.role)
+    resp = await client.get(
+        "/storage/nonexistent_file.jpg",
+        cookies={"refresh_token": tok},
+    )
+    assert resp.status_code == 401

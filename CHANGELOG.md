@@ -22,6 +22,14 @@
   access logs for `/api/tasks/feed` and `/api/storage/` via the `scrubbed` log format
   (logs `$uri`, omits `$args`).
 
+- **Storage revocation parity** — the `/storage/*` HttpOnly-cookie auth path now checks
+  the refresh-token JTI denylist, so a logged-out / rotated refresh cookie can no longer
+  load biometric face images (parity with `/auth/refresh`; fail-open under `memory://`).
+
+- **Rollback hardening** — `scripts/rollback.sh` now pre-flight-checks that the target
+  image tags exist before stopping the stack, and includes the cloudflared overlay in the
+  down/up cycle so the public HTTPS tunnel is restored after a rollback.
+
 ### Added
 
 - **SSE heartbeat (P1)** — `/tasks/feed` now emits a keepalive heartbeat (`: keepalive\n\n`) every 15 seconds (configurable via `sse_heartbeat_seconds` admin setting), so connections survive idle periods behind Cloudflare's 100-second timeout. Uses Queue-bridge pattern: feeder task + asyncio.Queue with per-request timeout, Broadcaster's existing `finally` cleanup on cancellation.

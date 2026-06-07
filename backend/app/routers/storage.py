@@ -6,19 +6,24 @@ from fastapi.responses import FileResponse
 
 from app.config import dynamic_settings, legacy_settings
 from app.utils.auth import verify_token
+from app.utils.token_denylist import is_jti_denied
 
 router = APIRouter(tags=["storage"])
 
 _STORAGE_ROOT = Path(os.environ.get("STORAGE_PATH", legacy_settings.STORAGE_PATH)).resolve()
 
 
-def _authenticate(request: Request) -> bool:
+async def _authenticate(request: Request) -> bool:
     """Authenticate via Bearer header, ?_t= query param, or HttpOnly refresh cookie.
 
     Bearer and ?_t= reject refresh tokens (require_type="refresh") — a stolen refresh
     cookie must not be replayable as an Authorization header or query param (S1/Design B).
     The HttpOnly refresh cookie path is intentionally permissive: browser <img> tags
     send cookies automatically (same-origin) and cannot set Authorization headers.
+
+    The cookie path additionally honors the JTI denylist: a deny-listed (logged-out or
+    rotated) refresh token is rejected here too, bringing /storage/* to revocation parity
+    with /auth/refresh. Fails open under REDIS_URL=memory:// (is_jti_denied returns False).
     """
     secret = dynamic_settings.get_jwt_secret()
     if not secret:
@@ -38,11 +43,15 @@ def _authenticate(request: Request) -> bool:
         if payload:
             return True
 
-    # 3. HttpOnly refresh cookie (browser <img> tags, same-origin) — any valid token
+    # 3. HttpOnly refresh cookie (browser <img> tags, same-origin) — any valid token,
+    #    but a deny-listed (revoked/rotated) refresh JTI must not read files.
     refresh_tok = request.cookies.get("refresh_token")
     if refresh_tok:
         payload = verify_token(refresh_tok, secret)
         if payload:
+            jti = payload.get("jti")
+            if jti and await is_jti_denied(jti):
+                return False
             return True
 
     return False
@@ -54,7 +63,7 @@ async def serve_storage_file(
     request: Request,
 ):
     """Serve face images with cookie-or-bearer authentication (supports browser <img> tags)."""
-    if not _authenticate(request):
+    if not await _authenticate(request):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
     # Strict path containment — prevent path traversal
