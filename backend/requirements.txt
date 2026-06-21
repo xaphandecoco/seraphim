@@ -1,5 +1,8 @@
 # Web framework
-fastapi==0.115.5
+fastapi==0.138.0
+# starlette is pinned explicitly (transitive via fastapi) to guarantee the CVE-clean
+# release: GHSA-82w8 (form limits), GHSA-86qp (Host poisoning), GHSA-wqp7 (StaticFiles SSRF) et al.
+starlette==1.3.1
 uvicorn[standard]==0.32.1
 
 # Database
@@ -12,7 +15,7 @@ itsdangerous==2.2.0
 httpx==0.28.1
 PyJWT[crypto]>=2.13.0
 bcrypt==4.2.1
-cryptography==44.0.0
+cryptography==49.0.0
 
 # Rate limiting
 slowapi==0.1.9
@@ -29,7 +32,7 @@ Pillow==11.0.0
 pydantic==2.10.3
 pydantic-settings==2.6.1
 python-dotenv==1.0.1
-python-multipart==0.0.19
+python-multipart==0.0.32
 
 # Retry / resilience
 tenacity==9.0.0

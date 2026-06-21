@@ -45,5 +45,8 @@
     "@testing-library/react": "^15.0.7",
     "@testing-library/jest-dom": "^6.4.5",
     "jsdom": "^24.1.0"
+  },
+  "overrides": {
+    "form-data": "^4.0.6"
   }
 }

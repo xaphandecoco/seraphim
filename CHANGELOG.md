@@ -1,5 +1,34 @@
 ## [Unreleased]
 
+### Dependency CVE remediation sweep
+
+Audited all production dependencies (frontend `npm audit`, backend OSV) and upgraded the
+pinned versions that carried known CVEs. The pins in `requirements.txt` had drifted well
+behind the locally-installed (and test-validated) versions; this sprint brings the pins
+current. Full backend suite (355 passed, 1 xfailed) re-run green against the upgraded stack;
+frontend build + lint + tests green.
+
+- **python-multipart 0.0.19 → 0.0.32** — clears 7 CVEs in FastAPI's multipart/form parser:
+  arbitrary file write (GHSA-wp53-j4wj-2cfg), unbounded part-header DoS (GHSA-pp6c-gr5w-3c5g),
+  large-prelude DoS (GHSA-mj87-hwqh-73pj), negative Content-Length buffering (GHSA-v9pg-7xvm-68hf),
+  semicolon/RFC-2231 parameter smuggling and quadratic querystring parsing (GHSA-6jv3, GHSA-5rvq, GHSA-vffw).
+- **cryptography 44.0.0 → 49.0.0** — clears 5 issues: bundled-OpenSSL CVEs (GHSA-537c-gmf6-5ccf,
+  GHSA-79v4-65xg-pq4g), incomplete DNS name-constraint enforcement (GHSA-m959-cc7f-wv43),
+  subgroup attack (GHSA-r6ph-v2qm-q3c2), PYSEC-2026-35.
+- **fastapi 0.115.5 → 0.138.0 + starlette pinned == 1.3.1** — clears 8 starlette CVEs that the
+  old transitive `~0.41.3` carried: form-limit bypass (GHSA-82w8-qh3p-5jfq), Host-header
+  poisoning (GHSA-86qp-5c8j-p5mr, PYSEC-2026-161), StaticFiles SSRF / UNC NTLM theft
+  (GHSA-wqp7-x3pw-xc5r), arbitrary HTTP method dispatch (GHSA-x746-7m8f-x49c), path
+  concatenation into auth (GHSA-jp82-jpqv-5vv3), and two DoS vectors (GHSA-2c2j, GHSA-7f5h).
+  `starlette` is now pinned explicitly so the CVE-clean release is guaranteed regardless of
+  FastAPI's range. pydantic (2.10.3), pydantic-settings (2.6.1), and bcrypt (4.2.1) were
+  verified CVE-clean and left unchanged.
+- **Frontend: form-data 4.0.5 → 4.0.6** (npm `overrides`) — clears CRLF injection
+  GHSA-hmw2-7cc7-3qxx (high), reached transitively via `axios`. `npm audit --omit=dev` now
+  reports 0 vulnerabilities. Remaining dev-only audit findings (esbuild/vite, @babel/core,
+  js-yaml) do not ship in the production bundle and are deferred (esbuild fix requires a
+  breaking vite 5→8 major bump).
+
 ### Backlog hardening sweep
 
 This sprint closes out 10 medium/low-priority items from the production-readiness backlog:
