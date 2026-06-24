@@ -2,7 +2,7 @@ import json
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -64,8 +64,6 @@ async def update_settings(
     """Update admin settings. Reloads in-memory cache."""
     current_user = await db.get(User, int(user["sub"]))
 
-    bootstrap_updated = False
-
     for key, value in req.settings.items():
         # Reject attempts to blank critical keys
         if key in _PROTECTED_KEYS and (value is None or value == "" or value == "********"):
@@ -96,7 +94,6 @@ async def update_settings(
         if key == "database_url" and isinstance(value, str):
             BOOTSTRAP_PATH.parent.mkdir(parents=True, exist_ok=True)
             BOOTSTRAP_PATH.write_text(json.dumps({"DATABASE_URL": value}, indent=2))
-            bootstrap_updated = True
 
     await db.commit()
 

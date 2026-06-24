@@ -18,11 +18,11 @@ from sqlalchemy import JSON
 from sqlalchemy.dialects.postgresql import JSONB as _PG_JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.database import Base
+
 # Use Postgres JSONB in production (matches the columns created by migrations) and
 # fall back to the cross-dialect JSON type on SQLite (used by the test suite).
 JSONB = JSON().with_variant(_PG_JSONB, "postgresql")
-
-from app.database import Base
 
 
 def utc_now() -> datetime:
@@ -388,3 +388,72 @@ class AdminSetting(Base):
     updated_by: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL")
     )
+
+
+class CustomFieldGroup(Base):
+    """Admin-defined group of custom fields for an entity type.
+
+    entity: lowercase contact | event | activity (C8).
+    name: machine snake_case name; UNIQUE per (entity, name).
+    """
+    __tablename__ = "custom_field_group"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    label: Mapped[str] = mapped_column(String(255), nullable=False)
+    entity: Mapped[str] = mapped_column(String(20), nullable=False, default="contact")
+    weight: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("entity", "name", name="uq_custom_field_group_entity_name"),
+        Index("ix_cfg_entity_active_weight", "entity", "is_active", "weight"),
+    )
+
+
+class CustomFieldDef(Base):
+    """One field definition within a CustomFieldGroup.
+
+    data_type: text | textarea | select | multiselect | date | number |
+               checkbox | contact_reference
+    options: list of {value: str, label: str} for select/multiselect; [] otherwise.
+    is_multi: true → stored value is a JSON array; auto-forced for multiselect.
+    """
+    __tablename__ = "custom_field_def"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    group_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("custom_field_group.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    label: Mapped[str] = mapped_column(String(255), nullable=False)
+    data_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    options: Mapped[list] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'"), default=list
+    )
+    is_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_multi: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    weight: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    help_text: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("group_id", "name", name="uq_custom_field_def_group_name"),
+        Index("ix_cfd_group_active_weight", "group_id", "is_active", "weight"),
+    )
+
+    def __init__(self, **kwargs: object) -> None:
+        # Ensure options is [] immediately at construction time (before flush/commit).
+        # mapped_column(default=list) only fires at INSERT; the Python-side attribute
+        # stays None until the ORM issues a SQL INSERT.  This __init__ bridges the gap
+        # so that any code that reads .options pre-flush (e.g. routers, seed functions,
+        # service layer) gets [] rather than None.
+        if "options" not in kwargs:
+            kwargs["options"] = []
+        super().__init__(**kwargs)

@@ -51,7 +51,9 @@ export function MemberSearchModal({ mode, onSelect, onClose }: MemberSearchModal
     setLoading(true);
     try {
       const res = await api.get('/members', { params: { search: q } });
-      setResults(res.data);
+      // Forward-compat with S03 paginated shape {items, total, page, page_size} (C16).
+      // Until S03 lands the endpoint returns a bare list; read defensively.
+      setResults(Array.isArray(res.data) ? res.data : (res.data?.items ?? []));
     } catch {
       setResults([]);
     } finally {

@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
@@ -387,3 +388,154 @@ class FaceUploadResponse(BaseModel):
     auto_logged: int
     skipped: int
     deduplicated: int
+
+
+# ============================================================================
+# Custom Fields
+# ============================================================================
+
+VALID_DATA_TYPES = Literal[
+    "text", "textarea", "select", "multiselect",
+    "date", "number", "checkbox", "contact_reference"
+]
+
+
+def _snake_case_name(v: str) -> str:
+    if not re.match(r'^[a-z][a-z0-9_]*$', v):
+        raise ValueError(
+            "name must be snake_case: start with a-z, then a-z/0-9/_ only"
+        )
+    if len(v) > 100:
+        raise ValueError("name must be <= 100 characters")
+    return v
+
+
+class OptionItem(BaseModel):
+    value: str
+    label: str
+
+
+class CustomFieldDefResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    group_id: int
+    name: str
+    label: str
+    data_type: str
+    options: List[OptionItem]
+    is_required: bool
+    is_multi: bool
+    weight: int
+    is_active: bool
+    help_text: Optional[str] = None
+
+
+class CustomFieldGroupResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    label: str
+    entity: str
+    weight: int
+    is_active: bool
+    fields: List[CustomFieldDefResponse] = []
+
+
+class CustomFieldSchemaResponse(BaseModel):
+    entity: str
+    groups: List[CustomFieldGroupResponse]
+
+
+class CustomFieldGroupCreate(BaseModel):
+    name: str
+    label: str
+    entity: Literal["contact", "event", "activity"] = "contact"
+    weight: int = 0
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        return _snake_case_name(v)
+
+
+class CustomFieldGroupUpdate(BaseModel):
+    """Mutable fields for PATCH /groups/{id}.
+
+    name and entity are immutable — sending them causes a 422 (extra='forbid').
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    label: Optional[str] = None
+    weight: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class CustomFieldDefCreate(BaseModel):
+    group_id: int
+    name: str
+    label: str
+    data_type: VALID_DATA_TYPES
+    options: List[OptionItem] = []
+    is_required: bool = False
+    is_multi: bool = False
+    weight: int = 0
+    help_text: Optional[str] = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        return _snake_case_name(v)
+
+    @field_validator("options")
+    @classmethod
+    def validate_options(cls, v: List[OptionItem], info: Any) -> List[OptionItem]:
+        data_type = info.data.get("data_type")
+        if data_type in ("select", "multiselect") and not v:
+            raise ValueError("options must be non-empty for select/multiselect fields")
+        values = [opt.value for opt in v]
+        if len(values) != len(set(values)):
+            raise ValueError("option values must be unique within the field")
+        return v
+
+
+class CustomFieldDefUpdate(BaseModel):
+    """Mutable fields for PATCH /defs/{id}.
+
+    name and data_type are immutable — sending them causes a 422 (extra='forbid').
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    label: Optional[str] = None
+    options: Optional[List[OptionItem]] = None
+    is_required: Optional[bool] = None
+    is_multi: Optional[bool] = None
+    weight: Optional[int] = None
+    is_active: Optional[bool] = None
+    help_text: Optional[str] = None
+
+
+class CustomDataValidateRequest(BaseModel):
+    entity: str = "contact"
+    custom_data: Dict[str, Any]
+
+
+class CustomDataValidateResponse(BaseModel):
+    custom_data: Dict[str, Any]
+    normalized: bool = True
+
+
+# Included in PATCH /defs response when options are removed
+class CustomFieldDefPatchResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    group_id: int
+    name: str
+    label: str
+    data_type: str
+    options: List[OptionItem]
+    is_required: bool
+    is_multi: bool
+    weight: int
+    is_active: bool
+    help_text: Optional[str] = None
+    affected_contacts: int = 0

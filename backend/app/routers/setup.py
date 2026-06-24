@@ -9,7 +9,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.database import get_db, engine
-from app.dependencies import check_setup_complete
 from app.models import AdminSetting, Camera, User
 from app.schemas import (
     SetupRequest,

@@ -27,7 +27,7 @@ from alembic.script import ScriptDirectory
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = BACKEND_DIR / "alembic.ini"
 
-EXPECTED_HEAD = "g7h8i9j0k1l2"  # updated by S01 (schema inversion sprint)
+EXPECTED_HEAD = "h1i2j3k4l5m6"  # updated by S02 (custom field engine sprint)
 INITIAL_REV = "74e9ab60ea7e"
 
 
@@ -76,9 +76,9 @@ def test_revision_chain_is_connected_back_to_initial(script_dir):
 
 
 def test_head_down_revision_is_task_action_approval(script_dir):
-    """Regression: the S01 head builds on the task-action-approval migration (f3a4b5c6d7e8)."""
+    """Regression: the S02 head (custom field engine) builds on the S01 migration (g7h8i9j0k1l2)."""
     head = script_dir.get_revision(EXPECTED_HEAD)
-    assert head.down_revision == "f3a4b5c6d7e8"
+    assert head.down_revision == "g7h8i9j0k1l2"
 
 
 # ---------------------------------------------------------------------------

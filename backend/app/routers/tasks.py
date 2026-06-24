@@ -4,12 +4,11 @@ from fastapi import APIRouter, Body, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import dynamic_settings
 from app.database import get_db
 from app.dependencies import require_volunteer
 from app.middleware.cooldown import check_cooldown
 from app.models import Contact, Detection, Task
-from app.schemas import PaginatedTaskResponse, TaskActionRequest, TaskResponse
+from app.schemas import PaginatedTaskResponse, TaskResponse
 from app.services.face_storage import to_storage_url
 from app.services.task_service import TaskService
 from app.sse import broadcaster

@@ -2,11 +2,10 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import exists, func, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import dynamic_settings
 from app.models import (
     Contact,
     Detection,
@@ -15,7 +14,6 @@ from app.models import (
     PitQueue,
     Task,
     TaskAction,
-    User,
     VolunteerStat,
 )
 

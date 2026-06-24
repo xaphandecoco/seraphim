@@ -16,6 +16,7 @@ import { PitPage } from '@/pages/PitPage';
 import { LogsPage } from '@/pages/LogsPage';
 import { UserManagementPage } from '@/pages/UserManagementPage';
 import { AttendancePage } from '@/pages/AttendancePage';
+import { CustomFieldsPage } from '@/pages/CustomFieldsPage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { AuditPage } from '@/pages/AuditPage';
 
@@ -58,6 +59,7 @@ function App() {
         <Route path="/audit" element={<ProtectedRoute><AuditPage /></ProtectedRoute>} />
         <Route path="/settings" element={<AdminRoute><SettingsPage /></AdminRoute>} />
         <Route path="/settings/users" element={<AdminRoute><UserManagementPage /></AdminRoute>} />
+        <Route path="/settings/custom-fields" element={<AdminRoute><CustomFieldsPage /></AdminRoute>} />
         <Route path="/settings/attendance" element={<AdminRoute><AttendancePage /></AdminRoute>} />
         <Route path="/dashboard" element={<AdminRoute><DashboardPage /></AdminRoute>} />
         <Route path="/pit" element={<AdminRoute><PitPage /></AdminRoute>} />

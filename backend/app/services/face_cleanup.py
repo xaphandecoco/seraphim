@@ -2,7 +2,6 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -77,7 +76,7 @@ class FaceCleanupService:
     ) -> list[Detection]:
         result = await session.execute(
             select(Detection)
-            .where(Detection.is_enrolled == False)
+            .where(Detection.is_enrolled.is_(False))
             .where(Detection.deleted_at.is_(None))
             .where(Detection.created_at < cutoff)
             .limit(limit)

@@ -8,7 +8,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.config import dynamic_settings, legacy_settings
 from app.database import engine
-from app.dependencies import check_setup_complete, get_current_user
+from app.dependencies import check_setup_complete
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.rate_limit import limiter
 from app.routers import (
@@ -17,6 +17,7 @@ from app.routers import (
     audit,
     auth,
     cameras,
+    custom_fields,
     events,
     health,
     leaderboard,
@@ -35,7 +36,7 @@ from app.sse import broadcaster
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
-        async with engine.connect() as conn:
+        async with engine.connect():
             pass
         # Initialize dynamic settings from database
         from app.database import async_session
@@ -115,13 +116,13 @@ app.include_router(attendance.router, dependencies=[Depends(check_setup_complete
 app.include_router(audit.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(uploads_router.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(analytics.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(custom_fields.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(storage_router.router)
 
 
 @app.get("/tasks/feed")
 async def task_feed(request: Request, _t: str | None = None):
     """SSE endpoint. Authenticates via Bearer token, query param, or HttpOnly refresh cookie."""
-    from app.config import dynamic_settings
     from app.utils.auth import verify_token
 
     secret = dynamic_settings.get_jwt_secret()

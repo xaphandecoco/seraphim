@@ -367,3 +367,115 @@ async def sample_attendance(db_session, sample_member, sample_event, sample_dete
     await db_session.commit()
     await db_session.refresh(record)
     return record
+
+
+# ---------------------------------------------------------------------------
+# Custom-field fixtures (S02)
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def sample_custom_group(db_session):
+    from app.models import CustomFieldGroup
+
+    group = CustomFieldGroup(
+        name="test_group",
+        label="Test Group",
+        entity="contact",
+        weight=10,
+        is_active=True,
+    )
+    db_session.add(group)
+    await db_session.commit()
+    await db_session.refresh(group)
+    return group
+
+
+@pytest_asyncio.fixture
+async def sample_select_field(db_session, sample_custom_group):
+    from app.models import CustomFieldDef
+
+    field = CustomFieldDef(
+        group_id=sample_custom_group.id,
+        name="pepsol",
+        label="PEPSOL Pathway",
+        data_type="select",
+        options=[
+            {"value": "stub_val", "label": "Stub Value"},
+            {"value": "other", "label": "Other"},
+        ],
+        is_required=False,
+        is_multi=False,
+        weight=10,
+        is_active=True,
+    )
+    db_session.add(field)
+    await db_session.commit()
+    await db_session.refresh(field)
+    return field
+
+
+@pytest_asyncio.fixture
+async def sample_multiselect_field(db_session, sample_custom_group):
+    from app.models import CustomFieldDef
+
+    field = CustomFieldDef(
+        group_id=sample_custom_group.id,
+        name="community",
+        label="Community",
+        data_type="multiselect",
+        options=[
+            {"value": "a", "label": "Community A"},
+            {"value": "b", "label": "Community B"},
+        ],
+        is_required=False,
+        is_multi=True,
+        weight=20,
+        is_active=True,
+    )
+    db_session.add(field)
+    await db_session.commit()
+    await db_session.refresh(field)
+    return field
+
+
+@pytest_asyncio.fixture
+async def sample_contact_ref_field(db_session, sample_custom_group):
+    from app.models import CustomFieldDef
+
+    field = CustomFieldDef(
+        group_id=sample_custom_group.id,
+        name="invited_by",
+        label="Invited By",
+        data_type="contact_reference",
+        options=[],
+        is_required=False,
+        is_multi=False,
+        weight=30,
+        is_active=True,
+    )
+    db_session.add(field)
+    await db_session.commit()
+    await db_session.refresh(field)
+    return field
+
+
+@pytest_asyncio.fixture
+async def sample_checkbox_field(db_session, sample_custom_group):
+    from app.models import CustomFieldDef
+
+    field = CustomFieldDef(
+        group_id=sample_custom_group.id,
+        name="water_baptized",
+        label="Water Baptized?",
+        data_type="checkbox",
+        options=[],
+        is_required=False,
+        is_multi=False,
+        weight=40,
+        is_active=True,
+    )
+    db_session.add(field)
+    await db_session.commit()
+    await db_session.refresh(field)
+    return field

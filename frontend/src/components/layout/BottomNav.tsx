@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ClipboardList, Trophy, Calendar, Users, Settings, AlertTriangle, FileText, ShieldCheck, MoreHorizontal, X } from 'lucide-react';
+import { ClipboardList, Trophy, Calendar, Users, Settings, Settings2, AlertTriangle, FileText, ShieldCheck, MoreHorizontal, X } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { useTaskStore } from '@/store/taskStore';
 
@@ -33,6 +33,7 @@ export function BottomNav() {
     { path: '/pit', label: 'Pit Queue', icon: AlertTriangle },
     { path: '/logs', label: 'System Logs', icon: FileText },
     { path: '/settings', label: 'Settings', icon: Settings },
+    { path: '/settings/custom-fields', label: 'Custom Fields', icon: Settings2 },
   ];
 
   return (

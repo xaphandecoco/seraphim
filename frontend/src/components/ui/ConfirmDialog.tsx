@@ -38,7 +38,7 @@ export function ConfirmDialog({
 
       {/* Panel */}
       <div
-        role="alertdialog"
+        role="dialog"
         aria-modal="true"
         aria-labelledby="confirm-dialog-message"
         className="relative w-full max-w-sm rounded-2xl border border-border bg-card p-5 shadow-xl"

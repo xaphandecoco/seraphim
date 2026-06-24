@@ -5,7 +5,6 @@ from typing import Optional
 import cv2
 import numpy as np
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import legacy_settings
 from app.database import async_session

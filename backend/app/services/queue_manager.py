@@ -73,7 +73,7 @@ class QueueManager:
                     det_result = await session.execute(
                         select(Detection)
                         .where(Detection.compreface_subject_id == subject.compreface_subject_id)
-                        .where(Detection.is_enrolled == True)
+                        .where(Detection.is_enrolled.is_(True))
                         .order_by(Detection.created_at.desc())
                         .limit(1)
                     )
@@ -143,10 +143,8 @@ class QueueManager:
         """
         # Use naive UTC to match naive DateTime columns
         now = datetime.now(timezone.utc).replace(tzinfo=None)
-        expiry_days = dynamic_settings.get_task_expiry_days()
 
         async with self.db_session_factory() as session:
-            from sqlalchemy import func
             result = await session.execute(
                 select(Task)
                 .where(Task.status == "pending")

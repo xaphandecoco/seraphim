@@ -622,6 +622,14 @@ export function SettingsPage() {
               <Database size={18} className="text-foreground/50" aria-hidden="true" />
               <span className="text-sm text-foreground">Analytics Dashboard</span>
             </button>
+            <div className="mx-4 h-px bg-border" />
+            <button
+              onClick={() => navigate('/settings/custom-fields')}
+              className="flex w-full min-h-[44px] items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-background"
+            >
+              <Settings2 size={18} className="text-foreground/50" aria-hidden="true" />
+              <span className="text-sm text-foreground">Custom Fields</span>
+            </button>
           </div>
 
           {/* Face Upload */}

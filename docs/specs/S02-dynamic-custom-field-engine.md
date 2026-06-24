@@ -190,7 +190,7 @@ Canonical columns (defined by S01, consumed by S02+):
 | `entity_id` | Integer | yes | null | PK of the affected row |
 | `before` | JSONB | yes | null | snapshot before change |
 | `after` | JSONB | yes | null | snapshot after change |
-| `at` | DateTime (naive UTC) | no | `utc_now()` | |
+| `at` | DateTime (naive UTC) | no | `utc_now()` | **Note (S01 finalization):** S01 finalized this column name as `created_at`; the implementation correctly uses `created_at`. The `at` name here is a planning artefact only. |
 
 Indexes: `ix_audit_log_entity_entity_id` on `(entity, entity_id)`; `ix_audit_log_at` on `(at)`.
 
@@ -505,6 +505,8 @@ async def record(
     db.add(log)
     # Caller commits the session — record() does not commit.
 ```
+
+> **Note (S01 finalization):** S01 finalized the `audit_log` timestamp column as `created_at`. The `at=utc_now()` keyword argument above is a planning artefact; the implementation correctly uses `created_at=utc_now()`.
 
 Action name conventions for S02:
 `custom_group.create`, `custom_group.update`, `custom_group.soft_delete`, `custom_group.hard_delete`, `custom_field.create`, `custom_field.update`, `custom_field.soft_delete`, `custom_field.hard_delete`.

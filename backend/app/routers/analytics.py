@@ -2,7 +2,6 @@
 
 import csv
 import io
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
