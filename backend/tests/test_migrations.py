@@ -27,7 +27,7 @@ from alembic.script import ScriptDirectory
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = BACKEND_DIR / "alembic.ini"
 
-EXPECTED_HEAD = "f3a4b5c6d7e8"
+EXPECTED_HEAD = "g7h8i9j0k1l2"  # updated by S01 (schema inversion sprint)
 INITIAL_REV = "74e9ab60ea7e"
 
 
@@ -75,10 +75,10 @@ def test_revision_chain_is_connected_back_to_initial(script_dir):
     )
 
 
-def test_head_down_revision_is_performance_indexes(script_dir):
-    """Regression: the head builds on the performance-indexes migration."""
+def test_head_down_revision_is_task_action_approval(script_dir):
+    """Regression: the S01 head builds on the task-action-approval migration (f3a4b5c6d7e8)."""
     head = script_dir.get_revision(EXPECTED_HEAD)
-    assert head.down_revision == "e2f3a4b5c6d7"
+    assert head.down_revision == "f3a4b5c6d7e8"
 
 
 # ---------------------------------------------------------------------------
@@ -146,3 +146,21 @@ def test_head_migration_defines_dual_approval_unique_index():
     assert "uq_task_action_approval" in text
     assert "task_actions" in text
     assert "unique=True" in text
+
+
+def test_s01_head_migration_creates_contacts_and_events():
+    """The g7h8i9j0k1l2 migration creates contacts/events/participants/audit_log.
+    Guard that its content wasn't accidentally gutted."""
+    mig = (
+        BACKEND_DIR
+        / "alembic"
+        / "versions"
+        / "g7h8i9j0k1l2_schema_inversion_civicrm_excision.py"
+    )
+    assert mig.exists(), "S01 migration file must exist"
+    text = mig.read_text(encoding="utf-8")
+    assert "contacts" in text
+    assert "events" in text
+    assert "participants" in text
+    assert "audit_log" in text
+    assert "down_revision" in text and "f3a4b5c6d7e8" in text

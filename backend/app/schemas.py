@@ -100,14 +100,11 @@ class ServiceTestRequest(BaseModel):
     compreface_api_key: Optional[str] = None
     compreface_detect_api_key: Optional[str] = None
     compreface_recognize_api_key: Optional[str] = None
-    civicrm_url: Optional[str] = None
 
 
 class ServiceTestResponse(BaseModel):
     compreface_ok: bool
     compreface_message: str = ""
-    civicrm_ok: Optional[bool] = None
-    civicrm_message: str = ""
 
 
 # SetupRequest is defined later in this file (after CameraCreateRequest) so that
@@ -211,9 +208,6 @@ class SetupRequest(BaseModel):
     compreface_api_key: str = ""
     compreface_detect_api_key: Optional[str] = None
     compreface_recognize_api_key: Optional[str] = None
-    civicrm_url: Optional[str] = None
-    civicrm_api_key: Optional[str] = None
-    civicrm_site_key: Optional[str] = None
     admin_email: str
     admin_password: str
     admin_name: str = "Admin"
@@ -259,7 +253,6 @@ class LogResponse(BaseModel):
     volunteer_id: Optional[int] = None
     second_volunteer_id: Optional[int] = None
     event_id: Optional[int] = None
-    push_status: Optional[str] = None
     created_at: datetime
 
 
@@ -316,35 +309,15 @@ class CameraPreviewResponse(BaseModel):
 # Attendance
 # ============================================================================
 
-class AttendanceRecord(BaseModel):
+class ParticipantRecord(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     contact_id: Optional[int] = None
     event_id: Optional[int] = None
     detection_id: Optional[int] = None
     status: str
-    push_status: str
+    source: str
     created_at: datetime
-
-
-# ============================================================================
-# Attendance Push
-# ============================================================================
-
-class AttendeeSummary(BaseModel):
-    member_id: int
-    name: str
-    detected_at: Optional[datetime] = None
-    camera_name: Optional[str] = None
-    included: bool = True
-
-
-class PushDiff(BaseModel):
-    event_id: int
-    event_title: str
-    will_attend: List[AttendeeSummary]
-    missing: List[AttendeeSummary]
-    duplicates_warn: List[str]
 
 
 # ============================================================================
@@ -353,10 +326,10 @@ class PushDiff(BaseModel):
 
 class EventResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-    event_id: int
+    id: int
     title: str
-    start_date: datetime
-    end_date: datetime | None = None
+    start_at: Optional[datetime] = None
+    end_at: Optional[datetime] = None
 
 
 # ============================================================================
@@ -380,42 +353,6 @@ class AttendeeResponse(BaseModel):
     nickname: str | None = None
     face_thumbnail_path: str | None = None
     sample_count: int = 0
-
-
-# ============================================================================
-# Dead-Letter Queue
-# ============================================================================
-
-class DeadLetterRecord(BaseModel):
-    """Attendance record that has been moved to the dead-letter queue."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    contact_id: int
-    event_id: int
-    detection_id: Optional[int] = None
-    status: str
-    push_status: str
-    push_attempts: int
-    last_push_error: Optional[str] = None
-    created_at: datetime
-
-
-class DeadLetterListResponse(BaseModel):
-    """Paginated list of dead-letter attendance records."""
-
-    total: int
-    items: List[DeadLetterRecord]
-
-
-class DeadLetterRetryResponse(BaseModel):
-    """Confirmation returned when a dead-letter record is reset for retry."""
-
-    id: int
-    push_status: str
-    push_attempts: int
-    message: str
 
 
 # ============================================================================

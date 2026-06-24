@@ -65,13 +65,13 @@ async def test_upload_faces_single_face_tier_100(
     client: AsyncClient, admin_auth_headers, db_session, sample_member, sample_event
 ):
     """Single face, quality pass, tier 100 + active event → auto-logged."""
-    from app.models import Attendance, ComprefaceSubject, Detection, Task
+    from app.models import ComprefaceSubject, Detection, Participant, Task
 
     # Link member to a Compreface subject
     subject = ComprefaceSubject(
         subject_name="test_subject",
         compreface_subject_id="sub_001",
-        contact_id=sample_member.contact_id,
+        contact_id=sample_member.id,
         enrollment_status="active",
     )
     db_session.add(subject)
@@ -93,7 +93,7 @@ async def test_upload_faces_single_face_tier_100(
         instance.close = AsyncMock()
 
         res = await client.post(
-            f"/uploads/faces?event_id={sample_event.event_id}",
+            f"/uploads/faces?event_id={sample_event.id}",
             files={"file": ("face.jpg", io.BytesIO(image_bytes), "image/jpeg")},
             headers=admin_auth_headers,
         )
@@ -114,11 +114,11 @@ async def test_upload_faces_single_face_tier_100(
     assert detections[0].tier == "100"
     assert detections[0].status == "auto_logged"
 
-    # Verify Attendance record
-    result = await db_session.execute(select(Attendance))
-    attendances = result.scalars().all()
-    assert len(attendances) == 1
-    assert attendances[0].contact_id == sample_member.contact_id
+    # Verify Participant record
+    result = await db_session.execute(select(Participant))
+    participants = result.scalars().all()
+    assert len(participants) == 1
+    assert participants[0].contact_id == sample_member.id
 
     # No task created
     result = await db_session.execute(select(Task))
@@ -323,7 +323,7 @@ async def test_upload_faces_with_event_id(
         instance.close = AsyncMock()
 
         res = await client.post(
-            f"/uploads/faces?event_id={sample_event.event_id}",
+            f"/uploads/faces?event_id={sample_event.id}",
             files={"file": ("face.jpg", io.BytesIO(image_bytes), "image/jpeg")},
             headers=admin_auth_headers,
         )
@@ -333,4 +333,4 @@ async def test_upload_faces_with_event_id(
     result = await db_session.execute(select(Detection))
     detections = result.scalars().all()
     assert len(detections) == 1
-    assert detections[0].event_id == sample_event.event_id
+    assert detections[0].event_id == sample_event.id

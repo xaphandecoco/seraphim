@@ -75,12 +75,12 @@ async def test_process_face_crop_tier_100_auto_log(
     db_session: AsyncSession, fake_ctx, fake_db_factory, sample_member, sample_event
 ):
     """Tier 100 with known subject + active event → auto-log attendance."""
-    from app.models import Attendance, ComprefaceSubject, Detection, Task
+    from app.models import ComprefaceSubject, Detection, Participant, Task
 
     subject = ComprefaceSubject(
         subject_name="sub_tier100",
         compreface_subject_id="sub_100",
-        contact_id=sample_member.contact_id,
+        contact_id=sample_member.id,
         enrollment_status="active",
     )
     db_session.add(subject)
@@ -99,7 +99,7 @@ async def test_process_face_crop_tier_100_auto_log(
     result = await process_face_crop(
         face_crop=face,
         camera_id=None,
-        event_id=sample_event.event_id,  # auto-log now requires an active event
+        event_id=sample_event.id,  # auto-log now requires an active event
         ctx=fake_ctx,
         db_session_factory=fake_db_factory,
     )
@@ -111,9 +111,9 @@ async def test_process_face_crop_tier_100_auto_log(
     assert detections[0].tier == "100"
     assert detections[0].status == "auto_logged"
 
-    attendances = (await db_session.execute(select(Attendance))).scalars().all()
-    assert len(attendances) == 1
-    assert attendances[0].contact_id == sample_member.contact_id
+    participants = (await db_session.execute(select(Participant))).scalars().all()
+    assert len(participants) == 1
+    assert participants[0].contact_id == sample_member.id
 
     tasks = (await db_session.execute(select(Task))).scalars().all()
     assert len(tasks) == 0
@@ -263,7 +263,7 @@ async def test_process_face_crop_with_camera_id_and_event_id(
     await process_face_crop(
         face_crop=face,
         camera_id=sample_camera.id,
-        event_id=sample_event.event_id,
+        event_id=sample_event.id,
         ctx=fake_ctx,
         db_session_factory=fake_db_factory,
     )
@@ -271,4 +271,4 @@ async def test_process_face_crop_with_camera_id_and_event_id(
     detections = (await db_session.execute(select(Detection))).scalars().all()
     assert len(detections) == 1
     assert detections[0].camera_id == sample_camera.id
-    assert detections[0].event_id == sample_event.event_id
+    assert detections[0].event_id == sample_event.id

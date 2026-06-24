@@ -1,9 +1,7 @@
 import { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
-import { Users, Search, User, RefreshCw } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { Users, Search, User } from 'lucide-react';
 import { api } from '@/services/api';
-import { useAuthStore } from '@/store/authStore';
 import type { Attendee } from '@/types';
 
 async function fetchAttendees(search: string = ''): Promise<Attendee[]> {
@@ -12,23 +10,8 @@ async function fetchAttendees(search: string = ''): Promise<Attendee[]> {
 }
 
 export function AttendeesPage() {
-  const isAdmin = useAuthStore((s) => s.isAdmin);
-  const queryClient = useQueryClient();
-  const [syncing, setSyncing] = useState(false);
   const [search, setSearch] = useState('');
 
-  const syncMembers = async () => {
-    setSyncing(true);
-    try {
-      await api.post('/members/sync');
-      await queryClient.invalidateQueries({ queryKey: ['attendees'] });
-      toast.success('Members synced from CiviCRM');
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Sync failed');
-    } finally {
-      setSyncing(false);
-    }
-  };
   const { data: attendees = [], isLoading } = useQuery({
     queryKey: ['attendees', search],
     queryFn: () => fetchAttendees(search),
@@ -39,17 +22,6 @@ export function AttendeesPage() {
       <header className="border-b border-border bg-card/95 px-4 py-3 backdrop-blur-sm">
         <div className="flex items-center justify-between">
           <h1 className="text-lg font-bold text-foreground">Attendees</h1>
-          {isAdmin && (
-            <button
-              onClick={syncMembers}
-              disabled={syncing}
-              aria-label="Sync members from CiviCRM"
-              className="flex items-center gap-1.5 rounded-xl border border-border bg-background px-3 py-1.5 text-xs font-semibold text-foreground transition-all hover:bg-primary/10 disabled:opacity-50"
-            >
-              <RefreshCw size={13} className={syncing ? 'animate-spin' : ''} aria-hidden="true" />
-              {syncing ? 'Syncing…' : 'Sync'}
-            </button>
-          )}
         </div>
       </header>
 

@@ -39,10 +39,10 @@ export interface LeaderboardEntry {
 }
 
 export interface ChurchEvent {
-  event_id: number;
+  id: number;
   title: string;
-  start_date: string;
-  end_date?: string;
+  start_at?: string;
+  end_at?: string;
 }
 
 export interface Camera {

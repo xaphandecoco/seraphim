@@ -612,7 +612,7 @@ export function SettingsPage() {
               className="flex w-full min-h-[44px] items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-background"
             >
               <Users size={18} className="text-foreground/50" aria-hidden="true" />
-              <span className="text-sm text-foreground">Attendance & CiviCRM Push</span>
+              <span className="text-sm text-foreground">Attendance</span>
             </button>
             <div className="mx-4 h-px bg-border" />
             <button

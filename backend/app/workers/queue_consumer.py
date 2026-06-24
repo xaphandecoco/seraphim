@@ -20,8 +20,7 @@ async def main():
     try:
         async with async_session() as session:
             await dynamic_settings.initialize(session)
-        logger.info("Queue consumer: settings initialized (civicrm_url=%r)",
-                    dynamic_settings.get_civicrm_url())
+        logger.info("Queue consumer: settings initialized")
     except Exception as exc:
         logger.error("Queue consumer: could not load settings: %s — proceeding with defaults", exc)
 

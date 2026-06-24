@@ -366,8 +366,8 @@ Contains only `CiviCRMClient` and `_is_transient_error`. No file may import from
 
 Also add `text` to imports if not already present (needed for partial index `sqlite_where`/`postgresql_where`): `from sqlalchemy import ..., text`.
 
-#### `backend/app/routers/audit.py` — VERIFY / MODIFY
-The file (backend/app/routers/audit.py:27) resolves `member:{id}` strings and likely imports `CiviCRMMember`. Implementer must grep and repoint to `Contact`. Not read in full during spec drafting.
+#### `backend/app/routers/audit.py` — VERIFY ONLY (grill 2026-06-22: no change needed)
+Confirmed: `audit.py` does NOT import `CiviCRMMember`. `_extract_contact_id()` (line 27) parses the `member:{id}` string and returns a bare int; the `matched_name = f"member:{id}"` format (line 183) is database-agnostic and still valid (the id is now `contacts.id`). No code change required — just confirm during the global `CiviCRMMember` grep that no hits remain here.
 
 ### 4.3 File-by-file table
 
@@ -443,8 +443,19 @@ export function AttendancePage() {
 
 The route `/attendance` remains registered in `App.tsx`. No query keys, no API calls.
 
-#### `frontend/src/pages/EventsPage.tsx` — VERIFY / MODIFY
-Read the file. If it references `event.event_id` change to `event.id`; if it references `event.start_date` change to `event.start_at`. Update the local TypeScript interface accordingly.
+#### `frontend/src/types/index.ts` — MODIFY (grill 2026-06-22: confirmed gap)
+The shared `ChurchEvent` interface (lines 41–45) is the canonical event type consumed by `EventsPage.tsx`. Update it to match the renamed `EventResponse`:
+- `event_id: number` → `id: number`
+- `start_date: string` → `start_at: string` (keep nullable semantics — make it `start_at?: string` to match the now-nullable column)
+- `end_date?: string` → `end_at?: string`
+Do NOT add `event_type` to `ChurchEvent` here — that field arrives with S04 (per CN-16). `MemberSearchModal`'s `Member` type is unaffected (it uses `contact_id`, kept as a compatibility alias).
+
+#### `frontend/src/pages/EventsPage.tsx` — MODIFY (grill 2026-06-22: confirmed 6 refs)
+Update all references to the renamed fields:
+- `event.event_id` → `event.id` (lines 88, 116, 119, 151)
+- `event.start_date` → `event.start_at` (line 139)
+- `event.end_date` → `event.end_at` (line 142)
+No local interface in this file — it relies on `ChurchEvent` from `@/types` (updated above). `AttendancePage.tsx`'s former use of these fields disappears when it becomes a stub.
 
 #### `frontend/src/components/tasks/MemberSearchModal.tsx` — VERIFY
 The modal reads `contact_id` from `GET /members/attendees` response. Since `AttendeeResponse.contact_id` is kept as a compatibility alias mapping `Contact.id`, no TypeScript change should be needed. Verify; document if no change is made.
@@ -466,8 +477,9 @@ No changes to role gating. Removed endpoints were admin-only; the stub `Attendan
 |--------|------|
 | MODIFY | `frontend/src/pages/SetupPage.tsx` |
 | REWRITE (stub) | `frontend/src/pages/AttendancePage.tsx` |
-| VERIFY/MODIFY | `frontend/src/pages/EventsPage.tsx` |
-| VERIFY | `frontend/src/components/tasks/MemberSearchModal.tsx` |
+| MODIFY | `frontend/src/types/index.ts` (ChurchEvent: event_id→id, start_date→start_at, end_date→end_at) |
+| MODIFY | `frontend/src/pages/EventsPage.tsx` (6 field refs) |
+| VERIFY (no change) | `frontend/src/components/tasks/MemberSearchModal.tsx` |
 
 ---
 
@@ -725,9 +737,9 @@ Assert no element with text "CiviCRM" renders on step 2. Assert service test res
 
 ## 10. Open questions & pending owner artifacts
 
-1. **`SetupRequest` extra fields policy**: After removing CiviCRM fields, if a client POSTs legacy `civicrm_url` should the API reject (422) or silently ignore? Recommendation: `extra='ignore'` (Pydantic v2 default) for graceful forward-compat with any existing bootstrap scripts. Confirm with owner.
+1. **`SetupRequest` extra fields policy** — RESOLVED (grill 2026-06-22): use Pydantic v2 default `extra='ignore'`. A client POSTing a legacy `civicrm_url` is silently ignored (not 422), for graceful forward-compat with any existing bootstrap scripts. No explicit `model_config` change needed unless the model currently sets `extra='forbid'` — implementer confirms and leaves default.
 
-2. **`EventResponse.id` vs `event_id` field naming**: `EventsPage.tsx` (not fully read) references event objects from `GET /events`. This sprint renames the field from `event_id` to `id`. If `EventsPage.tsx` hardcodes `.event_id`, it must be updated in this sprint. If that breaks too many downstream TypeScript references, consider adding a `@computed_field` or `event_id: int` alias on `EventResponse` for one sprint. Decision needed before frontend changes start.
+2. **`EventResponse.id` vs `event_id` field naming** — RESOLVED (grill 2026-06-22): **clean rename to `id` / `start_at` / `end_at`; NO compatibility alias.** Blast radius verified small — only `ChurchEvent` in `frontend/src/types/index.ts` and `EventsPage.tsx` consume these fields, and `AttendancePage.tsx` (the other consumer) becomes a stub this sprint. Both are updated in §5. Carrying an `event_id` alias would just create debt for S04 to unwind, so do the clean rename now.
 
 3. **`compreface_subjects.contact_id` orphan handling** — RESOLVED (per CN-28). Instead of NULLing stale ids, S01 stashes them in `_legacy_civicrm_contact_id` / `_legacy_civicrm_event_id` during the FK repoint (Step 5). **S24** remaps them to the new app-minted ids via `external_id` after S06's live import, then drops the stash columns. The CompreFace instance persists across cutover, so existing enrolled faces keep working. See S24.
 

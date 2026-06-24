@@ -9,9 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import dynamic_settings, legacy_settings
 from app.database import async_session
-from app.models import Attendance, ComprefaceSubject, Detection, Task, CiviCRMEvent, CiviCRMMember
+from app.models import ComprefaceSubject, Detection, Task
 from app.services.compreface import ComprefaceClient
-from app.services.civicrm import CiviCRMClient
 from app.services.face_cleanup import FaceCleanupService
 from app.services.face_storage import FaceStorage
 
@@ -35,7 +34,6 @@ class QueueManager:
                     await dynamic_settings.reload(session)
 
                 worked = False
-                worked |= await self._process_civicrm_push()
                 worked |= await self._process_enrollment()
                 worked |= await self._process_expired_tasks()
                 worked |= await self._process_face_cleanup()
@@ -46,119 +44,6 @@ class QueueManager:
             except Exception:
                 logger.exception("Background worker loop error")
                 await asyncio.sleep(self.poll_interval)
-
-    # Maximum push attempts before a record is moved to the dead-letter state.
-    MAX_PUSH_ATTEMPTS: int = 3
-
-    async def _process_civicrm_push(self) -> bool:
-        """Push pending attendance records to CiviCRM.
-
-        On each failed attempt the record's ``push_attempts`` counter is
-        incremented and the error message is stored in ``last_push_error``.
-        Once ``push_attempts >= MAX_PUSH_ATTEMPTS`` the record is moved to
-        ``push_status = "dead_letter"`` and will no longer be retried
-        automatically (an admin can manually reset it via the API).
-
-        Returns True if work was done.
-        """
-        civicrm_url = dynamic_settings.get_civicrm_url()
-        if not civicrm_url:
-            logger.debug("CiviCRM not configured, skipping push")
-            return False
-
-        async with self.db_session_factory() as session:
-            # Pick up both brand-new (pending) and previously-failed records
-            # that still have attempts remaining.
-            result = await session.execute(
-                select(Attendance)
-                .where(
-                    Attendance.push_status.in_(["pending", "failed"]),
-                    Attendance.push_attempts < self.MAX_PUSH_ATTEMPTS,
-                )
-                .limit(10)
-            )
-            records = result.scalars().all()
-            if not records:
-                return False
-
-            for record in records:
-                record.push_status = "queued"
-            await session.commit()
-
-            client = CiviCRMClient()
-            try:
-                for record in records:
-                    if not record.contact_id or not record.event_id:
-                        record.push_attempts += 1
-                        record.last_push_error = "Missing contact_id or event_id"
-                        if record.push_attempts >= self.MAX_PUSH_ATTEMPTS:
-                            record.push_status = "dead_letter"
-                            logger.warning(
-                                "CiviCRM push dead-lettered: attendance_id=%s "
-                                "push_attempts=%s last_error=%r",
-                                record.id,
-                                record.push_attempts,
-                                record.last_push_error,
-                            )
-                        else:
-                            record.push_status = "failed"
-                        continue
-                    try:
-                        success = await client.push_attendance(
-                            record.contact_id, record.event_id
-                        )
-                        if success:
-                            record.push_status = "pushed"
-                            logger.info(
-                                "CiviCRM push ok: attendance_id=%s", record.id
-                            )
-                        else:
-                            record.push_attempts += 1
-                            record.last_push_error = "CiviCRM returned failure"
-                            if record.push_attempts >= self.MAX_PUSH_ATTEMPTS:
-                                record.push_status = "dead_letter"
-                                logger.warning(
-                                    "CiviCRM push dead-lettered: attendance_id=%s "
-                                    "push_attempts=%s last_error=%r",
-                                    record.id,
-                                    record.push_attempts,
-                                    record.last_push_error,
-                                )
-                            else:
-                                record.push_status = "failed"
-                                logger.info(
-                                    "CiviCRM push failed (attempt %s/%s): attendance_id=%s",
-                                    record.push_attempts,
-                                    self.MAX_PUSH_ATTEMPTS,
-                                    record.id,
-                                )
-                    except Exception as exc:
-                        error_msg = str(exc)
-                        record.push_attempts += 1
-                        record.last_push_error = error_msg
-                        if record.push_attempts >= self.MAX_PUSH_ATTEMPTS:
-                            record.push_status = "dead_letter"
-                            logger.warning(
-                                "CiviCRM push dead-lettered: attendance_id=%s "
-                                "push_attempts=%s last_error=%r",
-                                record.id,
-                                record.push_attempts,
-                                error_msg,
-                            )
-                        else:
-                            record.push_status = "failed"
-                            logger.warning(
-                                "CiviCRM push failed (attempt %s/%s): attendance_id=%s error=%s",
-                                record.push_attempts,
-                                self.MAX_PUSH_ATTEMPTS,
-                                record.id,
-                                error_msg,
-                            )
-                await session.commit()
-            finally:
-                await client.close()
-
-            return True
 
     async def _process_enrollment(self) -> bool:
         """Process pending Compreface enrollments.

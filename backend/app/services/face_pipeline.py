@@ -8,7 +8,7 @@ import numpy as np
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Attendance, ComprefaceSubject, Detection, Task
+from app.models import ComprefaceSubject, Detection, Participant, Task
 from app.services.quality_gate import FaceQualityGate
 from app.sse import broadcaster
 
@@ -130,20 +130,20 @@ async def process_face_crop(
             # (which would abort the whole detection insert).
             from sqlalchemy import select as _select
             existing_att = await session.execute(
-                _select(Attendance.id).where(
-                    Attendance.contact_id == member_id,
-                    Attendance.event_id == event_id,
+                _select(Participant.id).where(
+                    Participant.contact_id == member_id,
+                    Participant.event_id == event_id,
                 )
             )
             if existing_att.scalar_one_or_none() is None:
-                attendance = Attendance(
+                participant = Participant(
                     contact_id=member_id,
                     event_id=event_id,
                     detection_id=detection.id,
-                    status="confirmed",
-                    push_status="pending",
+                    status="attended",
+                    source="face",
                 )
-                session.add(attendance)
+                session.add(participant)
         elif tier == "100" and not event_id:
             logger.warning(
                 "Tier-100 detection for member=%s skipped attendance — no active event",

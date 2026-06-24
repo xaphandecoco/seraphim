@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import require_admin
-from app.models import Attendance, CiviCRMEvent, Detection, Log, User, VolunteerStat
+from app.models import Detection, Event, Log, Participant, User, VolunteerStat
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -21,22 +21,22 @@ async def attendance_by_event(
     db: AsyncSession = Depends(get_db),
     _user=Depends(require_admin),
 ):
-    """Attendance count per event (confirmed records)."""
+    """Attendance count per event (attended records)."""
     result = await db.execute(
-        select(CiviCRMEvent.event_id, CiviCRMEvent.title, CiviCRMEvent.start_date,
-               func.count(Attendance.id).label("count"))
-        .join(Attendance, Attendance.event_id == CiviCRMEvent.event_id, isouter=True)
-        .where(Attendance.status == "confirmed")
-        .group_by(CiviCRMEvent.event_id, CiviCRMEvent.title, CiviCRMEvent.start_date)
-        .order_by(CiviCRMEvent.start_date.desc())
+        select(Event.id, Event.title, Event.start_at,
+               func.count(Participant.id).label("count"))
+        .join(Participant, Participant.event_id == Event.id, isouter=True)
+        .where(Participant.status == "attended")
+        .group_by(Event.id, Event.title, Event.start_at)
+        .order_by(Event.start_at.desc())
         .limit(20)
     )
     rows = result.all()
     return [
         {
-            "event_id": r.event_id,
+            "id": r.id,
             "title": r.title,
-            "start_date": r.start_date.isoformat() if r.start_date else None,
+            "start_at": r.start_at.isoformat() if r.start_at else None,
             "count": r.count,
         }
         for r in rows
@@ -121,29 +121,29 @@ async def export_attendance_csv(
     db: AsyncSession = Depends(get_db),
     _user=Depends(require_admin),
 ):
-    """Stream attendance records as CSV."""
+    """Stream participant records as CSV."""
     query = (
         select(
-            Attendance.id,
-            Attendance.contact_id,
-            Attendance.event_id,
-            Attendance.status,
-            Attendance.push_status,
-            Attendance.created_at,
+            Participant.id,
+            Participant.contact_id,
+            Participant.event_id,
+            Participant.status,
+            Participant.source,
+            Participant.created_at,
         )
-        .order_by(Attendance.created_at.desc())
+        .order_by(Participant.created_at.desc())
     )
     if event_id:
-        query = query.where(Attendance.event_id == event_id)
+        query = query.where(Participant.event_id == event_id)
 
     result = await db.execute(query)
     rows = result.all()
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["id", "contact_id", "event_id", "status", "push_status", "created_at"])
+    writer.writerow(["id", "contact_id", "event_id", "status", "source", "created_at"])
     for r in rows:
-        writer.writerow([r.id, r.contact_id, r.event_id, r.status, r.push_status,
+        writer.writerow([r.id, r.contact_id, r.event_id, r.status, r.source,
                          r.created_at.isoformat() if r.created_at else ""])
 
     output.seek(0)
@@ -162,7 +162,7 @@ async def export_logs_csv(
     """Stream system log entries as CSV."""
     result = await db.execute(
         select(Log.id, Log.timestamp, Log.action, Log.matched_name,
-               Log.confidence, Log.tier, Log.camera_id, Log.push_status)
+               Log.confidence, Log.tier, Log.camera_id)
         .order_by(Log.timestamp.desc())
         .limit(5000)
     )
@@ -170,11 +170,11 @@ async def export_logs_csv(
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["id", "timestamp", "action", "matched_name", "confidence", "tier", "camera_id", "push_status"])
+    writer.writerow(["id", "timestamp", "action", "matched_name", "confidence", "tier", "camera_id"])
     for r in rows:
         writer.writerow([r.id, r.timestamp.isoformat() if r.timestamp else "",
                          r.action, r.matched_name or "", r.confidence or "", r.tier or "",
-                         r.camera_id or "", r.push_status or ""])
+                         r.camera_id or ""])
 
     output.seek(0)
     return StreamingResponse(

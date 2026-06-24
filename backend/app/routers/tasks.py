@@ -8,7 +8,7 @@ from app.config import dynamic_settings
 from app.database import get_db
 from app.dependencies import require_volunteer
 from app.middleware.cooldown import check_cooldown
-from app.models import CiviCRMMember, Detection, Task
+from app.models import Contact, Detection, Task
 from app.schemas import PaginatedTaskResponse, TaskActionRequest, TaskResponse
 from app.services.face_storage import to_storage_url
 from app.services.task_service import TaskService
@@ -23,7 +23,7 @@ async def _resolve_name(raw_name: str | None, db: AsyncSession) -> str | None:
         return raw_name
     try:
         contact_id = int(raw_name.split(":", 1)[1])
-        member = await db.get(CiviCRMMember, contact_id)
+        member = await db.get(Contact, contact_id)
         if member:
             return f"{member.first_name} {member.last_name}".strip()
     except (ValueError, IndexError):

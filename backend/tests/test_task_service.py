@@ -92,15 +92,15 @@ async def _seed_volunteer(db_session: AsyncSession, email: str, role: str = "vol
     return user
 
 
-async def _seed_member(db_session: AsyncSession, contact_id: int):
-    """add_task/edit_task now validate that the member exists (404 otherwise)."""
-    from app.models import CiviCRMMember
+async def _seed_member(db_session: AsyncSession, _unused_id: int = 0):
+    """Create a Contact row. Returns the Contact so callers can use contact.id."""
+    from app.models import Contact
 
-    member = CiviCRMMember(
-        contact_id=contact_id,
+    member = Contact(
         first_name="Member",
-        last_name=str(contact_id),
-        email=f"member{contact_id}@lnc.test",
+        last_name="Test",
+        email=f"member_{_unused_id}@lnc.test",
+        contact_type="Individual",
     )
     db_session.add(member)
     await db_session.commit()
@@ -365,19 +365,19 @@ async def test_skip_task_four_skips_from_two_volunteers_moves_to_pit(
 @pytest.mark.asyncio
 async def test_add_task_success_single_approval_resolves(db_session: AsyncSession):
     vol = await _seed_volunteer(db_session, "add1@lnc.test")
-    await _seed_member(db_session, 99)
+    member = await _seed_member(db_session, 99)
     detection = await _seed_detection(db_session, matched_name=None)
     task = await _seed_task(db_session, detection, required_approvals=1)
 
     service = TaskService(db_session)
-    result = await service.add_task(task.id, vol.id, member_id=99)
+    result = await service.add_task(task.id, vol.id, member_id=member.id)
 
     assert result.status == "resolved"
     assert result.current_approvals == 1
 
     # Verify detection was updated
     await db_session.refresh(detection)
-    assert detection.matched_name == "member:99"
+    assert detection.matched_name == f"member:{member.id}"
     assert detection.is_enrolled is True
 
 
@@ -433,12 +433,12 @@ async def test_confirm_task_increments_volunteer_stats(db_session: AsyncSession)
 @pytest.mark.asyncio
 async def test_add_task_increments_tasks_added_stat(db_session: AsyncSession):
     vol = await _seed_volunteer(db_session, "stats2@lnc.test")
-    await _seed_member(db_session, 10)
+    member = await _seed_member(db_session, 10)
     detection = await _seed_detection(db_session, matched_name=None)
     task = await _seed_task(db_session, detection, required_approvals=1)
 
     service = TaskService(db_session)
-    await service.add_task(task.id, vol.id, member_id=10)
+    await service.add_task(task.id, vol.id, member_id=member.id)
 
     now = datetime.now(timezone.utc)
     month_key = now.strftime("%Y-%m")

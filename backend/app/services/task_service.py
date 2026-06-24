@@ -8,10 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import dynamic_settings
 from app.models import (
-    Attendance,
-    CiviCRMMember,
+    Contact,
     Detection,
     Log,
+    Participant,
     PitQueue,
     Task,
     TaskAction,
@@ -117,8 +117,8 @@ class TaskService:
         return task
 
     async def _require_member(self, member_id: int) -> None:
-        """Raise 404 if the given CiviCRM member does not exist (avoids a later FK 500)."""
-        member = await self.session.get(CiviCRMMember, member_id)
+        """Raise 404 if the given contact does not exist (avoids a later FK 500)."""
+        member = await self.session.get(Contact, member_id)
         if member is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -362,16 +362,16 @@ class TaskService:
         return result.scalar() or 0
 
     async def _log_attendance(self, task: Task):
-        """Create attendance record when task is resolved."""
+        """Create participant record when task is resolved."""
         detection = await self.session.get(Detection, task.detection_id)
         if not detection or not detection.event_id:
             return
 
         # Check for duplicate
         existing = await self.session.execute(
-            select(Attendance).where(
-                (Attendance.detection_id == task.detection_id)
-                & (Attendance.event_id == detection.event_id)
+            select(Participant).where(
+                (Participant.detection_id == task.detection_id)
+                & (Participant.event_id == detection.event_id)
             )
         )
         if existing.scalar_one_or_none():
@@ -385,14 +385,15 @@ class TaskService:
             except (ValueError, IndexError):
                 pass
 
-        record = Attendance(
-            contact_id=member_id,
-            event_id=detection.event_id,
-            detection_id=task.detection_id,
-            status="confirmed",
-            push_status="pending",
-        )
-        self.session.add(record)
+        if member_id:
+            record = Participant(
+                contact_id=member_id,
+                event_id=detection.event_id,
+                detection_id=task.detection_id,
+                status="attended",
+                source="face",
+            )
+            self.session.add(record)
 
         # Log
         log = Log(

@@ -92,18 +92,19 @@ async def _make_task(
     return task, det
 
 
-async def _seed_member(db_session: AsyncSession, contact_id: int):
-    """edit_task/add_task now 404 if the assigned member does not exist."""
-    from app.models import CiviCRMMember
+async def _seed_member(db_session: AsyncSession, _unused_id: int = 0):
+    """Create a Contact row. Returns the Contact so callers can use contact.id."""
+    from app.models import Contact
 
-    member = CiviCRMMember(
-        contact_id=contact_id,
+    member = Contact(
         first_name="Member",
-        last_name=str(contact_id),
-        email=f"member{contact_id}@lnc.test",
+        last_name="Test",
+        email=f"member_{_unused_id}@lnc.test",
+        contact_type="Individual",
     )
     db_session.add(member)
     await db_session.commit()
+    await db_session.refresh(member)
     return member
 
 
@@ -315,12 +316,12 @@ async def test_edit_task_updates_matched_member(
     volunteer_auth_headers,
 ):
     task, detection = await _make_task(db_session)
-    await _seed_member(db_session, 42)
+    member = await _seed_member(db_session, 42)
 
     with patch(COOLDOWN_PATH, new=AsyncMock(return_value=None)):
         resp = await client.post(
             f"/tasks/{task.id}/edit",
-            json={"member_id": 42},
+            json={"member_id": member.id},
             headers=volunteer_auth_headers,
         )
 
@@ -330,7 +331,7 @@ async def test_edit_task_updates_matched_member(
 
     # Verify detection matched_name was updated
     await db_session.refresh(detection)
-    assert detection.matched_name == "member:42"
+    assert detection.matched_name == f"member:{member.id}"
 
 
 @pytest.mark.asyncio
@@ -381,12 +382,12 @@ async def test_add_task_assigns_member_and_resolves(
     volunteer_auth_headers,
 ):
     task, detection = await _make_task(db_session, matched_name=None)
-    await _seed_member(db_session, 99)
+    member = await _seed_member(db_session, 99)
 
     with patch(COOLDOWN_PATH, new=AsyncMock(return_value=None)):
         resp = await client.post(
             f"/tasks/{task.id}/add",
-            json={"member_id": 99},
+            json={"member_id": member.id},
             headers=volunteer_auth_headers,
         )
 
@@ -395,7 +396,7 @@ async def test_add_task_assigns_member_and_resolves(
     assert data["status"] == "resolved"
 
     await db_session.refresh(detection)
-    assert detection.matched_name == "member:99"
+    assert detection.matched_name == f"member:{member.id}"
     assert detection.is_enrolled is True
 
 

@@ -38,7 +38,7 @@ export function EventsPage() {
     try {
       await api.post('/events/sync');
       await queryClient.invalidateQueries({ queryKey: ['events'] });
-      toast.success('Events synced from CiviCRM');
+      toast.success('Events synced');
     } catch (err: any) {
       toast.error(err.response?.data?.detail || 'Sync failed');
     } finally {
@@ -69,7 +69,7 @@ export function EventsPage() {
             <button
               onClick={syncEvents}
               disabled={syncing}
-              aria-label="Sync events from CiviCRM"
+              aria-label="Sync events"
               className="flex items-center gap-1.5 rounded-xl border border-border bg-background px-3 py-1.5 text-xs font-semibold text-foreground transition-all hover:bg-primary/10 disabled:opacity-50"
             >
               <RefreshCw size={13} className={syncing ? 'animate-spin' : ''} aria-hidden="true" />
@@ -85,7 +85,7 @@ export function EventsPage() {
           <p className="text-xs text-foreground/50">
             <span className="font-semibold">Active event for camera detections: </span>
             {activeEventId
-              ? events.find((e) => e.event_id === activeEventId)?.title ?? `Event #${activeEventId}`
+              ? events.find((e) => e.id === activeEventId)?.title ?? `Event #${activeEventId}`
               : <span className="text-amber-600 font-semibold">None set — detections won't be attributed to an event</span>
             }
             {activeEventId && (
@@ -108,15 +108,15 @@ export function EventsPage() {
           <div className="flex flex-col items-center justify-center py-16 text-foreground/50">
             <CalendarDays size={40} className="mb-3 opacity-40" aria-hidden="true" />
             <p className="text-sm font-medium">No upcoming events</p>
-            {isAdmin && <p className="mt-1 text-xs">Use Sync to pull events from CiviCRM</p>}
+            {isAdmin && <p className="mt-1 text-xs">Use Sync to pull events</p>}
           </div>
         ) : (
           <div className="space-y-2 pb-4">
             {events.map((event) => {
-              const isActive = isAdmin && event.event_id === activeEventId;
+              const isActive = isAdmin && event.id === activeEventId;
               return (
                 <div
-                  key={event.event_id}
+                  key={event.id}
                   className={`rounded-2xl border bg-card p-4 shadow-sm transition-all ${
                     isActive ? 'border-primary ring-2 ring-primary/20' : 'border-border'
                   }`}
@@ -136,11 +136,11 @@ export function EventsPage() {
                         )}
                       </div>
                       <p className="mt-1 text-xs text-foreground/50">
-                        {new Date(event.start_date).toLocaleDateString(undefined, {
+                        {event.start_at ? new Date(event.start_at).toLocaleDateString(undefined, {
                           weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
-                        })}
-                        {event.end_date && (
-                          <> — {new Date(event.end_date).toLocaleDateString(undefined, {
+                        }) : '—'}
+                        {event.end_at && (
+                          <> — {new Date(event.end_at).toLocaleDateString(undefined, {
                             weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
                           })}</>
                         )}
@@ -148,12 +148,12 @@ export function EventsPage() {
                     </div>
                     {isAdmin && !isActive && (
                       <button
-                        onClick={() => setActiveEvent(event.event_id)}
-                        disabled={settingActive === event.event_id}
+                        onClick={() => setActiveEvent(event.id)}
+                        disabled={settingActive === event.id}
                         aria-label={`Set ${event.title} as active event`}
                         className="shrink-0 rounded-xl border border-border bg-background px-3 py-1.5 text-xs font-semibold text-foreground transition-all hover:bg-primary/10 disabled:opacity-50"
                       >
-                        {settingActive === event.event_id ? 'Setting…' : 'Set Active'}
+                        {settingActive === event.id ? 'Setting…' : 'Set Active'}
                       </button>
                     )}
                   </div>

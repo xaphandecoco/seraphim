@@ -24,7 +24,12 @@ from app.config import dynamic_settings
 # recognition pipeline/workers hits the same database the fixtures set up.
 from app.database import Base, engine, async_session, get_db
 from app.dependencies import check_setup_complete
-from app.main import app
+# Import the FastAPI app eagerly so that ALL ORM models are registered on
+# Base.metadata before any fixture runs create_all(). (During S01 Phase 1 this
+# was temporarily lazy because router imports were broken; the backend repoint is
+# complete now, so eager import is restored — otherwise db_session.create_all
+# runs before the models are imported and silently skips tables like `users`.)
+from app.main import app  # noqa: F401  (registers all models via router imports)
 from app.utils.auth import create_access_token, hash_password
 
 # Stable test secret — must be ≥32 chars (matches our fail-fast assertion)
@@ -122,6 +127,26 @@ async def _reset_rate_limiter():
         except Exception:
             pass
     yield
+
+
+# ---------------------------------------------------------------------------
+# Snapshot/restore global dynamic_settings around every test.
+#
+# Some endpoints (notably POST /setup) mutate the process-wide
+# `dynamic_settings` — e.g. /setup writes a fresh random `jwt_secret` and
+# reloads from the DB, which clobbers the TEST_JWT_SECRET this conftest installs.
+# Without restoration, every Bearer token in tests that run AFTER a /setup test
+# fails verification (401 cascade). Snapshot before, restore after, so no test
+# can poison auth/config for the rest of the session.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _restore_dynamic_settings():
+    saved_settings = dict(dynamic_settings._settings)
+    saved_initialized = dynamic_settings._initialized
+    yield
+    dynamic_settings._settings = saved_settings
+    dynamic_settings._initialized = saved_initialized
 
 
 # ---------------------------------------------------------------------------
@@ -224,12 +249,12 @@ async def sample_camera(db_session):
 
 @pytest_asyncio.fixture
 async def sample_event(db_session):
-    from app.models import CiviCRMEvent
+    from app.models import Event
 
-    event = CiviCRMEvent(
-        event_id=1001,
+    # Minimal per CN-16 — no event_type, is_active, session_time (those are S04 columns)
+    event = Event(
         title="Sunday Service",
-        start_date=datetime.now(timezone.utc).replace(tzinfo=None),
+        start_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
     db_session.add(event)
     await db_session.commit()
@@ -238,19 +263,36 @@ async def sample_event(db_session):
 
 
 @pytest_asyncio.fixture
-async def sample_member(db_session):
-    from app.models import CiviCRMMember
+async def sample_contact(db_session):
+    from app.models import Contact
 
-    member = CiviCRMMember(
-        contact_id=5001,
+    contact = Contact(
         first_name="Juan",
         last_name="dela Cruz",
         email="juan@lightnc.org",
+        contact_type="Individual",
     )
-    db_session.add(member)
+    db_session.add(contact)
     await db_session.commit()
-    await db_session.refresh(member)
-    return member
+    await db_session.refresh(contact)
+    return contact
+
+
+# Backwards-compat alias so tests still using sample_member fixture continue to work
+@pytest_asyncio.fixture
+async def sample_member(db_session):
+    from app.models import Contact
+
+    contact = Contact(
+        first_name="Juan",
+        last_name="dela Cruz",
+        email="juan@lightnc.org",
+        contact_type="Individual",
+    )
+    db_session.add(contact)
+    await db_session.commit()
+    await db_session.refresh(contact)
+    return contact
 
 
 @pytest_asyncio.fixture
@@ -264,7 +306,7 @@ async def sample_detection(db_session, sample_camera, sample_event):
         tier="91-99",
         status="tasked",
         matched_name="Juan dela Cruz",
-        event_id=sample_event.event_id,
+        event_id=sample_event.id,  # use .id (not .event_id) on the new Event model
     )
     db_session.add(detection)
     await db_session.commit()
@@ -293,16 +335,15 @@ async def sample_task(db_session, sample_detection):
 
 
 @pytest_asyncio.fixture
-async def sample_attendance(db_session, sample_member, sample_event, sample_detection):
-    from app.models import Attendance
+async def sample_participant(db_session, sample_contact, sample_event, sample_detection):
+    from app.models import Participant
 
-    record = Attendance(
-        contact_id=sample_member.contact_id,
-        event_id=sample_event.event_id,
+    record = Participant(
+        contact_id=sample_contact.id,
+        event_id=sample_event.id,
         detection_id=sample_detection.id,
-        status="confirmed",
-        push_status="pending",
-        push_attempts=0,
+        status="attended",
+        source="face",
     )
     db_session.add(record)
     await db_session.commit()
@@ -310,18 +351,17 @@ async def sample_attendance(db_session, sample_member, sample_event, sample_dete
     return record
 
 
+# Backwards-compat alias for tests still referencing sample_attendance
 @pytest_asyncio.fixture
-async def dead_letter_attendance(db_session, sample_member, sample_event):
-    from app.models import Attendance
+async def sample_attendance(db_session, sample_member, sample_event, sample_detection):
+    from app.models import Participant
 
-    record = Attendance(
-        contact_id=sample_member.contact_id,
-        event_id=sample_event.event_id,
-        detection_id=None,
-        status="confirmed",
-        push_status="dead_letter",
-        push_attempts=5,
-        last_push_error="CiviCRM connection timeout",
+    record = Participant(
+        contact_id=sample_member.id,
+        event_id=sample_event.id,
+        detection_id=sample_detection.id,
+        status="attended",
+        source="face",
     )
     db_session.add(record)
     await db_session.commit()

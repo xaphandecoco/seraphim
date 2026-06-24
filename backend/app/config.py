@@ -97,15 +97,6 @@ class DynamicSettings:
     def get_compreface_recognize_api_key(self) -> str:
         return self.get_str("compreface_recognize_api_key", "")
     
-    def get_civicrm_url(self) -> str:
-        return self.get_str("civicrm_url", "")
-    
-    def get_civicrm_api_key(self) -> str:
-        return self.get_str("civicrm_api_key", "")
-    
-    def get_civicrm_site_key(self) -> str:
-        return self.get_str("civicrm_site_key", "")
-    
     def get_jwt_secret(self) -> str:
         return self.get_str("jwt_secret", "")
     
