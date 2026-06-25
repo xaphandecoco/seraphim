@@ -5,7 +5,16 @@
 ---
 
 ## 🔄 LOOP RUNNING (2026-06-25, resumed in CLOUD — new agent, full autonomy)
-S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` · S03 🔄 PLAN running (`wf_227c6026-94a`). Baseline gate: 722 passed/8 skipped/1 xfailed (re-verified in cloud). Owner asleep → auto-approve plans, log blockers here, do NOT wait. Auto-resume cron `8493f26e` armed (every 2h at :23).
+S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` · **S03 🔄 IMPLEMENT building** (`wf_dcead96c-d09`). PLAN done & auto-approved (6 feature + 5 patch tasks). Baseline gate: 722 passed/8 skipped/1 xfailed. Owner asleep → auto-approve plans, log blockers here, do NOT wait. Auto-resume cron `8493f26e` armed (every 2h at :23).
+
+**RESUME (if S03 build dies on limit):** `Workflow({scriptPath:'/home/user/seraphim/tools/build/s03_implement.js', resumeFromRunId:'wf_dcead96c-d09'})` then critique→commit→push. Build artifacts (gen_build output + args) committed under `tools/build/`.
+
+**S03 auto-resolved open questions (non-blocking, owner review on wake):**
+- **contact_type casing** → P01 lowercases the ORM default to `individual`; Pydantic Literal rejects capitalized. No pre-prod rows exist (S01) so no data UPDATE needed; any future capitalized rows normalized in S06. ✅ default applied.
+- **contact_subtype** → stored free-form `str`; FE renders the C9 canonical vocab (New Friend/Regular Attendee/Regular Member/Volunteer/Student/Parent/Staff/Team/Sponsor) as `<select>` suggestions, no server-side Literal. ✅ default applied.
+- **FacePanel thumb field (S07 carry-fwd)** → P03 reads `thumb_url ?? thumb_path` (defensive); `FaceSample.thumb_url` added to TS type (additive). ✅ resolved.
+- **MemberSearchModal → ContactPickerModal rename** → P04 renames file+export + 4 import sites (TaskFeed, PitPage, AuditPage, CustomFieldRenderer) + 2 test mocks. ✅ in build.
+- **Soft-dup email** → warn-only (non-blocking 201), per spec default. ✅ applied.
 
 ### 🌩 CLOUD-ENV MIGRATION NOTES (NEW — critical for any future resume here)
 This session runs on **Claude Code on the web (Linux cloud)**, NOT the owner's local Windows box. Differences that bit us + the fixes (all durable):
