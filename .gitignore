@@ -32,6 +32,7 @@ yarn-error.log*
 dist/
 build/
 *.egg-info/
+.vite/
 
 # IDE
 .vscode/
