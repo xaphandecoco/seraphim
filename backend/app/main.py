@@ -28,6 +28,7 @@ from app.routers import (
     leaderboard,
     logs,
     members,
+    migration,
     name_aliases,
     name_match as name_match_router,
     pit,
@@ -132,6 +133,7 @@ app.include_router(custom_fields.router, dependencies=[Depends(check_setup_compl
 app.include_router(name_match_router.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(name_aliases.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(community_reports_router.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(migration.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(storage_router.router)
 
 

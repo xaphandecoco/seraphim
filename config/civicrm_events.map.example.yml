@@ -1,0 +1,61 @@
+# CiviCRM -> Seraphim events column map example
+# Usage:
+#   python scripts/migrate_civicrm.py \
+#     --entity events \
+#     --file path/to/events.xlsx \
+#     --map config/civicrm_events.map.example.yml \
+#     [--dry-run] [--by-user-email admin@example.com]
+#
+# column_map keys   = header names as they appear in the source XLSX
+# target            = Seraphim Event field
+# data_type         = str | int | float | date | bool | list
+# required          = true to treat a blank/missing cell as a row error
+
+column_map:
+  "CiviCRM Event ID":
+    target: external_id
+    data_type: str
+    required: true
+
+  "Event Title":
+    target: title
+    data_type: str
+    required: true
+
+  "Event Type":
+    target: event_type
+    data_type: str
+
+  "Description":
+    target: description
+    data_type: str
+
+  "Start Date":
+    target: start_date
+    data_type: date
+    required: true
+
+  "End Date":
+    target: end_date
+    data_type: date
+
+  "Location":
+    target: location
+    data_type: str
+
+  "Is Active":
+    target: is_active
+    data_type: bool
+
+  "Max Participants":
+    target: max_participants
+    data_type: int
+
+  "Registration Required":
+    target: registration_required
+    data_type: bool
+
+options:
+  date_format: "%Y-%m-%d"
+  default_event_type: "general"
+  # mode is derived from --dry-run flag (dry / live); do not set here

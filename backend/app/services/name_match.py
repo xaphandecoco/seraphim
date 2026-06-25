@@ -66,7 +66,7 @@ import unicodedata
 from typing import Any, Callable, Optional
 
 import jellyfish
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -598,10 +598,22 @@ async def _enqueue_review(
     event_id: Optional[int],
     community_report_id: Optional[int],
     candidates: list[MatchCandidate],
+    payload: Optional[dict] = None,
+    source: Optional[str] = None,
 ) -> Optional[int]:
     """Insert a NameMatchReviewQueue row and return its id.
 
     Returns None if the insert fails (non-fatal — caller still returns result).
+
+    Parameters
+    ----------
+    payload:
+        Arbitrary dict persisted into NameMatchReviewQueue.raw_payload.
+        Used by the migration runner to store batch/field provenance so
+        T07 can count pending_review_count per batch.
+    source:
+        String value persisted into NameMatchReviewQueue.source.
+        Typically 'migration', 'community_report', etc.
     """
     try:
         top_candidate_id: Optional[int] = None
@@ -617,6 +629,8 @@ async def _enqueue_review(
             candidate_contact_id=top_candidate_id,
             score=top_score,
             status="pending",
+            raw_payload=payload,
+            source=source,
             created_at=utc_now(),
             updated_at=utc_now(),
         )
@@ -714,7 +728,8 @@ async def match_name(
         review_queue_id: Optional[int] = None
         if auto_enqueue:
             review_queue_id = await _enqueue_review(
-                db, raw_name, event_id, community_report_id, candidates
+                db, raw_name, event_id, community_report_id, candidates,
+                payload=payload, source=source,
             )
 
         return NameMatchResult(
@@ -734,7 +749,8 @@ async def match_name(
     review_queue_id = None
     if auto_enqueue:
         review_queue_id = await _enqueue_review(
-            db, raw_name, event_id, community_report_id, []
+            db, raw_name, event_id, community_report_id, [],
+            payload=payload, source=source,
         )
 
     return NameMatchResult(

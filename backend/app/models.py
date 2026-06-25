@@ -760,10 +760,93 @@ class NameMatchReviewQueue(Base):
         DateTime, nullable=False, default=utc_now, onupdate=utc_now
     )
 
+    raw_payload: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    source: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+
     __table_args__ = (
         Index("ix_nmrq_community_report_id", "community_report_id"),
         Index("ix_nmrq_event_id", "event_id"),
         Index("ix_nmrq_contact_id", "contact_id"),
         Index("ix_nmrq_status", "status"),
         Index("ix_nmrq_candidate_contact_id", "candidate_contact_id"),
+        Index("ix_nmrq_source", "source"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# S22-Import — CiviCRM / spreadsheet migration tables
+# ---------------------------------------------------------------------------
+
+class ImportBatch(Base):
+    """Tracks a single spreadsheet/CSV import run end-to-end.
+
+    entity: 'contacts' | 'events' | 'participants' | 'links'
+    mode: 'dry_run' | 'live'  (spec §3.1 — the run kind, NOT a write-op type)
+    status: 'running' | 'completed' | 'failed'
+    column_map: {source_col: app_field} mapping chosen by the user.
+    options: arbitrary loader options (e.g. match_field, date_format).
+    created_by_id ondelete SET NULL — admin user row may be removed without
+        losing the batch audit trail.
+    """
+
+    __tablename__ = "import_batch"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source_filename: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    entity: Mapped[str] = mapped_column(String(20), nullable=False)
+    mode: Mapped[str] = mapped_column(String(10), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="running"
+    )  # running | done | error | partial
+    column_map: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    options: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    total_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    skipped_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    review_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_by_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    __table_args__ = (
+        Index("ix_import_batch_entity_status", "entity", "status"),
+        Index("ix_import_batch_started_at", "started_at"),
+    )
+
+
+class ImportRowResult(Base):
+    """Per-row outcome for a single ImportBatch run.
+
+    outcome: 'created' | 'updated' | 'skipped' | 'error' | 'review'
+    external_id: the raw source token string from the input file (String, not
+        Integer — the loader coerces to int when querying Contact/Event).
+    entity_id: the Contact/Event/Participant PK that was created or matched.
+    raw: the full input row dict (capped by caller if too large).
+    """
+
+    __tablename__ = "import_row_result"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    batch_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("import_batch.id", ondelete="CASCADE"), nullable=False
+    )
+    row_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    external_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    outcome: Mapped[str] = mapped_column(
+        String(20), nullable=False
+    )  # created | updated | skipped | error | review
+    entity_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    raw: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+
+    __table_args__ = (
+        Index("ix_import_row_result_batch", "batch_id"),
+        # Composite (batch_id, outcome) per spec §3.2 — matches the migration DDL
+        # and serves the batch-scoped outcome filter on GET /batches/{id}/rows.
+        Index("ix_import_row_result_outcome", "batch_id", "outcome"),
     )

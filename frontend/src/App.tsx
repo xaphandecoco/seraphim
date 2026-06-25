@@ -28,6 +28,8 @@ import { NameMatchReviewPage } from '@/pages/NameMatchReviewPage';
 import { CommunityReportsPage } from '@/pages/CommunityReportsPage';
 import { CommunityReportFormPage } from '@/pages/CommunityReportFormPage';
 import { CommunityReportDetailPage } from '@/pages/CommunityReportDetailPage';
+import { MigrationPage } from '@/pages/MigrationPage';
+import { MigrationReportPage } from '@/pages/MigrationReportPage';
 
 function AuthInit() {
   useAuth();
@@ -85,6 +87,8 @@ function App() {
         <Route path="/community-reports" element={<ProtectedRoute><CommunityReportsPage /></ProtectedRoute>} />
         <Route path="/community-reports/new" element={<ProtectedRoute><CommunityReportFormPage /></ProtectedRoute>} />
         <Route path="/community-reports/:id" element={<ProtectedRoute><CommunityReportDetailPage /></ProtectedRoute>} />
+        <Route path="/settings/migration" element={<AdminRoute><MigrationPage /></AdminRoute>} />
+        <Route path="/settings/migration/:batchId" element={<AdminRoute><MigrationReportPage /></AdminRoute>} />
       </Routes>
     </div>
   );

@@ -1229,3 +1229,67 @@ class PaginatedCommunityReportResponse(BaseModel):
     page: int
     page_size: int
     items: List[CommunityReportResponse]
+
+
+# ============================================================================
+# S30 — CiviCRM Migration Import
+# ============================================================================
+
+class ImportBatchOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    source_filename: Optional[str] = None
+    entity: str
+    mode: str
+    status: str
+    column_map: Dict[str, Any]
+    options: Dict[str, Any]
+    total_rows: int
+    created_count: int
+    updated_count: int
+    skipped_count: int
+    error_count: int
+    review_count: int
+    started_at: datetime
+    finished_at: Optional[datetime] = None
+    created_by_id: Optional[int] = None
+
+
+class ImportBatchListResponse(BaseModel):
+    items: List[ImportBatchOut]
+    total: int
+    limit: int
+    offset: int
+
+
+class ImportBatchDetailResponse(ImportBatchOut):
+    pending_review_count: int
+
+
+class ImportRowResultOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    batch_id: int
+    row_number: int
+    external_id: Optional[str] = None
+    outcome: str
+    entity_id: Optional[int] = None
+    message: Optional[str] = None
+    created_at: datetime
+
+
+class ImportRowResultListResponse(BaseModel):
+    items: List[ImportRowResultOut]
+    total: int
+    limit: int
+    offset: int
+
+
+class MigrationSummaryResponse(BaseModel):
+    contacts: Optional[ImportBatchOut] = None
+    events: Optional[ImportBatchOut] = None
+    participants: Optional[ImportBatchOut] = None
+    links: Optional[ImportBatchOut] = None
+    pending_reviews: int
