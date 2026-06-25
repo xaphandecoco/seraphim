@@ -5,7 +5,7 @@
 ---
 
 ## 🔄 LOOP RUNNING (2026-06-25, resumed in CLOUD — new agent, full autonomy)
-S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` · **S03 ✅ `a7839af`** · **S04 ✅ `37608a9`** · **S05 ✅ `c753618`** · **S22 🔄 IMPLEMENT building** (`wf_b59d7ee9-5ce`; PLAN auto-approved, 10 feature + 3 patch, real migration + Claude name-matching service). Next after S22: S06.
+S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` · **S03 ✅ `a7839af`** · **S04 ✅ `37608a9`** · **S05 ✅ `c753618`** · **S22 ⚠️ BACKEND ✅ `cc64c57` — FRONTEND CARRY-FORWARD** (F08-F10 not completed; F06/F07 agents stuck 101 min idle). Next: S22-frontend patch (F08 API services/types, F09 NameMatchReviewPage, F10 community-report pages), then S06.
 
 **RESUME (if S22 build dies on limit):** `Workflow({scriptPath:'/home/user/seraphim/tools/build/s22_implement.js', resumeFromRunId:'wf_b59d7ee9-5ce'})` → critique → commit → push. Durable plan: `docs/superpowers/build-journal/s22_args.json`. S22 migration down_rev = a2b3c4d5e6f7. ⚠️ S22 PLAN flagged: spec §4.3 `match_name` signature vs master §2.6 frozen contract — architect resolved with keyword-compatible signature (verify in critique). Model: claude-sonnet-4-6 for matching agent (configurable via admin_settings `name_match.claude_model`); tests NEVER call live LLM (stub gate on ENVIRONMENT==test / no API key / claude_enabled=false).
 
@@ -58,7 +58,13 @@ This session runs on **Claude Code on the web (Linux cloud)**, NOT the owner's l
 
 ## ⏰ AUTO-RESUME (token limit)
 
-Token limit is a rolling **5-hour** window. **Recurring** in-session cron **`94e47e63`** fires **every 2h at :23** (refreshed 2026-06-25 from the old 5h cron, which couldn't fire — see below). Each poke re-reads this log + `git log`, follows the RESUME PLAYBOOK, and is duplicate-safe (no-ops if work is in flight; trusts git over the log; never restarts a committed sprint). Session-only, but owner confirmed the app stays open. Auto-expires after 7 days. If you wake mid-sprint with no recent progress, just say "continue".
+**⚡ WATCHDOG CRON (15 min) — recreate on every new session:**
+```
+CronCreate({ cron: '*/15 * * * *', durable: true, recurring: true, prompt: 'Run bash /home/user/seraphim/tools/watchdog_stuck.sh — if exit 2 (STALE/STUCK): check git status, run green gate (cd backend && DATABASE_URL=sqlite+aiosqlite:///./ci_test.db REDIS_URL=memory:// ENVIRONMENT=test python -m pytest tests/ -q -p no:randomly | tail -20 && cd ../frontend && npm run build | tail -5 && npm run test:run | tail -5), commit all passing changes as feat(SXX-partial): watchdog auto-recovery + push to docs/crm-specs-and-cve-remediation, update SPRINT-LOOP-LOG.md line 8 to remove the stale building marker, then report what was recovered. If exit 0: silent.' })
+```
+Current session cron: `8bd56de9` (15-min, fires every :00/:15/:30/:45). **Recreate immediately after any session restart** — crons are session-only and are lost on restart.
+
+Token limit is a rolling **5-hour** window. **Recurring** in-session cron fires **every 2h** as fallback. Each poke re-reads this log + `git log`, follows the RESUME PLAYBOOK, and is duplicate-safe (no-ops if work is in flight; trusts git over the log; never restarts a committed sprint). Session-only, but owner confirmed the app stays open. Auto-expires after 7 days. If you wake mid-sprint with no recent progress, just say "continue".
 
 **THE REAL auto-resume fix (early-abort):** builds now short-circuit after 5 consecutive agent failures (session-limit fingerprint) and return in seconds — instead of grinding ~28 min failing every agent (which is what blocked the old cron from ever finding an idle window). Implemented in the reusable generator `%TEMP%\claude\gen_build.py`; all build scripts are generated through it. Combined with task-notification auto-re-invoke (a returning workflow wakes this session) + the 2h cron, recovery after a reset is now prompt.
 
