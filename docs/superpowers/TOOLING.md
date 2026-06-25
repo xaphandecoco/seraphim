@@ -17,8 +17,8 @@ recreate them.
 ## Dependencies / gotchas (required for the tooling to work)
 - **17 subagent definitions** in `~/.claude/agents/*.md`, named `senpai-team-v1-{intake, recon, researcher,
   architect, backend, frontend, db, aiml, qa, qa-expert, security, ux-reviewer, performance, devops, rollback,
-  docs, classifier}`. The workflow's `agentType:` calls won't resolve without them. (Ask the prior session to dump
-  these too if you don't have them.)
+  docs, classifier}`. The workflow's `agentType:` calls won't resolve without them. **All 17 are reproduced in
+  [`AGENTS-senpai.md`](./AGENTS-senpai.md)** — install each to `~/.claude/agents/<name>.md`.
 - The marker comments **`//__PLAN_BLOCK_START__`**, **`//__PLAN_BLOCK_END__`**, **`//__IMPLEMENT_PLAN_INJECT__`**
   in `senpai-team-v1.js` are **required** — `gen_build.py` splits on them. Do not remove.
 - Model policy: senpai keeps its own models (Opus on architect/security/qa-expert + the explicit overrides). Any
