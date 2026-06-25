@@ -5,7 +5,9 @@
 ---
 
 ## 🔄 LOOP RUNNING (2026-06-25, resumed in CLOUD — new agent, full autonomy)
-S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` · **S03 ✅ `a7839af` (cloud)** · **S04 🔄 PLAN running** (`wf_c98c3527-768`). Gate after S03: backend 740 passed/8 skip/1 xfail, frontend build+lint+218 tests, ruff clean. Owner asleep → auto-approve plans, log blockers here, do NOT wait. Auto-resume cron `8493f26e` armed.
+S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` · **S03 ✅ `a7839af`** · **S04 🔄 IMPLEMENT building** (`wf_a6e1b823-854`; PLAN auto-approved, 13 feature + 5 patch tasks, real migration). Owner asleep → auto-approve plans, log blockers here, do NOT wait. Auto-resume cron `8493f26e` armed.
+
+**RESUME (if S04 build dies on limit):** `Workflow({scriptPath:'/home/user/seraphim/tools/build/s04_implement.js', resumeFromRunId:'wf_a6e1b823-854'})` → critique → commit → push. Durable plan: `docs/superpowers/build-journal/s04_args.json` (regen build via `tools/gen_build.py`). S04 migration down_rev = i3j4k5l6m7n8; verify `alembic heads` is single before commit.
 
 **S04 notes:** owns a REAL migration (event_series table + 6 events cols, down_rev i3j4k5l6m7n8). After S04 → S08 (needs S07 spec-doc reconciliation to string-keyed design FIRST per carry-forward). Build sequentially (shared conftest/schemas/models — no concurrent builds). Launch senpai via `scriptPath:'/root/.claude/workflows/senpai-team-v1.js'` (NOT name: — the by-name lookup uses a stale session-cached def WITH agentType that fails in cloud; the scriptPath canonical is patched: 0 agentType, 6 Opus/15 Sonnet).
 
