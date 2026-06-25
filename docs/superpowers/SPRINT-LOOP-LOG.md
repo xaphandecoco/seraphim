@@ -5,7 +5,9 @@
 ---
 
 ## 🔄 LOOP RUNNING (2026-06-25, resumed in CLOUD — new agent, full autonomy)
-S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` · **S03 ✅ committed (cloud)** · **next: S04 ∥ S08**. Gate after S03: backend 740 passed/8 skip/1 xfail, frontend build+lint+218 tests, ruff clean. Owner asleep → auto-approve plans, log blockers here, do NOT wait. Auto-resume cron `8493f26e` armed (every 2h at :23).
+S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` · **S03 ✅ `a7839af` (cloud)** · **S04 🔄 PLAN running** (`wf_c98c3527-768`). Gate after S03: backend 740 passed/8 skip/1 xfail, frontend build+lint+218 tests, ruff clean. Owner asleep → auto-approve plans, log blockers here, do NOT wait. Auto-resume cron `8493f26e` armed.
+
+**S04 notes:** owns a REAL migration (event_series table + 6 events cols, down_rev i3j4k5l6m7n8). After S04 → S08 (needs S07 spec-doc reconciliation to string-keyed design FIRST per carry-forward). Build sequentially (shared conftest/schemas/models — no concurrent builds). Launch senpai via `scriptPath:'/root/.claude/workflows/senpai-team-v1.js'` (NOT name: — the by-name lookup uses a stale session-cached def WITH agentType that fails in cloud; the scriptPath canonical is patched: 0 agentType, 6 Opus/15 Sonnet).
 
 **RESUME (if S03 build dies on limit):** `Workflow({scriptPath:'/home/user/seraphim/tools/build/s03_implement.js', resumeFromRunId:'wf_dcead96c-d09'})` then critique→commit→push. Build artifacts (gen_build output + args) committed under `tools/build/`.
 
