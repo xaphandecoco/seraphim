@@ -12,6 +12,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    func,
     text,
 )
 from sqlalchemy import JSON
@@ -494,6 +495,45 @@ class AdminSetting(Base):
     )
     updated_by: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL")
+    )
+
+
+class ExportJob(Base):
+    """Async export job — tracks status and result for CSV/XLSX exports.
+
+    job_type: attendance | contacts | audit_log (extensible)
+    fmt: csv | xlsx
+    params: arbitrary filter params passed by the requester.
+    status: pending | running | done | error
+    """
+
+    __tablename__ = "export_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    job_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    fmt: Mapped[str] = mapped_column(String(10), nullable=False)
+    params: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'"), default=dict
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="pending", default="pending"
+    )
+    requested_by_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    row_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    file_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    file_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now(), default=utc_now
+    )
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_export_jobs_status_created", "status", "created_at"),
+        Index("ix_export_jobs_requested_by", "requested_by_id"),
     )
 
 
