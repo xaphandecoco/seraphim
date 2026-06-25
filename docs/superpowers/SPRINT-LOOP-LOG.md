@@ -4,8 +4,17 @@
 
 ---
 
-## 🔄 LOOP RUNNING (2026-06-25, resumed in cloud — new agent)
-S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` · S03 🔄 PLAN running. Baseline gate: 722 passed/8 skipped/1 xfailed. Tooling reinstalled in cloud env. Auto-resume cron `8493f26e` armed (every 2h at :23).
+## 🔄 LOOP RUNNING (2026-06-25, resumed in CLOUD — new agent, full autonomy)
+S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` · S03 🔄 PLAN running (`wf_227c6026-94a`). Baseline gate: 722 passed/8 skipped/1 xfailed (re-verified in cloud). Owner asleep → auto-approve plans, log blockers here, do NOT wait. Auto-resume cron `8493f26e` armed (every 2h at :23).
+
+### 🌩 CLOUD-ENV MIGRATION NOTES (NEW — critical for any future resume here)
+This session runs on **Claude Code on the web (Linux cloud)**, NOT the owner's local Windows box. Differences that bit us + the fixes (all durable):
+1. **Fresh empty clone.** The repo + all prior work was pushed to GitHub branch `docs/crm-specs-and-cve-remediation` (commits `c45ffec` S01 … `9cc341c` agents-doc). `git fetch` + checkout that branch = full state. The local Windows commits `2ee70d7`/`14c4329`/`8d87084` map to the pushed `feat(S0x)` commits (same trees, different hashes after the push-rebase).
+2. **Cloud workflow runner does NOT support custom `~/.claude/agents/*.md`.** Senpai `agentType:'senpai-team-v1-*'` calls fail with "agent type not found". **FIX: stripped all `agentType:` from `~/.claude/workflows/senpai-team-v1.js`** — agents now run as the default workflow subagent; the task PROMPTS already carry all role instructions, so quality is preserved. The 17 agent `.md` files are installed but inert here.
+3. **Model policy preserved via inline `model:` overrides** (since the `.md` frontmatter no longer applies). Canonical senpai now has explicit per-agent models: **Opus 4.8** on architect / reroute / expert-qa / security / security-recheck / architect-sec-reroute; **Sonnet 4.6** on intake, recon, researcher, all engineers (db/backend/frontend), patches, all QA rounds, fixes, ux, perf, security-fixes, devops, docs. ⚠️ The S03 PLAN run `wf_227c6026-94a` launched just before the Sonnet overrides landed in its copy → its intake/recon/researcher ran on Opus (architect was Opus anyway). Minor one-time overage; IMPLEMENT + all future builds use the corrected split.
+4. **Paths are Linux now.** Repo: `/home/user/seraphim`. Tooling: `tools/gen_build.py` (committed). Senpai workflow: `~/.claude/workflows/senpai-team-v1.js`. Temp/scratch under `/tmp/...`. Ignore the old `%TEMP%\claude\...` Windows paths in the notes below.
+5. **Env setup done:** backend deps installed (`pip install -r requirements.txt` + `email-validator`); frontend `npm install`; ruff 0.15.8; node 22; python 3.11. `npm install` introduces a cosmetic `package-lock.json` `libc`-field drift — revert it (`git checkout frontend/package-lock.json`) unless a real dep changed.
+6. **No push restriction lifted:** owner pushed to make the cloud work; I continue to **commit per sprint AND push** to `docs/crm-specs-and-cve-remediation` (cloud is ephemeral — unpushed work is lost on container reclaim). This is the key change from the local-only "NO push" rule.
 
 ## ⚠️ BLOCKERS / QUESTIONS FOR OWNER (read me first)
 
