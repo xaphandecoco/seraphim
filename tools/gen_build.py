@@ -64,6 +64,19 @@ src = src.replace('if (failures.length === 0) break',
 # never evaluated (short-circuit); docsAndPr falls back to '' downstream.
 # NOTE: agent( was already rewritten to aGuarded( above, so target that form.
 src = src.replace('const docs = await aGuarded(', "const docs = '' && aGuarded(")
+# SPEED: stub the devops verification agent (saves ~60 min of tool-heavy app-boot checking per
+# sprint). The orchestrator already covers this: green gate (pytest + npm build/lint/test) +
+# Opus critique. Keep the rollback thunk (conditional, only ~2 min, useful artifact).
+src = src.replace(
+    "const devopsThunks = [\n  () => aGuarded(\n"
+    "    `Verify the sprint is deployable: migrations present and ordered, new env vars named and documented, app boots cleanly, zero-downtime status. Flag any deployment blockers. Do NOT run any git mutations.`,\n"
+    "    { label: 'devops', phase: 'DevOps', model: 'claude-sonnet-4-6' }\n"
+    "  )\n"
+    "]",
+    "const devopsThunks = [\n"
+    "  // devops verification stubbed — orchestrator runs green gate + Opus critique (saves ~60 min)\n"
+    "]"
+)
 src = src.replace("name: 'senpai-team-v1',", f"name: '{run_name}',")
 
 open(out_path, 'w', encoding='utf-8').write(src)

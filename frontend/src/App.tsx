@@ -22,6 +22,8 @@ import { CustomFieldsPage } from '@/pages/CustomFieldsPage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { AuditPage } from '@/pages/AuditPage';
 import { BulkPhotoUploadPage } from '@/pages/BulkPhotoUploadPage';
+import { EventDetailPage } from '@/pages/EventDetailPage';
+import { EventSeriesPage } from '@/pages/EventSeriesPage';
 
 function AuthInit() {
   useAuth();
@@ -58,6 +60,7 @@ function App() {
         <Route path="/" element={<ProtectedRoute><TasksPage /></ProtectedRoute>} />
         <Route path="/ranking" element={<ProtectedRoute><RankingPage /></ProtectedRoute>} />
         <Route path="/events" element={<ProtectedRoute><EventsPage /></ProtectedRoute>} />
+        <Route path="/events/:id" element={<ProtectedRoute><EventDetailPage /></ProtectedRoute>} />
         {/* S15: gate contacts from viewer */}
         <Route path="/contacts" element={<ProtectedRoute><ContactsPage /></ProtectedRoute>} />
         <Route path="/contacts/new" element={<ProtectedRoute><ContactFormPage mode="create" /></ProtectedRoute>} />
@@ -69,6 +72,7 @@ function App() {
         <Route path="/settings/users" element={<AdminRoute><UserManagementPage /></AdminRoute>} />
         <Route path="/settings/custom-fields" element={<AdminRoute><CustomFieldsPage /></AdminRoute>} />
         <Route path="/settings/attendance" element={<AdminRoute><AttendancePage /></AdminRoute>} />
+        <Route path="/settings/event-series" element={<AdminRoute><EventSeriesPage /></AdminRoute>} />
         <Route path="/dashboard" element={<AdminRoute><DashboardPage /></AdminRoute>} />
         <Route path="/pit" element={<AdminRoute><PitPage /></AdminRoute>} />
         <Route path="/logs" element={<AdminRoute><LogsPage /></AdminRoute>} />

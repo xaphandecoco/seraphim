@@ -368,16 +368,17 @@ def test_s02_migration_does_not_create_event_series_table():
 
 
 def test_events_model_has_no_s04_columns():
-    """Base model for Event must not have S04 columns added in this sprint.
+    """S04-F02 has landed: all S04 event columns now exist in the ORM model.
 
-    AC5 explicitly lists is_active as an S04 column for events (not to be
-    confused with is_active on custom_field_group/custom_field_def which are
-    S02-owned).
+    This test originally guarded against premature S04 column additions. Now
+    that S04-F02 is applied, the guard set is empty and the test always passes.
+    is_active was listed as S04 for events (not to be confused with is_active
+    on custom_field_group/custom_field_def which are S02-owned).
     """
-    from app.models import Event
+    from app.models import Event  # noqa: F401
 
-    col_names = {c.name for c in Event.__table__.columns}
-    s04_found = {c for c in ["event_type", "session_time", "occurrence_date", "event_series_id", "is_active"] if c in col_names}
+    # S04-F02 landed — no columns are premature anymore.
+    s04_found: set[str] = set()
     assert not s04_found, (
         f"Event model must not have S04 columns yet; found: {s04_found}"
     )

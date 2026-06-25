@@ -121,6 +121,24 @@ class Contact(Base):
     )
 
 
+class EventSeries(Base):
+    """Recurring event series (e.g. Sunday Service, Powerhouse).
+
+    cadence: JSONB dict describing the recurrence pattern (e.g. day-of-week,
+    frequency).  Defaults to an empty dict; the application layer populates it.
+    """
+    __tablename__ = "event_series"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    session_time: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    cadence: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    default_location: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
 class Event(Base):
     """App-minted event record (replaces CiviCRMEvent).
 
@@ -136,6 +154,14 @@ class Event(Base):
     start_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     end_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    event_type: Mapped[str] = mapped_column(String(50), nullable=False, default="Event")
+    session_time: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    occurrence_date: Mapped[Optional[datetime]] = mapped_column(Date, nullable=True)
+    recurring_series_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("event_series.id", ondelete="SET NULL"), nullable=True
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    location: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     __table_args__ = (
         Index(
@@ -146,6 +172,8 @@ class Event(Base):
             sqlite_where=text("external_id IS NOT NULL"),
         ),
         Index("ix_events_start_at", "start_at"),
+        Index("ix_events_event_type", "event_type"),
+        Index("ix_events_occurrence_date", "occurrence_date"),
     )
 
 

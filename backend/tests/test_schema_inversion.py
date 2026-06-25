@@ -112,12 +112,20 @@ def test_events_columns(inspector):
     assert not missing, f"events missing columns: {missing}"
 
 
-def test_events_has_no_s04_columns(inspector):
+def test_event_series_table_exists(inspector):
+    tables = inspector.get_table_names()
+    assert "event_series" in tables, "event_series table missing from schema"
+
+
+def test_events_has_s04_columns(inspector):
+    # S04-F02 has landed: all S04 columns must be present in the events table.
     cols = {c["name"] for c in inspector.get_columns("events")}
-    s04_columns = {"event_type", "session_time", "occurrence_date",
-                   "recurring_series_id", "location"}
-    premature = s04_columns & cols
-    assert not premature, f"events has S04 columns that belong to S04: {premature}"
+    s04_columns = {
+        "event_type", "session_time", "occurrence_date",
+        "recurring_series_id", "is_active", "location",
+    }
+    missing = s04_columns - cols
+    assert not missing, f"events is missing S04 columns: {missing}"
 
 
 # ---------------------------------------------------------------------------

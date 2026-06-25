@@ -45,6 +45,62 @@ export interface ChurchEvent {
   end_at?: string;
 }
 
+// ---------- Events ------------------------------------------------------------
+
+export type EventType =
+  | 'Sunday Celebration'
+  | 'Prayer Meeting'
+  | 'Powerhouse'
+  | 'Community Meeting'
+  | 'Conference'
+  | 'Event';
+
+export type SessionTime = '8AM' | '10AM' | '3PM';
+
+export interface Event {
+  id: number;
+  external_id?: number | null;
+  title: string;
+  event_type?: string | null;
+  session_time?: string | null;
+  occurrence_date?: string | null;
+  start_at?: string | null;
+  end_at?: string | null;
+  location?: string | null;
+  recurring_series_id?: number | null;
+  is_active?: boolean | null;
+  created_at?: string | null;
+}
+
+export interface ParticipantCounts {
+  unique_count: number;
+  total_count: number;
+}
+
+export interface EventDetail extends Event {
+  participant_counts: ParticipantCounts;
+}
+
+export interface EventSeries {
+  id: number;
+  name: string;
+  event_type: string;
+  default_session_time?: string | null;
+  default_location?: string | null;
+  is_active: boolean;
+  created_at?: string | null;
+}
+
+export interface EventParticipant {
+  participant_id: number;
+  contact_id?: number | null;
+  contact_display_name?: string | null;
+  status: string;
+  source: string;
+  role?: string | null;
+  created_at: string;
+}
+
 export interface Camera {
   id: number;
   name: string;

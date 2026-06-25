@@ -151,6 +151,24 @@ class DynamicSettings:
         except (ValueError, TypeError):
             return None
 
+    def get_sunday_series_id(self) -> int | None:
+        val = self._settings.get("sunday_series_id")
+        if val is None or val == "" or val == 0:
+            return None
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            return None
+
+    def get_powerhouse_series_id(self) -> int | None:
+        val = self._settings.get("powerhouse_series_id")
+        if val is None or val == "" or val == 0:
+            return None
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            return None
+
 
 dynamic_settings = DynamicSettings()
 

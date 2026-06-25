@@ -2,7 +2,7 @@ import re
 from datetime import date, datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field, field_validator, model_validator
 
 
 # ============================================================================
@@ -325,12 +325,144 @@ class ParticipantRecord(BaseModel):
 # Events
 # ============================================================================
 
+EVENT_TYPE_VALUES = Literal[
+    "Sunday Celebration",
+    "Prayer Meeting",
+    "Powerhouse",
+    "Community Meeting",
+    "Conference",
+    "Event",
+]
+
+SESSION_TIME_VALUES = Literal["8AM", "10AM", "3PM"]
+
+
+class EventCreate(BaseModel):
+    title: str
+    start_at: Optional[datetime] = None
+    end_at: Optional[datetime] = None
+    external_id: Optional[int] = None
+    event_type: Optional[EVENT_TYPE_VALUES] = None
+    session_time: Optional[SESSION_TIME_VALUES] = None
+    occurrence_date: Optional[date] = None
+    location: Optional[str] = None
+    recurring_series_id: Optional[int] = None
+    is_active: bool = False
+
+
+class EventUpdate(BaseModel):
+    title: Optional[str] = None
+    start_at: Optional[datetime] = None
+    end_at: Optional[datetime] = None
+    external_id: Optional[int] = None
+    event_type: Optional[EVENT_TYPE_VALUES] = None
+    session_time: Optional[SESSION_TIME_VALUES] = None
+    occurrence_date: Optional[date] = None
+    location: Optional[str] = None
+    recurring_series_id: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
 class EventResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     title: str
     start_at: Optional[datetime] = None
     end_at: Optional[datetime] = None
+    external_id: Optional[int] = None
+    event_type: Optional[str] = None
+    session_time: Optional[str] = None
+    occurrence_date: Optional[date] = None
+    location: Optional[str] = None
+    recurring_series_id: Optional[int] = None
+    is_active: Optional[bool] = None
+    created_at: Optional[datetime] = None
+
+
+class ParticipantCounts(BaseModel):
+    unique_count: int = 0
+    total_count: int = 0
+    present: int = 0
+    absent: int = 0
+    unknown: int = 0
+
+
+class EventDetailResponse(EventResponse):
+    participant_counts: ParticipantCounts = ParticipantCounts()
+
+
+class PaginatedEventResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    items: List[EventResponse]
+
+
+class EventSeriesCreate(BaseModel):
+    name: str
+    event_type: EVENT_TYPE_VALUES
+    default_session_time: Optional[SESSION_TIME_VALUES] = None
+    default_location: Optional[str] = None
+    is_active: bool = True
+
+
+class EventSeriesUpdate(BaseModel):
+    name: Optional[str] = None
+    event_type: Optional[EVENT_TYPE_VALUES] = None
+    default_session_time: Optional[SESSION_TIME_VALUES] = None
+    default_location: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class EventSeriesResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    event_type: str
+    default_session_time: Optional[str] = None
+    default_location: Optional[str] = None
+    is_active: bool = True
+    created_at: Optional[datetime] = None
+
+
+class EventParticipantItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    participant_id: int
+    contact_id: Optional[int] = None
+    status: str
+    source: str
+    role: Optional[str] = None
+    created_at: datetime
+    # source fields drawn from the joined Contact; excluded from serialized output
+    nickname: Optional[str] = Field(default=None, exclude=True)
+    first_name: Optional[str] = Field(default=None, exclude=True)
+    last_name: Optional[str] = Field(default=None, exclude=True)
+
+    @computed_field
+    @property
+    def contact_display_name(self) -> Optional[str]:
+        if self.nickname:
+            return self.nickname
+        full = f"{self.first_name or ''} {self.last_name or ''}".strip()
+        return full or None
+
+
+class ParticipantListResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    items: List[EventParticipantItem]
+
+
+class ParticipantManualAdd(BaseModel):
+    contact_id: int
+    status: str = "present"
+    role: Optional[str] = None
+
+
+class ParticipantStatusUpdate(BaseModel):
+    status: str
+    role: Optional[str] = None
 
 
 # ============================================================================

@@ -1,6 +1,6 @@
 """HTTP integration tests for the Contacts CRUD API (F03).
 
-Coverage (18 tests):
+Coverage (19 tests):
   test_create_contact_ok
   test_create_contact_invalid_custom_field
   test_create_contact_duplicate_email_warns_not_blocks
@@ -19,6 +19,7 @@ Coverage (18 tests):
   test_delete_requires_auth
   test_attendance_history_paginated_and_joined
   test_attendance_history_unknown_contact_404
+  test_attendance_history_event_type_populated
 """
 
 from datetime import datetime, timezone
@@ -556,3 +557,49 @@ async def test_attendance_history_unknown_contact_404(
         headers=volunteer_auth_headers,
     )
     assert resp.status_code == 404, f"Expected 404, got {resp.status_code}: {resp.text}"
+
+
+async def test_attendance_history_event_type_populated(
+    client: AsyncClient,
+    volunteer_auth_headers,
+    db_session: AsyncSession,
+    sample_contact,
+):
+    """After S04-F02 adds Event.event_type, the attendance join auto-populates
+    event_type in ContactAttendanceItem; it must not always be None."""
+    from app.models import Event, Participant
+
+    event = Event(
+        title="Sunday Service",
+        start_at=datetime(2025, 6, 1, 9, 0, 0),
+        event_type="Sunday Service",
+    )
+    db_session.add(event)
+    await db_session.flush()
+
+    part = Participant(
+        contact_id=sample_contact.id,
+        event_id=event.id,
+        status="attended",
+        source="name_list",
+    )
+    db_session.add(part)
+    await db_session.commit()
+
+    resp = await client.get(
+        f"/members/{sample_contact.id}/attendance",
+        headers=volunteer_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    # Find the item for our event
+    matching = [i for i in body["items"] if i["event_id"] == event.id]
+    assert matching, "Attendance item for the created event not found in response"
+
+    item = matching[0]
+    assert item["event_type"] == "Sunday Service", (
+        f"Expected event_type='Sunday Service', got {item['event_type']!r}. "
+        "Event.event_type exists on the model so the hasattr guard must be True "
+        "and the value must flow through the join."
+    )

@@ -19,6 +19,7 @@ from app.routers import (
     cameras,
     custom_fields,
     enrollment,
+    event_series as event_series_router,
     events,
     health,
     leaderboard,
@@ -111,6 +112,7 @@ app.include_router(logs.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(settings_router.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(cameras.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(events.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(event_series_router.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(members.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(pit.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(enrollment.router, dependencies=[Depends(check_setup_complete)])
