@@ -1,12 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { buildPostgresUrl, parsePostgresUrl, buildRedisUrl, parseRedisUrl } from '@/services/connectionUrl';
 import { LogOut, Shield, Users, Camera, Power, AlertTriangle, Database, Settings2, Plug, Upload, Server } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { api } from '@/services/api';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import type { Camera as CameraType } from '@/types';
+import { StatusBadge } from '@/components/ui/StatusBadge';
+import { LoadingState, ErrorState } from '@/components/ui/StateViews';
+import { getFRTransitionStatus, runRemap, runConsentBackfill } from '@/services/frTransition';
+import type { Camera as CameraType, FRTransitionStatus } from '@/types';
 
 interface SettingItem {
   key: string;
@@ -128,6 +131,214 @@ function TunablesEditor({ settings, onSaved }: { settings: SettingItem[]; onSave
         )}
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// FR Transition Status Card (T06)
+// ---------------------------------------------------------------------------
+
+type FRDialogKind = 'remap' | 'consent' | null;
+
+function FRTransitionCard() {
+  const [status, setStatus] = useState<FRTransitionStatus | null>(null);
+  const [loadingStatus, setLoadingStatus] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
+  const [dialog, setDialog] = useState<FRDialogKind>(null);
+  const [running, setRunning] = useState(false);
+
+  const fetchStatus = async () => {
+    setLoadingStatus(true);
+    setFetchError(false);
+    try {
+      const data = await getFRTransitionStatus();
+      setStatus(data);
+    } catch {
+      setFetchError(true);
+    } finally {
+      setLoadingStatus(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchStatus();
+  }, []);
+
+  const handleRemap = async () => {
+    setDialog(null);
+    setRunning(true);
+    try {
+      await runRemap();
+      toast.success('Remap complete');
+      await fetchStatus();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Remap failed');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const handleConsentBackfill = async () => {
+    setDialog(null);
+    setRunning(true);
+    try {
+      await runConsentBackfill();
+      toast.success('Consent backfill complete');
+      await fetchStatus();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Consent backfill failed');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const smokeTestTone = (s: 'pass' | 'skip' | 'fail') => {
+    if (s === 'pass') return 'active' as const;
+    if (s === 'skip') return 'muted' as const;
+    return 'error' as const;
+  };
+
+  return (
+    <>
+      <div className="mb-4 space-y-1">
+        <h2 className="px-1 text-xs font-bold uppercase tracking-wide text-foreground/50">
+          FR Transition
+        </h2>
+        <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+          {loadingStatus ? (
+            <LoadingState message="Loading FR transition status…" />
+          ) : fetchError || !status?.remap ? (
+            <ErrorState
+              message="Unable to load FR transition status"
+              onRetry={fetchStatus}
+            />
+          ) : (
+            <div className="space-y-4">
+              {/* Remap Counts */}
+              <div>
+                <p className="mb-1 text-xs font-semibold text-foreground/50">Remap Counts</p>
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-foreground/60">Total subjects</span>
+                    <span className="font-mono font-semibold text-foreground">{status.remap.subjects_total}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-foreground/60">Remapped</span>
+                    <span className="font-mono font-semibold text-foreground">{status.remap.subjects_remapped}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-foreground/60">Orphaned</span>
+                    <span className="flex items-center gap-2">
+                      <span className="font-mono font-semibold text-foreground">{status.remap.subjects_orphaned}</span>
+                      <StatusBadge
+                        label={status.remap.subjects_orphaned === 0 ? 'OK' : 'Needs attention'}
+                        tone={status.remap.subjects_orphaned === 0 ? 'active' : 'warning'}
+                      />
+                    </span>
+                  </div>
+                  {status.remap.subjects_orphaned > 0 && (
+                    <div className="pt-1">
+                      <Link
+                        to="/settings/fr-transition/orphans"
+                        className="text-xs font-medium text-primary hover:underline"
+                      >
+                        Review orphaned subjects →
+                      </Link>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Consent Coverage */}
+              <div>
+                <p className="mb-1 text-xs font-semibold text-foreground/50">Consent Coverage</p>
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-foreground/60">Active subjects</span>
+                    <span className="font-mono font-semibold text-foreground">{status.consent.active_subjects_total}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-foreground/60">Consent rows</span>
+                    <span className="font-mono font-semibold text-foreground">{status.consent.consent_rows_created}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-foreground/60">Missing consent</span>
+                    <span className="font-mono font-semibold text-foreground">{status.consent.subjects_missing_consent}</span>
+                  </div>
+                  {status.consent.enroll_without_consent && (
+                    <div className="flex items-center gap-2 pt-1">
+                      <StatusBadge label="Enroll-without-consent active" tone="warning" />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Participants */}
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-foreground/60">Participants recorded</span>
+                <span className="font-mono font-semibold text-foreground">{status.participants_count}</span>
+              </div>
+
+              {/* Smoke Test */}
+              <div>
+                <p className="mb-1 text-xs font-semibold text-foreground/50">Smoke Test</p>
+                <div className="flex items-center gap-2">
+                  <StatusBadge
+                    label={status.smoke_test.status.toUpperCase()}
+                    tone={smokeTestTone(status.smoke_test.status)}
+                  />
+                  <span className="text-xs text-foreground/50">{status.smoke_test.detail}</span>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-col gap-2 border-t border-border pt-3">
+                <button
+                  onClick={fetchStatus}
+                  disabled={loadingStatus || running}
+                  className="flex h-9 w-full items-center justify-center rounded-xl border border-border bg-background text-xs font-semibold text-foreground transition-all hover:bg-primary/10 disabled:opacity-50"
+                >
+                  Re-run Verification
+                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setDialog('remap')}
+                    disabled={running}
+                    className="flex h-9 flex-1 items-center justify-center rounded-xl bg-primary text-xs font-bold text-primary-foreground shadow-sm transition-all hover:bg-primary/85 disabled:opacity-50 active:scale-[0.98]"
+                  >
+                    Run Remap
+                  </button>
+                  <button
+                    onClick={() => setDialog('consent')}
+                    disabled={running}
+                    className="flex h-9 flex-1 items-center justify-center rounded-xl border border-border bg-background text-xs font-semibold text-foreground transition-all hover:bg-primary/10 disabled:opacity-50 active:scale-[0.98]"
+                  >
+                    Run Consent Backfill
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {dialog === 'remap' && (
+        <ConfirmDialog
+          message="Re-map all CompreFace subjects to their contact records. This may take a moment."
+          confirmLabel="Run Remap"
+          onConfirm={handleRemap}
+          onCancel={() => setDialog(null)}
+        />
+      )}
+      {dialog === 'consent' && (
+        <ConfirmDialog
+          message="Backfill BiometricConsent rows for all active subjects. Existing rows will be skipped."
+          confirmLabel="Run Consent Backfill"
+          onConfirm={handleConsentBackfill}
+          onCancel={() => setDialog(null)}
+        />
+      )}
+    </>
   );
 }
 
@@ -928,6 +1139,9 @@ export function SettingsPage() {
         {settings.length > 0 && (
           <TunablesEditor settings={settings} onSaved={fetchData} />
         )}
+
+        {/* FR Transition */}
+        <FRTransitionCard />
 
         {/* General */}
         <div className="mb-4 space-y-1">

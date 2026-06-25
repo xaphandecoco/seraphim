@@ -208,6 +208,8 @@ export interface ContactDetail {
   custom_data?: Record<string, unknown>;
   contact_reference_chips?: ContactReferenceChip[];
   face?: FaceSummary | null;
+  /** Computed from biometric_consent table. Only meaningful when face.enrolled is true. */
+  consent_status?: 'none' | 'pending' | 'pre_cutover' | 'given';
 }
 
 export interface DerivedBadges {
@@ -256,4 +258,60 @@ export interface PhotoIngestBatch {
   started_at: string | null;
   finished_at: string | null;
   created_at: string;
+}
+
+// ---------- FR Transition (T06) -------------------------------------------
+
+export interface RemapSection {
+  subjects_total: number;
+  subjects_remapped: number;
+  subjects_orphaned: number;
+}
+
+export interface ConsentSection {
+  active_subjects_total: number;
+  consent_rows_created: number;
+  subjects_missing_consent: number;
+  enroll_without_consent: boolean;
+}
+
+export interface SmokeTestSection {
+  status: 'pass' | 'skip' | 'fail';
+  detail: string;
+}
+
+export interface FRTransitionStatus {
+  remap: RemapSection;
+  participants_count: number;
+  consent: ConsentSection;
+  smoke_test: SmokeTestSection;
+}
+
+export interface RemapReport {
+  subjects_total: number;
+  subjects_remapped: number;
+  subjects_skipped: number;
+  subjects_orphaned: number;
+  elapsed_seconds: number;
+}
+
+export interface ConsentBackfillReport {
+  contacts_evaluated: number;
+  rows_created: number;
+  rows_skipped: number;
+  elapsed_seconds: number;
+}
+
+export interface OrphanSubjectRow {
+  id: number;
+  subject_name: string;
+  compreface_subject_id: string;
+  enrollment_status: string;
+}
+
+export interface OrphanSubjectPage {
+  items: OrphanSubjectRow[];
+  total: number;
+  page: number;
+  page_size: number;
 }

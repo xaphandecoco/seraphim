@@ -197,6 +197,7 @@ class ComprefaceSubject(Base):
     enrollment_source: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     is_orphan: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     purged_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    _legacy_civicrm_contact_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
 
 class Detection(Base):
@@ -225,6 +226,7 @@ class Detection(Base):
     is_enrolled: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    _legacy_civicrm_event_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
 
 class Task(Base):
@@ -462,6 +464,24 @@ class FaceSample(Base):
     __table_args__ = (
         Index("ix_face_samples_contact_id", "contact_id"),
         Index("ix_face_samples_subject_id", "compreface_subject_id"),
+    )
+
+
+# S24 stub — S08 will extend this table (retention_until, deletion_requested_at, etc.)
+class BiometricConsent(Base):
+    __tablename__ = "biometric_consent"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    contact_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("contacts.id", ondelete="CASCADE"), nullable=False
+    )
+    consent_given: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    consented_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    basis_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("contact_id", name="uq_biometric_consent_contact"),
     )
 
 

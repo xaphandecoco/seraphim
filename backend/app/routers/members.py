@@ -392,5 +392,6 @@ def _build_detail_response(
             is_regular=derived_badges_dict.get("is_regular"),
             is_connected=derived_badges_dict.get("is_connected"),
         ),
+        consent_status=detail.get("consent_status", "none"),
         warnings=warnings or [],
     )

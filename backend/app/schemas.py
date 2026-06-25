@@ -655,6 +655,9 @@ class ContactDetailResponse(BaseModel):
     contact_reference_chips: List[ContactReferenceChip] = []
     face_summary: FaceSummary = FaceSummary()
     derived_badges: DerivedBadges = DerivedBadges()
+    # Consent status (T08) — computed from biometric_consent table
+    # Values: 'none' | 'pending' | 'pre_cutover' | 'given'
+    consent_status: str = "none"
     # Non-blocking warnings from create/update operations (F02)
     warnings: List[str] = []
 

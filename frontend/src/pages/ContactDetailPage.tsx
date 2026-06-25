@@ -490,13 +490,49 @@ export function ContactDetailPage() {
           )}
         </section>
 
-        {/* (f) Placeholders */}
-        <section
-          data-slot="consent"
-          className="bg-card rounded-2xl border border-border p-4"
-        >
-          <p className="text-sm text-foreground/50">Biometric consent — S08</p>
-        </section>
+        {/* (f) Consent indicator — only rendered when face is enrolled */}
+        {faceEnrolled && (
+          <section
+            data-slot="consent"
+            className="bg-card rounded-2xl border border-border p-4"
+          >
+            <h3 className="mb-2 text-sm font-semibold text-foreground">
+              Biometric Consent
+            </h3>
+            {contact.consent_status === 'pre_cutover' && (
+              <span
+                className="inline-flex items-center rounded-full bg-yellow-100 px-3 py-1 text-xs font-medium text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300 cursor-default"
+                title="This contact was enrolled before the consent cutover date. Explicit consent has not been recorded — please obtain and record consent as soon as possible."
+              >
+                Consent Needed (pre-cutover)
+              </span>
+            )}
+            {contact.consent_status === 'pending' && (
+              <span
+                className="inline-flex items-center rounded-full bg-muted px-3 py-1 text-xs font-medium text-foreground/60"
+              >
+                Consent Pending
+              </span>
+            )}
+            {contact.consent_status === 'given' && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-800 dark:bg-green-900/40 dark:text-green-300"
+              >
+                <svg
+                  className="h-3.5 w-3.5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2.5}
+                  aria-hidden="true"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                Consent Given
+              </span>
+            )}
+          </section>
+        )}
 
         <section
           data-slot="activities"

@@ -4,12 +4,13 @@ import cv2
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import legacy_settings
 from app.database import get_db
 from app.dependencies import require_admin
-from app.models import Detection, PitQueue, Task
+from app.models import Detection, Participant, PitQueue, Task
 from app.schemas import PitEnrollRequest, TaskResponse
 from app.services.compreface import ComprefaceClient
 from app.services.enrollment import EnrollmentService
@@ -111,6 +112,32 @@ async def enroll_pit_task(
     if detection:
         detection.matched_name = f"member:{body.contact_id}"
         detection.is_enrolled = True
+
+    # Write a Participant record for attendance tracking when the detection is
+    # linked to an active event.  Guard with a pre-SELECT on (contact_id, event_id)
+    # to honour the uq_participant_event_contact unique constraint, and catch any
+    # concurrent IntegrityError as a fallback so the enroll itself still succeeds.
+    if detection and detection.event_id is not None:
+        existing_participant = await db.execute(
+            select(Participant).where(
+                (Participant.contact_id == body.contact_id)
+                & (Participant.event_id == detection.event_id)
+            )
+        )
+        if existing_participant.scalar_one_or_none() is None:
+            try:
+                db.add(
+                    Participant(
+                        contact_id=body.contact_id,
+                        event_id=detection.event_id,
+                        detection_id=task.detection_id,
+                        status="attended",
+                        source="face",
+                    )
+                )
+                await db.flush()
+            except IntegrityError:
+                await db.rollback()
 
     pit = await db.execute(
         select(PitQueue).where(PitQueue.task_id == task_id)

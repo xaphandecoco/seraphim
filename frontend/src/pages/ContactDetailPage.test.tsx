@@ -237,6 +237,10 @@ describe('ContactDetailPage — sections', () => {
   });
 
   it('has data-slot="consent" placeholder', async () => {
+    (contactsApi.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...sampleContact,
+      face: { enrolled: true, sample_count: 2, thumb_url: null },
+    });
     renderDetail();
     expect(await screen.findByText(/biometric consent/i)).toBeInTheDocument();
   });

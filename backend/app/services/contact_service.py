@@ -21,6 +21,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
+    BiometricConsent,
     ComprefaceSubject,
     Contact,
     Event,
@@ -267,12 +268,41 @@ async def get_contact_detail(
         "is_connected": contact.is_connected,
     }
 
+    # ---- Consent status (T08) ------------------------------------------------
+    # Only meaningful when the contact has an active face enrollment.
+    # Guarded with try/except so a pre-T01 DB (missing biometric_consent table)
+    # gracefully returns 'none' instead of crashing.
+    consent_status: str = "none"
+    if enrolled:
+        try:
+            consent_result = await db.execute(
+                select(BiometricConsent).where(
+                    BiometricConsent.contact_id == contact_id
+                )
+            )
+            consent_row = consent_result.scalar_one_or_none()
+            if consent_row is None:
+                consent_status = "none"
+            elif consent_row.consent_given:
+                consent_status = "given"
+            elif (
+                not consent_row.consent_given
+                and consent_row.basis_note == "pre-cutover-unknown"
+            ):
+                consent_status = "pre_cutover"
+            else:
+                consent_status = "pending"
+        except Exception:
+            # Table may not exist yet (pre-T01 migration environment)
+            consent_status = "none"
+
     return {
         "contact": contact,
         "display_name": _display_name(contact),
         "contact_reference_chips": list(ref_chips.values()),
         "face_summary": face_summary,
         "derived_badges": derived_badges,
+        "consent_status": consent_status,
     }
 
 

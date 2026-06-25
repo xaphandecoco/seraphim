@@ -1,3 +1,20 @@
+"""Task resolution service — volunteer workflow and attendance recording.
+
+Scoring weights (applied by _update_volunteer_stats on task resolution):
+  - confirm  : 1 point   (second confirmer closes a pending task)
+  - edit     : 2 points  (reassigning a misidentified face earns a bonus)
+  - add      : 1 point   (linking an unidentified face to a member)
+
+Attendance trigger:
+  When a task reaches the required approval count _log_attendance is called.
+  It writes a Participant(contact_id, event_id, detection_id, status='attended',
+  source='face') row, guarded by a pre-SELECT on (contact_id, event_id) — the
+  UNIQUE constraint uq_participant_event_contact — so that resolving a second
+  task for the same (contact, event) pair does NOT raise IntegrityError and does
+  NOT create a duplicate Participant.  If event_id is None or member_id cannot
+  be parsed from matched_name, the Participant is skipped entirely.
+"""
+
 import logging
 from datetime import datetime, timezone
 from typing import Optional
@@ -374,17 +391,8 @@ class TaskService:
         if not detection or not detection.event_id:
             return
 
-        # Check for duplicate
-        existing = await self.session.execute(
-            select(Participant).where(
-                (Participant.detection_id == task.detection_id)
-                & (Participant.event_id == detection.event_id)
-            )
-        )
-        if existing.scalar_one_or_none():
-            return
-
-        # Extract member info from detection
+        # Extract member info from detection FIRST — if we can't resolve a member,
+        # there is nothing useful to write for the Participant row.
         member_id = None
         if detection.matched_name and detection.matched_name.startswith("member:"):
             try:
@@ -392,7 +400,31 @@ class TaskService:
             except (ValueError, IndexError):
                 pass
 
-        if member_id:
+        if member_id is None:
+            # No identifiable member — still write the log entry but skip Participant.
+            log = Log(
+                detection_id=task.detection_id,
+                timestamp=detection.timestamp,
+                camera_id=detection.camera_id,
+                matched_name=detection.matched_name,
+                confidence=detection.confidence,
+                tier=detection.tier,
+                action="confirmed",
+                event_id=detection.event_id,
+            )
+            self.session.add(log)
+            return
+
+        # Dedup on (contact_id, event_id) — mirrors the UNIQUE constraint
+        # uq_participant_event_contact so a second resolution for the same
+        # (member, event) pair does NOT create a duplicate Participant.
+        existing = await self.session.execute(
+            select(Participant).where(
+                (Participant.contact_id == member_id)
+                & (Participant.event_id == detection.event_id)
+            )
+        )
+        if existing.scalar_one_or_none() is None:
             record = Participant(
                 contact_id=member_id,
                 event_id=detection.event_id,
@@ -415,8 +447,7 @@ class TaskService:
         )
         self.session.add(log)
 
-        if member_id is not None:
-            await self._maybe_auto_enroll(detection, member_id)
+        await self._maybe_auto_enroll(detection, member_id)
 
     async def _maybe_auto_enroll(
         self, detection: Detection, contact_id: int
@@ -478,7 +509,24 @@ class TaskService:
                 await client.close()
 
     async def _update_volunteer_stats(self, volunteer_id: int, action_type: str):
-        """Update volunteer gamification stats."""
+        """Update volunteer gamification stats.
+
+        S24 Scoring Weights
+        -------------------
+        Action   | Points
+        ---------|-------
+        confirm  |   1 pt   (volunteer verified an existing attendance row)
+        edit     |   2 pt   (volunteer corrected/updated an existing attendance row)
+        add      |   1 pt   (volunteer created a new attendance row)
+
+        These weights accrue on task resolution regardless of the Participant.status
+        value (e.g. 'registered', 'attended', 'no-show') — the scoring trigger is
+        the volunteer's action on the task, not the participant outcome.
+
+        Historical note: prior to the S24 cutover, points were awarded via the
+        Attendance.status == 'confirmed' trigger.  That trigger is superseded by
+        this method; do not re-introduce Attendance.status-based scoring.
+        """
         now = datetime.now(timezone.utc)
         month_key = now.strftime("%Y-%m")
 

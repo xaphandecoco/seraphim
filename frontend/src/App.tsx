@@ -30,6 +30,7 @@ import { CommunityReportFormPage } from '@/pages/CommunityReportFormPage';
 import { CommunityReportDetailPage } from '@/pages/CommunityReportDetailPage';
 import { MigrationPage } from '@/pages/MigrationPage';
 import { MigrationReportPage } from '@/pages/MigrationReportPage';
+import { FROrphanReviewPage } from '@/pages/FROrphanReviewPage';
 
 function AuthInit() {
   useAuth();
@@ -89,6 +90,7 @@ function App() {
         <Route path="/community-reports/:id" element={<ProtectedRoute><CommunityReportDetailPage /></ProtectedRoute>} />
         <Route path="/settings/migration" element={<AdminRoute><MigrationPage /></AdminRoute>} />
         <Route path="/settings/migration/:batchId" element={<AdminRoute><MigrationReportPage /></AdminRoute>} />
+        <Route path="/settings/fr-transition/orphans" element={<AdminRoute><FROrphanReviewPage /></AdminRoute>} />
       </Routes>
     </div>
   );
