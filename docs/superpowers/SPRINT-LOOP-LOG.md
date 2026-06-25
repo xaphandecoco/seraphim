@@ -5,7 +5,7 @@
 ---
 
 ## 🔄 LOOP RUNNING (2026-06-25, resumed in CLOUD — new agent, full autonomy)
-S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` · **S03 ✅ `a7839af`** · **S04 ✅ `37608a9`** · Next: S05.
+S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` · **S03 ✅ `a7839af`** · **S04 ✅ `37608a9`** · **S05 🔄 IMPLEMENT building** (`wf_5d828499-f3a`; PLAN auto-approved, 12 feature + 7 patch tasks, real migration).
 
 **S04 CRITIQUE: FAIL → FIXED → PASS.** Opus found migration/model divergence on `event_series` table (migration had `name`/`description`/`updated_at`; ORM + service use `title`/`session_time`/`default_location`). Also found event_type string mismatch in test (`"SundayService"` vs `"Sunday Celebration"`). Both fixed by orchestrator. Green gate: backend 794/0, frontend 263/263, ruff clean, build clean. Committed `37608a9` + pushed.
 
@@ -15,7 +15,7 @@ S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` · **S03 ✅ `a7839a
 
 **S04 notes:** owns a REAL migration (event_series table + 6 events cols, down_rev i3j4k5l6m7n8). After S04 → S08 (needs S07 spec-doc reconciliation to string-keyed design FIRST per carry-forward). Build sequentially (shared conftest/schemas/models — no concurrent builds). Launch senpai via `scriptPath:'/root/.claude/workflows/senpai-team-v1.js'` (NOT name: — the by-name lookup uses a stale session-cached def WITH agentType that fails in cloud; the scriptPath canonical is patched: 0 agentType, 6 Opus/15 Sonnet).
 
-**RESUME (if S03 build dies on limit):** `Workflow({scriptPath:'/home/user/seraphim/tools/build/s03_implement.js', resumeFromRunId:'wf_dcead96c-d09'})` then critique→commit→push. Build artifacts (gen_build output + args) committed under `tools/build/`.
+**RESUME (if S05 build dies on limit):** `Workflow({scriptPath:'/home/user/seraphim/tools/build/s05_implement.js', resumeFromRunId:'wf_5d828499-f3a'})` → critique → commit → push. Durable plan: `docs/superpowers/build-journal/s05_args.json`. S05 migration down_rev = j4k5l6m7n8o9.
 
 **S03 CRITIQUE: build done (27 agents, 1.2M tok, sec PASS, QA 1 round). GREEN GATE ✅ — backend 740 passed/8 skip/1 xfail (+18 S03 tests), frontend build+lint+215 tests, ruff clean. Opus critic FAIL → 2 defects:**
 - **D1 (AC17) ruff F401 unused `FaceSample` import** → ✅ FIXED by orchestrator (removed import; ruff clean). [trivial, allowed since it's a lint-only delete, not feature code]
