@@ -5,7 +5,9 @@
 ---
 
 ## 🔄 LOOP RUNNING (2026-06-25, resumed in CLOUD — new agent, full autonomy)
-S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` · **S03 ✅ `a7839af`** · **S04 ✅ `37608a9`** · **S05 ✅ `c753618`** · **S22 ⚠️ BACKEND ✅ `cc64c57` — FRONTEND CARRY-FORWARD** (F08-F10 not completed; F06/F07 agents stuck 101 min idle). Next: S22-frontend patch (F08 API services/types, F09 NameMatchReviewPage, F10 community-report pages), then S06.
+S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` · **S03 ✅ `a7839af`** · **S04 ✅ `37608a9`** · **S05 ✅ `c753618`** · **S22 ✅ backend `cc64c57` + frontend `79fbe77`** (workflow stuck at 101m on F06/F07 → orchestrator finished: fixed 2 backend test fails, implemented F08-F10 frontend directly with post-review fixes). Next: S06.
+
+**S22 STUCK-WORKFLOW POSTMORTEM + PREVENTION (`05fecff`):** F06/F07 agents idled 101 min (90-min reasoning loops between tool calls — invisible to transcript-mtime watchdog until silence exceeded threshold). Prevention shipped: (1) watchdog cron now 15-min (was 1hr), threshold 20m; (2) gen_build.py injects `effort:'medium'` default on engineer agents so they can't enter long reasoning loops; (3) log carries CronCreate recreation snippet + auto-recovery prompt. Backend green gate after recovery: 963 passed/0 failed; frontend 310 tests + build + lint.
 
 **RESUME (if S22 build dies on limit):** `Workflow({scriptPath:'/home/user/seraphim/tools/build/s22_implement.js', resumeFromRunId:'wf_b59d7ee9-5ce'})` → critique → commit → push. Durable plan: `docs/superpowers/build-journal/s22_args.json`. S22 migration down_rev = a2b3c4d5e6f7. ⚠️ S22 PLAN flagged: spec §4.3 `match_name` signature vs master §2.6 frozen contract — architect resolved with keyword-compatible signature (verify in critique). Model: claude-sonnet-4-6 for matching agent (configurable via admin_settings `name_match.claude_model`); tests NEVER call live LLM (stub gate on ENVIRONMENT==test / no API key / claude_enabled=false).
 
