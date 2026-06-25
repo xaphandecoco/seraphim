@@ -970,3 +970,78 @@ class RetrainResponse(BaseModel):
     compreface_subject_id: str
     samples_pushed: int
     last_trained_at: Optional[datetime] = None
+
+
+# ============================================================================
+# S05 — Bulk Participant Operations & Export Jobs
+# ============================================================================
+
+class AudienceSelector(BaseModel):
+    """Selects a set of contacts to act on in bulk participant operations."""
+    mode: Literal["all", "group", "saved_search", "ids"]
+    group_id: Optional[int] = None
+    saved_search_id: Optional[int] = None
+    contact_ids: Optional[List[int]] = Field(default=None, max_length=50_000)
+    include_deleted: bool = False
+
+    @model_validator(mode="after")
+    def validate_mode_fields(self) -> "AudienceSelector":
+        if self.mode == "group" and self.group_id is None:
+            raise ValueError("group_id is required when mode is 'group'")
+        if self.mode == "saved_search" and self.saved_search_id is None:
+            raise ValueError("saved_search_id is required when mode is 'saved_search'")
+        if self.mode == "ids" and not self.contact_ids:
+            raise ValueError("contact_ids is required and must be non-empty when mode is 'ids'")
+        return self
+
+
+class BulkParticipantAddRequest(BaseModel):
+    audience: AudienceSelector
+    status: Literal["attended", "registered", "no_show", "cancelled"] = "registered"
+    source: Literal["manual", "import", "bulk"] = "bulk"
+
+
+class BulkParticipantStatusRequest(BaseModel):
+    audience: AudienceSelector
+    status: Literal["attended", "registered", "no_show", "cancelled"]
+
+
+class BulkParticipantRemoveRequest(BaseModel):
+    audience: AudienceSelector
+
+
+class BulkParticipantPreviewRequest(BaseModel):
+    audience: AudienceSelector
+
+
+class BulkParticipantResult(BaseModel):
+    inserted: int = 0
+    skipped: int = 0
+    matched: int = 0
+    updated: int = 0
+
+
+class BulkParticipantPreview(BaseModel):
+    contact_count: int
+    already_participating: int
+
+
+class ExportJobCreate(BaseModel):
+    event_id: Optional[int] = None
+    export_type: str
+    filters: Optional[Dict[str, Any]] = None
+
+
+class ExportJobResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    event_id: Optional[int] = None
+    export_type: str
+    status: str
+    filters: Optional[Dict[str, Any]] = None
+    file_path: Optional[str] = None
+    row_count: Optional[int] = None
+    error_message: Optional[str] = None
+    expires_at: Optional[datetime] = None
+    created_at: datetime
+    finished_at: Optional[datetime] = None
