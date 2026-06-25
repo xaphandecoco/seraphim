@@ -4,8 +4,8 @@
 
 ---
 
-## ⏸ LOOP PAUSED (2026-06-25, owner request: "stop after this sprint")
-S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` — all green. S03 planned, build script ready, **NOT launched**. Auto-resume cron **cancelled**. **Full continuation brief: [`HANDOFF.md`](./HANDOFF.md).** To resume: read HANDOFF.md → build S03 (`Workflow({scriptPath:"%TEMP%\\claude\\s03_implement.js"})`) → Opus critique → commit → continue DAG; re-arm the cron if running unattended.
+## 🔄 LOOP RUNNING (2026-06-25, resumed in cloud — new agent)
+S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` · S03 🔄 PLAN running. Baseline gate: 722 passed/8 skipped/1 xfailed. Tooling reinstalled in cloud env. Auto-resume cron `8493f26e` armed (every 2h at :23).
 
 ## ⚠️ BLOCKERS / QUESTIONS FOR OWNER (read me first)
 
