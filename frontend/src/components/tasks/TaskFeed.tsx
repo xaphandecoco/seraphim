@@ -6,7 +6,7 @@ import { api } from '@/services/api';
 import { useTaskStore } from '@/store/taskStore';
 import { useAuthStore } from '@/store/authStore';
 import { TaskCard } from './TaskCard';
-import { MemberSearchModal } from './MemberSearchModal';
+import { ContactPickerModal } from './ContactPickerModal';
 import type { Task, Member } from '@/types';
 
 async function fetchTasks(): Promise<Task[]> {
@@ -152,7 +152,7 @@ export function TaskFeed() {
       )}
 
       {modalMode && selectedTask && (
-        <MemberSearchModal
+        <ContactPickerModal
           mode={modalMode}
           onSelect={handleMemberSelect}
           onClose={handleModalClose}

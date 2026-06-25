@@ -3,13 +3,13 @@ import { Search, X, User } from 'lucide-react';
 import { api } from '@/services/api';
 import type { Member } from '@/types';
 
-interface MemberSearchModalProps {
+interface ContactPickerModalProps {
   mode: 'edit' | 'add';
   onSelect: (member: Member) => void;
   onClose: () => void;
 }
 
-export function MemberSearchModal({ mode, onSelect, onClose }: MemberSearchModalProps) {
+export function ContactPickerModal({ mode, onSelect, onClose }: ContactPickerModalProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Member[]>([]);
   const [loading, setLoading] = useState(false);

@@ -75,7 +75,10 @@ class Contact(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     external_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    contact_type: Mapped[str] = mapped_column(String(50), nullable=False, default="Individual")
+    # ORM default is lowercase to match Pydantic Literal['individual','household','organization'].
+    # server_default='Individual' in migration g7h8i9j0k1l2 cannot be retro-changed; any pre-prod
+    # rows carrying 'Individual' must be normalized by a one-time UPDATE (data task S06, not this PR).
+    contact_type: Mapped[str] = mapped_column(String(50), nullable=False, default="individual")
     contact_subtype: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     first_name: Mapped[str] = mapped_column(String(255), nullable=False)
     last_name: Mapped[str] = mapped_column(String(255), nullable=False)

@@ -1,5 +1,36 @@
 ## [Unreleased]
 
+### S03 — Native Contact CRUD & Profile (Sprint complete 2026-06-25)
+
+Full contact write path: create / edit / soft-delete / restore / paginated list / detail profile / attendance history.
+Replaces the read-only `AttendeesPage` with a real CRM directory and profile hub.
+
+**Backend**
+- `app/services/contact_service.py` (new): `list_contacts`, `get_contact_detail`, `create_contact`, `update_contact`, `soft_delete_contact`, `restore_contact`, `list_contact_attendance` — async, type-hinted, no N+1 (batched contact_reference IN query), `with_for_update()` on PATCH, audit logging on every write.
+- `app/routers/members.py`: replaced bare-list `GET /members` with offset pagination; added `POST /members`, `GET/PATCH/DELETE /members/{id}`, `POST /members/{id}/restore`, `GET /members/{id}/attendance`. Preserved `GET /members/attendees` for S07 compatibility. Correct route declaration order (static `/attendees` before parameterized `/{id}`).
+- `app/schemas.py`: new `ContactCreate`, `ContactUpdate`, `ContactDetailResponse`, `ContactListItem`, `PaginatedContactResponse`, `DerivedBadges`, `FaceSummary`, `ContactAttendanceItem`, `PaginatedAttendanceResponse`, `ContactReferenceChip`.
+- `backend/tests/test_contacts_crud.py` (new): 18 HTTP integration tests covering all acceptance criteria.
+- `backend/tests/conftest.py`: added `sample_deleted_contact`, `sample_contact_with_custom_data` (contact_reference resolution), `sample_participant_history` (2 events + 2 participants, explicit timestamps for desc-order assertion), `sample_participant`, `sample_checkbox_field`.
+
+**Patches applied**
+- P01: `contact_type` ORM default `'Individual'` → `'individual'` (migration `server_default` unchanged — S06 data task).
+- P02: `AttendeesPage.tsx` and its test deleted; `/attendees` redirects to `/contacts`.
+- P03: `FacePanel.tsx` line 320 `thumb_path` → `thumb_url` fallback corrected.
+- P04: `MemberSearchModal` renamed to `ContactPickerModal` (file + export + all import sites).
+- P05: `GET /members` nickname search folded into `list_contacts` `ilike` on `Contact.nickname`.
+
+**Frontend**
+- New pages: `ContactsPage`, `ContactDetailPage`, `ContactFormPage` (create + edit).
+- New reusable primitives in `components/ui/`: `FormField`, `DataTable`, `Pagination`, `StatusBadge`.
+- New: `components/contacts/FacePanel.tsx` (read-only face panel slot for S07).
+- New: `services/contacts.ts`, `hooks/useContacts.ts`.
+- `App.tsx`: `/contacts`, `/contacts/new`, `/contacts/:id`, `/contacts/:id/edit`; `/attendees` → `Navigate to="/contacts"`.
+- `BottomNav.tsx`: "Attendees" tab → "Contacts" tab (`/contacts`).
+- `ContactPickerModal` (was `MemberSearchModal`): reads paginated `items ?? data` for forward compat.
+- `types/index.ts`: `ContactListItem`, `ContactDetail`, `DerivedBadges`, `FaceSummary`, `ContactAttendanceItem`, `Paginated<T>`.
+
+**No new migrations** — snapshot columns (`last_attended_at`, `attendance_count`, `weeks_absent`, `tier`, `is_active`, `is_regular`, `is_connected`) were added by a prior sprint; S03 reads them as nullable (S23 owns writes). No deployment-time data steps required.
+
 ### Dependency CVE remediation sweep
 
 Audited all production dependencies (frontend `npm audit`, backend OSV) and upgraded the

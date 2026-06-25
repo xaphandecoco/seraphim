@@ -294,7 +294,7 @@ async def sample_contact(db_session):
         first_name="Juan",
         last_name="dela Cruz",
         email="juan@lightnc.org",
-        contact_type="Individual",
+        contact_type="individual",
     )
     db_session.add(contact)
     await db_session.commit()
@@ -311,7 +311,7 @@ async def sample_member(db_session):
         first_name="Juan",
         last_name="dela Cruz",
         email="juan@lightnc.org",
-        contact_type="Individual",
+        contact_type="individual",
     )
     db_session.add(contact)
     await db_session.commit()
@@ -503,3 +503,109 @@ async def sample_checkbox_field(db_session, sample_custom_group):
     await db_session.commit()
     await db_session.refresh(field)
     return field
+
+
+# ---------------------------------------------------------------------------
+# Contact-CRUD fixtures (F03)
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def sample_deleted_contact(db_session):
+    """A Contact with is_deleted=True and contact_type='individual'."""
+    from app.models import Contact
+
+    contact = Contact(
+        first_name="Deleted",
+        last_name="Person",
+        email="deleted@lightnc.org",
+        contact_type="individual",
+        is_deleted=True,
+    )
+    db_session.add(contact)
+    await db_session.commit()
+    await db_session.refresh(contact)
+    return contact
+
+
+@pytest_asyncio.fixture
+async def sample_contact_with_custom_data(
+    db_session, sample_custom_group, sample_contact_ref_field
+):
+    """A Contact whose custom_data contains an invited_by contact_reference value
+    pointing at another existing contact.  Exercises get_contact_detail batched
+    IN-query resolution of contact_reference chips."""
+    from app.models import Contact
+
+    # Referee contact (the one being pointed at)
+    referee = Contact(
+        first_name="Referrer",
+        last_name="Member",
+        email="referrer@lightnc.org",
+        contact_type="individual",
+        is_deleted=False,
+    )
+    db_session.add(referee)
+    await db_session.flush()
+
+    # Contact whose custom_data stores the reference
+    subject = Contact(
+        first_name="Referred",
+        last_name="Member",
+        email="referred@lightnc.org",
+        contact_type="individual",
+        is_deleted=False,
+        custom_data={"invited_by": referee.id},
+    )
+    db_session.add(subject)
+    await db_session.commit()
+    await db_session.refresh(subject)
+    await db_session.refresh(referee)
+    # Attach the referee so tests can look up its id
+    subject._referee = referee
+    return subject
+
+
+@pytest_asyncio.fixture
+async def sample_participant_history(db_session, sample_contact):
+    """Creates 2 Event rows with explicit, distinct start_at timestamps and 2
+    Participant rows (source='face' and source='name_list') linked to
+    sample_contact.  start_at is set explicitly so desc ordering is assertable."""
+    from app.models import Event, Participant
+
+    earlier = datetime(2025, 1, 1, 9, 0, 0)
+    later = datetime(2025, 3, 15, 10, 0, 0)
+
+    event_a = Event(title="Early Service", start_at=earlier)
+    event_b = Event(title="Later Service", start_at=later)
+    db_session.add(event_a)
+    db_session.add(event_b)
+    await db_session.flush()
+
+    part_a = Participant(
+        contact_id=sample_contact.id,
+        event_id=event_a.id,
+        status="attended",
+        source="face",
+    )
+    part_b = Participant(
+        contact_id=sample_contact.id,
+        event_id=event_b.id,
+        status="attended",
+        source="name_list",
+    )
+    db_session.add(part_a)
+    db_session.add(part_b)
+    await db_session.commit()
+    await db_session.refresh(event_a)
+    await db_session.refresh(event_b)
+    await db_session.refresh(part_a)
+    await db_session.refresh(part_b)
+
+    return {
+        "contact": sample_contact,
+        "events": [event_a, event_b],
+        "participants": [part_a, part_b],
+        "earlier": earlier,
+        "later": later,
+    }

@@ -30,10 +30,10 @@ vi.mock('@/services/customFields', () => ({
   },
 }));
 
-// Mock MemberSearchModal — it is transitively imported through
+// Mock ContactPickerModal — it is transitively imported through
 // CustomFieldRenderer which is used in the live-preview pane.
-vi.mock('@/components/tasks/MemberSearchModal', () => ({
-  MemberSearchModal: () => null,
+vi.mock('@/components/tasks/ContactPickerModal', () => ({
+  ContactPickerModal: () => null,
 }));
 
 // Mock useAuthStore so we can control isAdmin / authReady in tests.

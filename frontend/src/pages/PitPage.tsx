@@ -5,7 +5,7 @@ import { AlertTriangle, UserCheck, Trash2, UserX, ArrowLeft } from 'lucide-react
 import { api } from '@/services/api';
 import { useNavigate } from 'react-router-dom';
 import type { Task } from '@/types';
-import { MemberSearchModal } from '@/components/tasks/MemberSearchModal';
+import { ContactPickerModal } from '@/components/tasks/ContactPickerModal';
 import type { Member } from '@/types';
 
 async function fetchPitTasks(): Promise<Task[]> {
@@ -141,7 +141,7 @@ export function PitPage() {
       </main>
 
       {enrollTaskId !== null && (
-        <MemberSearchModal
+        <ContactPickerModal
           mode="add"
           onSelect={handleEnrollSelect}
           onClose={() => setEnrollTaskId(null)}

@@ -77,10 +77,103 @@ export interface FaceSample {
   contact_id: number | null;
   image_path: string;
   thumb_path: string | null;
+  thumb_url?: string | null;
   compreface_image_id: string | null;
   source: 'manual' | 'detection' | 'bulk_ingest' | 'backfill';
   quality_score: number | null;
   created_at: string;
+}
+
+// ---------- Contacts ----------------------------------------------------------
+
+export interface ContactReferenceChip {
+  id: number;
+  display_name: string;
+  contact_type?: string | null;
+}
+
+export interface Contact {
+  id: number;
+  external_id?: string | null;
+  first_name: string;
+  last_name: string;
+  nickname?: string | null;
+  display_name: string;
+  email?: string | null;
+  phone?: string | null;
+  contact_type?: string | null;
+  contact_subtype?: string | null;
+  is_deleted: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ContactListItem {
+  id: number;
+  display_name: string;
+  nickname?: string | null;
+  contact_type?: string | null;
+  contact_subtype?: string | null;
+  tier?: string | null;
+  is_regular?: boolean | null;
+  is_connected?: boolean | null;
+  email?: string | null;
+  phone?: string | null;
+  face_thumbnail_path?: string | null;
+  is_deleted?: boolean;
+}
+
+export interface FaceSummary {
+  enrolled: boolean;
+  sample_count: number;
+  thumb_url?: string | null;
+}
+
+export interface ContactDetail {
+  id: number;
+  display_name: string;
+  first_name: string;
+  last_name: string;
+  nickname?: string | null;
+  suffix?: string | null;
+  contact_type?: string | null;
+  contact_subtype?: string | null;
+  gender?: string | null;
+  birth_date?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  street_address?: string | null;
+  external_id?: string | null;
+  tier?: string | null;
+  is_active?: boolean;
+  is_regular?: boolean | null;
+  is_connected?: boolean | null;
+  is_deleted?: boolean;
+  custom_data?: Record<string, unknown>;
+  contact_reference_chips?: ContactReferenceChip[];
+  face?: FaceSummary | null;
+}
+
+export interface DerivedBadges {
+  tier: string | null;
+  is_active: boolean;
+  is_regular: boolean | null;
+  is_connected: boolean | null;
+}
+
+export interface ContactAttendanceItem {
+  event_id: number;
+  event_title: string;
+  attended_at: string;
+  source?: string | null;
+  event_type?: string | null;
+}
+
+export interface Paginated<T> {
+  total: number;
+  page: number;
+  page_size: number;
+  items: T[];
 }
 
 export interface FacePanelData {

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
-import { MemberSearchModal } from '@/components/tasks/MemberSearchModal';
+import { ContactPickerModal } from '@/components/tasks/ContactPickerModal';
 import type { Member } from '@/types';
 import type { CustomFieldDef, CustomDataValue, OptionItem } from '@/types/customFields';
 
@@ -107,6 +107,7 @@ export function CustomFieldRenderer({
         </div>
         {pickerOpen && (
           <ContactPickerModal
+            mode="edit"
             onSelect={handleSelect}
             onClose={() => setPickerOpen(false)}
           />
@@ -154,6 +155,7 @@ export function CustomFieldRenderer({
         </div>
         {pickerOpen && (
           <ContactPickerModal
+            mode="edit"
             onSelect={handleSelect}
             onClose={() => setPickerOpen(false)}
           />
@@ -400,25 +402,3 @@ export function CustomFieldRenderer({
   );
 }
 
-// ---------------------------------------------------------------------------
-// ContactPickerModal — adapts MemberSearchModal to the contact_reference API.
-// MemberSearchModal is task-centric (mode + onSelect(Member)), so we wrap it:
-//   - pass mode='edit' (semantically: link to an existing member)
-//   - extract member.contact_id (number) before calling the parent onChange
-// The modal's own search calls /members and reads res.data defensively per C16.
-// ---------------------------------------------------------------------------
-
-interface ContactPickerModalProps {
-  onSelect: (member: Member) => void;
-  onClose: () => void;
-}
-
-function ContactPickerModal({ onSelect, onClose }: ContactPickerModalProps) {
-  return (
-    <MemberSearchModal
-      mode="edit"
-      onSelect={onSelect}
-      onClose={onClose}
-    />
-  );
-}

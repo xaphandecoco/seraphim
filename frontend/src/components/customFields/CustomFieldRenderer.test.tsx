@@ -10,12 +10,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
 // --- Mocks ------------------------------------------------------------------
-// Prevent MemberSearchModal from making real HTTP calls.
-vi.mock('@/components/tasks/MemberSearchModal', () => ({
-  MemberSearchModal: ({
+// Prevent ContactPickerModal from making real HTTP calls.
+vi.mock('@/components/tasks/ContactPickerModal', () => ({
+  ContactPickerModal: ({
     onSelect,
     onClose,
   }: {
+    mode: string;
     onSelect: (member: { contact_id: number; first_name: string; last_name: string }) => void;
     onClose: () => void;
   }) => (

@@ -317,7 +317,8 @@ interface SampleTileProps {
 }
 
 function SampleTile({ sample, showRemove, onRemove }: SampleTileProps) {
-  const thumbUrl = sample.thumb_path ? `/api${sample.thumb_path}` : null;
+  const u = sample.thumb_url ?? sample.thumb_path;
+  const thumbUrl = u ? `/api${u}` : null;
 
   return (
     <div className="relative overflow-hidden rounded-xl border border-border bg-card">

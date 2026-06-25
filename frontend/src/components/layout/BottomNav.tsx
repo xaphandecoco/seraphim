@@ -26,7 +26,7 @@ export function BottomNav() {
     { path: '/audit', label: 'Audit', icon: ShieldCheck },
     { path: '/ranking', label: 'Ranking', icon: Trophy },
     { path: '/events', label: 'Events', icon: Calendar },
-    { path: '/attendees', label: 'Members', icon: Users },
+    { path: '/contacts', label: 'Contacts', icon: Users },
   ];
 
   const adminTabs = [

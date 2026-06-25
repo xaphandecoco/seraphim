@@ -1,8 +1,8 @@
 import re
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, field_validator, model_validator
 
 
 # ============================================================================
@@ -354,6 +354,198 @@ class AttendeeResponse(BaseModel):
     nickname: str | None = None
     face_thumbnail_path: str | None = None
     sample_count: int = 0
+
+
+# ============================================================================
+# Contacts (CRUD)
+# ============================================================================
+
+class ContactCore(BaseModel):
+    """Base fields shared by ContactCreate and sub-models."""
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    nickname: Optional[str] = None
+    suffix: Optional[str] = None
+    gender: Optional[str] = None
+    birth_date: Optional[date] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    street_address: Optional[str] = None
+    contact_type: Literal["individual", "household", "organization"] = "individual"
+    contact_subtype: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_name_rules(self) -> "ContactCore":
+        """Require first+last for individual; allow name-only for household/org."""
+        if self.contact_type == "individual":
+            if not self.first_name or not self.last_name:
+                raise ValueError(
+                    "first_name and last_name are required for individual contacts"
+                )
+        else:
+            # household / organization: require at least one of the name fields
+            if not any([self.first_name, self.last_name, self.nickname]):
+                raise ValueError(
+                    "At least one of first_name, last_name, or nickname is required"
+                )
+        return self
+
+    @field_validator("birth_date", mode="before")
+    @classmethod
+    def reject_future_birth_date(cls, v: Any) -> Any:
+        if v is None:
+            return v
+        # Accept date or ISO string
+        if isinstance(v, str):
+            try:
+                from datetime import date as _date
+                v = _date.fromisoformat(v)
+            except ValueError:
+                raise ValueError("birth_date must be a valid ISO date (YYYY-MM-DD)")
+        if isinstance(v, date) and not isinstance(v, datetime):
+            if v > date.today():
+                raise ValueError("birth_date must not be in the future")
+        return v
+
+
+class ContactCreate(ContactCore):
+    """Payload for POST /contacts."""
+    custom_data: Dict[str, Any] = {}
+    external_id: Optional[int] = None
+
+
+class ContactUpdate(BaseModel):
+    """Payload for PATCH /contacts/{id} — all fields optional; no external_id."""
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    nickname: Optional[str] = None
+    suffix: Optional[str] = None
+    gender: Optional[str] = None
+    birth_date: Optional[date] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    street_address: Optional[str] = None
+    contact_type: Optional[Literal["individual", "household", "organization"]] = None
+    contact_subtype: Optional[str] = None
+    custom_data: Optional[Dict[str, Any]] = None
+
+    @field_validator("birth_date", mode="before")
+    @classmethod
+    def reject_future_birth_date(cls, v: Any) -> Any:
+        if v is None:
+            return v
+        if isinstance(v, str):
+            try:
+                from datetime import date as _date
+                v = _date.fromisoformat(v)
+            except ValueError:
+                raise ValueError("birth_date must be a valid ISO date (YYYY-MM-DD)")
+        if isinstance(v, date) and not isinstance(v, datetime):
+            if v > date.today():
+                raise ValueError("birth_date must not be in the future")
+        return v
+
+
+class ContactReferenceChip(BaseModel):
+    """Compact contact representation for contact_reference custom fields."""
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    display_name: str
+    contact_type: str
+
+
+class DerivedBadges(BaseModel):
+    """Snapshot-column derived status badges — all nullable (NULL passthrough)."""
+    tier: Optional[str] = None
+    is_active: Optional[bool] = None
+    is_regular: Optional[bool] = None
+    is_connected: Optional[bool] = None
+
+
+class FaceSummary(BaseModel):
+    """Face enrollment summary for a contact."""
+    enrolled: bool = False
+    sample_count: int = 0
+    face_thumbnail_path: Optional[str] = None
+
+
+class ContactListItem(BaseModel):
+    """Contact row returned in paginated list responses."""
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    display_name: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    nickname: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    contact_type: str
+    contact_subtype: Optional[str] = None
+    tier: Optional[str] = None
+    is_regular: Optional[bool] = None
+    is_connected: Optional[bool] = None
+    face_thumbnail_path: Optional[str] = None
+
+
+class PaginatedContactResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    items: List[ContactListItem]
+
+
+class ContactDetailResponse(BaseModel):
+    """Full contact detail including enrichment."""
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    display_name: str
+    external_id: Optional[int] = None
+    contact_type: str
+    contact_subtype: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    nickname: Optional[str] = None
+    suffix: Optional[str] = None
+    gender: Optional[str] = None
+    birth_date: Optional[date] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    street_address: Optional[str] = None
+    custom_data: Dict[str, Any] = {}
+    is_deleted: bool = False
+    created_at: datetime
+    updated_at: datetime
+    # Snapshot columns
+    last_attended_at: Optional[datetime] = None
+    attendance_count: Optional[int] = None
+    weeks_absent: Optional[int] = None
+    # Enrichment
+    contact_reference_chips: List[ContactReferenceChip] = []
+    face_summary: FaceSummary = FaceSummary()
+    derived_badges: DerivedBadges = DerivedBadges()
+    # Non-blocking warnings from create/update operations (F02)
+    warnings: List[str] = []
+
+
+class ContactAttendanceItem(BaseModel):
+    """One attendance record for the contact attendance history endpoint."""
+    model_config = ConfigDict(from_attributes=True)
+    participant_id: int
+    event_id: int
+    event_title: str
+    start_at: Optional[datetime] = None
+    status: str
+    source: str
+    role: Optional[str] = None
+    created_at: datetime
+    event_type: Optional[str] = None
+
+
+class PaginatedAttendanceResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    items: List[ContactAttendanceItem]
 
 
 # ============================================================================

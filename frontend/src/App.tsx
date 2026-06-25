@@ -1,4 +1,4 @@
-import { Routes, Route, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { useEffect } from 'react';
 import { Toaster } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
@@ -9,7 +9,9 @@ import { OAuthCallbackPage } from '@/pages/OAuthCallbackPage';
 import { TasksPage } from '@/pages/TasksPage';
 import { RankingPage } from '@/pages/RankingPage';
 import { EventsPage } from '@/pages/EventsPage';
-import { AttendeesPage } from '@/pages/AttendeesPage';
+import { ContactsPage } from '@/pages/ContactsPage';
+import { ContactDetailPage } from '@/pages/ContactDetailPage';
+import { ContactFormPage } from '@/pages/ContactFormPage';
 import { SettingsPage } from '@/pages/SettingsPage';
 import { SetupPage } from '@/pages/SetupPage';
 import { PitPage } from '@/pages/PitPage';
@@ -56,7 +58,12 @@ function App() {
         <Route path="/" element={<ProtectedRoute><TasksPage /></ProtectedRoute>} />
         <Route path="/ranking" element={<ProtectedRoute><RankingPage /></ProtectedRoute>} />
         <Route path="/events" element={<ProtectedRoute><EventsPage /></ProtectedRoute>} />
-        <Route path="/attendees" element={<ProtectedRoute><AttendeesPage /></ProtectedRoute>} />
+        {/* S15: gate contacts from viewer */}
+        <Route path="/contacts" element={<ProtectedRoute><ContactsPage /></ProtectedRoute>} />
+        <Route path="/contacts/new" element={<ProtectedRoute><ContactFormPage mode="create" /></ProtectedRoute>} />
+        <Route path="/contacts/:id" element={<ProtectedRoute><ContactDetailPage /></ProtectedRoute>} />
+        <Route path="/contacts/:id/edit" element={<ProtectedRoute><ContactFormPage mode="edit" /></ProtectedRoute>} />
+        <Route path="/attendees" element={<Navigate to="/contacts" replace />} />
         <Route path="/audit" element={<ProtectedRoute><AuditPage /></ProtectedRoute>} />
         <Route path="/settings" element={<AdminRoute><SettingsPage /></AdminRoute>} />
         <Route path="/settings/users" element={<AdminRoute><UserManagementPage /></AdminRoute>} />

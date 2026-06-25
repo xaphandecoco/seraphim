@@ -5,9 +5,14 @@
 ---
 
 ## 🔄 LOOP RUNNING (2026-06-25, resumed in CLOUD — new agent, full autonomy)
-S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` · **S03 🔄 IMPLEMENT building** (`wf_dcead96c-d09`). PLAN done & auto-approved (6 feature + 5 patch tasks). Baseline gate: 722 passed/8 skipped/1 xfailed. Owner asleep → auto-approve plans, log blockers here, do NOT wait. Auto-resume cron `8493f26e` armed (every 2h at :23).
+S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` · **S03 ✅ committed (cloud)** · **next: S04 ∥ S08**. Gate after S03: backend 740 passed/8 skip/1 xfail, frontend build+lint+218 tests, ruff clean. Owner asleep → auto-approve plans, log blockers here, do NOT wait. Auto-resume cron `8493f26e` armed (every 2h at :23).
 
 **RESUME (if S03 build dies on limit):** `Workflow({scriptPath:'/home/user/seraphim/tools/build/s03_implement.js', resumeFromRunId:'wf_dcead96c-d09'})` then critique→commit→push. Build artifacts (gen_build output + args) committed under `tools/build/`.
+
+**S03 CRITIQUE: build done (27 agents, 1.2M tok, sec PASS, QA 1 round). GREEN GATE ✅ — backend 740 passed/8 skip/1 xfail (+18 S03 tests), frontend build+lint+215 tests, ruff clean. Opus critic FAIL → 2 defects:**
+- **D1 (AC17) ruff F401 unused `FaceSample` import** → ✅ FIXED by orchestrator (removed import; ruff clean). [trivial, allowed since it's a lint-only delete, not feature code]
+- **D2 (AC14) `contact_reference` chips not rendered** → 🔄 REMEDIATION R1 in flight (Sonnet frontend eng): `ContactDetailPage` ignored backend `contact_reference_chips` + used a `numVal>0` heuristic that wrongly linkified ANY positive-int custom field. Fix wires the S02 schema (data_type) + chip display_names into the custom-fields card; adds `contact_reference_chips` to the `ContactDetail` TS type. Files: types/index.ts, ContactDetailPage.tsx, ContactDetailPage.test.tsx. After R1 returns green → re-verify gate → commit S03.
+- **Critic non-blocking nits (carry-forward):** DerivedBadges shape drift (weeks_absent/last_attended_at/attendance_count hoisted to top-level vs nested `derived`); `custom_fields_resolved` spec-name implemented as flat `contact_reference_chips` list; stale `MemberSearchModal` mentions in 2 test-file COMMENTS only (mocks correctly point to ContactPickerModal — verified). None block S03.
 
 **S03 auto-resolved open questions (non-blocking, owner review on wake):**
 - **contact_type casing** → P01 lowercases the ORM default to `individual`; Pydantic Literal rejects capitalized. No pre-prod rows exist (S01) so no data UPDATE needed; any future capitalized rows normalized in S06. ✅ default applied.

@@ -214,7 +214,7 @@ Project Seraphim/
 │   │   │   ├── health.py       # Health checks + queue metrics + safe_mode flag
 │   │   │   ├── leaderboard.py  # Gamification rankings (display names)
 │   │   │   ├── logs.py         # Audit log viewer
-│   │   │   ├── members.py      # CiviCRM member search + attendees
+│   │   │   ├── members.py      # Contact CRUD + paginated list + attendees + attendance history
 │   │   │   ├── pit.py          # Admin dispute queue
 │   │   │   ├── settings.py     # Admin settings + safe mode
 │   │   │   ├── setup.py        # First-boot wizard (locked after completion)
@@ -224,6 +224,7 @@ Project Seraphim/
 │   │   ├── services/           # Business logic, external clients
 │   │   │   ├── civicrm.py      # CiviCRM REST v3 client
 │   │   │   ├── compreface.py   # Compreface API client
+│   │   │   ├── contact_service.py # Contact CRUD, list/search, attendance history, audit
 │   │   │   ├── dedup.py        # Perceptual hash deduplication
 │   │   │   ├── face_pipeline.py
 │   │   │   ├── face_storage.py # Face snapshot storage
@@ -259,15 +260,21 @@ Project Seraphim/
 ├── frontend/                   # React Vite frontend (PWA)
 │   ├── src/
 │   │   ├── components/
+│   │   │   ├── contacts/       # FacePanel (S07 read-only shell)
+│   │   │   ├── customFields/   # CustomFieldsSection, CustomFieldRenderer, OptionEditor
 │   │   │   ├── layout/         # BottomNav (More sheet for admins), ProtectedRoute, AdminRoute
-│   │   │   ├── tasks/          # TaskCard, TaskFeed, MemberSearchModal (focus-trapped)
-│   │   │   └── ui/             # StateViews: LoadingState, EmptyState, ErrorState
+│   │   │   ├── tasks/          # TaskCard, TaskFeed, ContactPickerModal (focus-trapped)
+│   │   │   └── ui/             # FormField, DataTable, Pagination, StatusBadge,
+│   │   │                       #   ConfirmDialog, StateViews, ErrorBoundary
 │   │   ├── hooks/
-│   │   │   └── useAuth.ts      # In-memory token + refresh cookie hydration on mount
+│   │   │   ├── useAuth.ts      # In-memory token + refresh cookie hydration on mount
+│   │   │   └── useContacts.ts  # TanStack Query wrappers for contact list/detail/mutations
 │   │   ├── pages/
 │   │   │   ├── AttendancePage.tsx    # CiviCRM push + dead-letter queue (admin)
-│   │   │   ├── AttendeesPage.tsx
 │   │   │   ├── AuditPage.tsx         # Quality audit (volunteer, when queue empty)
+│   │   │   ├── ContactsPage.tsx      # Paginated contact directory (replaces AttendeesPage)
+│   │   │   ├── ContactDetailPage.tsx # Contact profile with face/attendance/consent/activities slots
+│   │   │   ├── ContactFormPage.tsx   # Create/edit contact (core fields + custom fields)
 │   │   │   ├── DashboardPage.tsx     # Analytics charts + CSV export (admin)
 │   │   │   ├── EventsPage.tsx        # + Sync button (admin)
 │   │   │   ├── LogsPage.tsx
@@ -282,12 +289,14 @@ Project Seraphim/
 │   │   ├── services/
 │   │   │   ├── api.ts          # Axios; 401 → refresh → retry before redirect
 │   │   │   ├── connectionUrl.ts# Shared Postgres/Redis URL builders
+│   │   │   ├── contacts.ts     # Typed API functions for all /members endpoints
 │   │   │   └── sse.ts          # SSEClient; passes token via ?_t= query param
 │   │   ├── store/
 │   │   │   ├── authStore.ts    # In-memory token (no localStorage); setToken()
 │   │   │   └── taskStore.ts
-│   │   ├── types/index.ts
-│   │   ├── App.tsx             # Routes incl. /audit, /settings/users, /settings/attendance, /dashboard
+│   │   ├── types/index.ts      # Contact, ContactDetail, DerivedBadges, FaceSummary,
+│   │   │                       #   Paginated<T>, ContactAttendanceItem + all prior types
+│   │   ├── App.tsx             # Routes incl. /contacts*, /attendees redirect, /audit, /dashboard
 │   │   ├── index.css           # Design tokens (light + .dark blocks)
 │   │   └── main.tsx            # Applies persisted dark mode class before first paint
 │   ├── index.html              # PWA meta tags; no user-scalable=no
@@ -427,10 +436,42 @@ Project Seraphim/
 | push_status | String(20) | nullable |
 | created_at | DateTime | default `utc_now` |
 
+#### `contacts` — Native Contact Records (System of Record)
+| Column | Type | Constraints |
+|--------|------|-------------|
+| id | Integer | PK, autoincrement |
+| external_id | Integer | nullable, unique (partial — NULLs allowed) |
+| contact_type | String(50) | not null, default `"individual"` (individual \| household \| organization) |
+| contact_subtype | String(100) | nullable |
+| first_name | String(255) | not null |
+| last_name | String(255) | not null |
+| nickname | String(255) | nullable |
+| suffix | String(50) | nullable |
+| gender | String(20) | nullable |
+| birth_date | Date | nullable |
+| phone | String(50) | nullable |
+| email | String(255) | nullable |
+| street_address | Text | nullable |
+| custom_data | JSONB | not null, default `{}` |
+| is_deleted | Boolean | not null, default `False` (soft delete) |
+| created_at | DateTime | not null, default `utc_now` |
+| updated_at | DateTime | not null, default `utc_now` |
+| last_attended_at | DateTime | nullable (S23 recompute) |
+| attendance_count | Integer | nullable (S23 recompute) |
+| weeks_absent | Integer | nullable (S23 recompute) |
+| tier | String(20) | nullable (S23 recompute: Tier0\|Tier1\|Tier2\|Tier3\|Inactive) |
+| is_active | Boolean | nullable (S23 recompute) |
+| is_regular | Boolean | nullable (S23 recompute) |
+| is_connected | Boolean | nullable (S23 recompute) |
+
+**Indexes**: `ix_contacts_external_id` (unique, partial), `ix_contacts_email`, `ix_contacts_last_name`, `ix_contacts_is_deleted`
+
+> **Data note (S06 task):** The migration `server_default` for `contact_type` is `'Individual'` (capital I) while the ORM default and all API writes use lowercase `'individual'`. Existing pre-prod rows with `'Individual'` must be normalized via a one-time `UPDATE` — deferred to the S06 data migration task.
+
 ### Supporting Tables
 
-#### `civicrm_members`, `civicrm_events`, `compreface_subjects`, `pit_queue`, `admin_settings`
-Schema unchanged from initial design — see inline Pydantic schemas for current field details.
+#### `compreface_subjects`, `custom_field_groups`, `custom_field_defs`, `participants`, `events`, `pit_queue`, `admin_settings`, `audit_log`
+Schema defined by S01/S02 migrations — see inline Pydantic schemas and `backend/app/models.py` for current field details.
 
 ---
 
@@ -501,6 +542,21 @@ Schema unchanged from initial design — see inline Pydantic schemas for current
 | GET | `/cameras/{id}/preview` | Admin | Grab single JPEG frame |
 | POST | `/cameras/{id}/reconnect` | Admin | Force reconnect |
 
+### Contact Endpoints (`/members`)
+
+> The backend prefix `/members` is retained for internal stability. The UI domain and route is "Contacts".
+
+| Method | Path | Access | Description |
+|--------|------|--------|-------------|
+| GET | `/members` | Volunteer | Paginated contact list `{items,total,page,page_size}`; search across first/last/nickname/email; filters: `contact_type`, `tier`, `is_regular`, `include_deleted` (admin only) |
+| POST | `/members` | Volunteer | Create contact; core fields + `custom_data` validated via S02; 201 with optional `warnings` for duplicate email |
+| GET | `/members/attendees` | Volunteer | Card-grid with face thumbnails (S07 dependency; retained) |
+| GET | `/members/{id}` | Volunteer | Full detail: core, `custom_data`, `custom_fields_resolved` (contact_reference chips), `derived_badges`, `face_summary`; soft-deleted contact → 404 for volunteer, 200 for admin |
+| PATCH | `/members/{id}` | Volunteer | Partial update; `custom_data` merged field-by-field then re-validated; `external_id` immutable; audited with before/after diff |
+| DELETE | `/members/{id}` | Volunteer | Soft delete (`is_deleted=true`); idempotent 204; preserves participants/detections |
+| POST | `/members/{id}/restore` | Admin | Restore soft-deleted contact; 409 if not currently deleted |
+| GET | `/members/{id}/attendance` | Volunteer | Paginated attendance history joined to events, newest-first; filters: `source`, `event_type`; 404 for unknown contact |
+
 ### Other Endpoints
 
 | Method | Path | Access | Description |
@@ -509,8 +565,6 @@ Schema unchanged from initial design — see inline Pydantic schemas for current
 | POST | `/events/sync` | Admin | Force sync from CiviCRM |
 | GET | `/events/active-event-id` | Volunteer | Currently active event (camera detections are tagged with it) |
 | POST | `/events/set-active?event_id=` | Admin | Set/clear the active event |
-| GET | `/members` | Volunteer | Search members by name/email (limit clamped ≤100) |
-| POST | `/members/sync` | Admin | Force sync from CiviCRM |
 | GET | `/pit` | Admin | List admin pit queue |
 | POST | `/pit/{id}/enroll` | Admin | Enroll face to member |
 | POST | `/pit/{id}/delete` | Admin | Mark as trash |
@@ -887,6 +941,10 @@ Keep the backend (3001), Postgres, and Redis off the public internet. `ENVIRONME
 | Low | Password reset link in query string | Deliver token out-of-band if higher security needed |
 | Low | Refresh-token revocation depends on Redis | JTI denylist + per-refresh rotation are in place, but fail **open** during a Redis outage (a revoked refresh token could be replayed until it expires) |
 | Low | Secrets at rest in `admin_settings` (plaintext JSONB) | Acceptable on an access-controlled on-prem DB; encrypt if the volume is untrusted |
+| Low | No per-route rate limit on new Contact write endpoints (`POST`/`PATCH`/`DELETE /members`, `POST /members/{id}/restore`) | All require `require_volunteer`/`require_admin` so not anonymously abusable; add an authenticated-write limit if abuse by a compromised volunteer token is in the threat model |
+| Low | Soft-deleted contact names may resolve in `contact_reference` chips | A chip can display the name of a contact deleted after being referenced; stale display only, not a data leak (all contacts visible to all volunteers). Product note: consider a `(deleted)` suffix on such chips |
+| Info | S15 viewer-role gating for `/contacts*` not yet implemented | Noted with `// S15: gate contacts from viewer` comment in `App.tsx`; no current risk because the `viewer` role does not yet exist |
+| Info | `contact_type` default casing mismatch in migration `server_default` vs ORM default | `server_default='Individual'` (capital I) vs ORM/API `'individual'`; pre-prod rows with `'Individual'` deferred to S06 data migration |
 
 ---
 
@@ -992,6 +1050,75 @@ export interface ChurchEvent {
   title: string;
   start_date: string;
   end_date?: string;
+}
+
+// ----- Contact CRUD types (S03) -----
+
+export interface ContactListItem {
+  id: number;
+  display_name: string;
+  first_name: string;
+  last_name: string;
+  nickname?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  contact_type: string;
+  contact_subtype?: string | null;
+  tier?: string | null;
+  is_regular?: boolean | null;
+  is_connected?: boolean | null;
+  face_thumbnail_path?: string | null;
+}
+
+export interface DerivedBadges {
+  tier?: string | null;
+  is_active?: boolean | null;
+  is_regular?: boolean | null;
+  is_connected?: boolean | null;
+}
+
+export interface FaceSummary {
+  enrolled: boolean;
+  sample_count: number;
+  face_thumbnail_path?: string | null;
+}
+
+export interface ContactDetail extends ContactListItem {
+  external_id?: number | null;
+  suffix?: string | null;
+  gender?: string | null;
+  birth_date?: string | null;
+  street_address?: string | null;
+  custom_data: Record<string, unknown>;
+  is_deleted: boolean;
+  created_at: string;
+  updated_at: string;
+  last_attended_at?: string | null;
+  attendance_count?: number | null;
+  weeks_absent?: number | null;
+  contact_reference_chips: Array<{ id: number; display_name: string; contact_type: string }>;
+  face_summary: FaceSummary;
+  derived_badges: DerivedBadges;
+  warnings: string[];
+}
+
+export interface ContactAttendanceItem {
+  participant_id: number;
+  event_id: number;
+  event_title: string;
+  start_at?: string | null;
+  status: string;
+  source: string;
+  role?: string | null;
+  created_at: string;
+  event_type?: string | null;
+}
+
+export interface Paginated<T> {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
 }
 ```
 

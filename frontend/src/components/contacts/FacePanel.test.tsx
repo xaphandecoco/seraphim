@@ -70,6 +70,7 @@ function makePanel(overrides: Partial<FacePanelData> = {}): FacePanelData {
         contact_id: 42,
         image_path: '/faces/101.jpg',
         thumb_path: '/faces/thumbs/101.jpg',
+        thumb_url: '/faces/thumbs/101.jpg',
         compreface_image_id: null,
         source: 'manual',
         quality_score: 0.9,
@@ -81,6 +82,7 @@ function makePanel(overrides: Partial<FacePanelData> = {}): FacePanelData {
         contact_id: 42,
         image_path: '/faces/102.jpg',
         thumb_path: null,
+        thumb_url: null,
         compreface_image_id: null,
         source: 'detection',
         quality_score: null,
@@ -122,7 +124,7 @@ describe('AC1 — renders enrolled samples when enrollment_status=active', () =>
   it('renders a tile for each sample', async () => {
     renderPanel();
     // Each sample either shows an img or a "No preview" placeholder; both are inside tiles.
-    // Sample 101 has a thumb_path → <img>; sample 102 has thumb_path=null → "No preview".
+    // Sample 101 has thumb_url → <img>; sample 102 has thumb_url=null → "No preview".
     await screen.findByText('Active'); // wait for data
     const img = screen.getByRole('img', { name: 'Face sample 101' });
     expect(img).toBeInTheDocument();
