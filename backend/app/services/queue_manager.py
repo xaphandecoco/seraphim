@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import dynamic_settings, legacy_settings
@@ -12,7 +12,7 @@ from app.database import async_session
 import cv2
 import numpy as np
 
-from app.models import ComprefaceSubject, Detection, Task
+from app.models import ComprefaceSubject, Detection, ExportJob, Task
 from app.services.compreface import ComprefaceClient
 from app.services.enrollment import EnrollmentService
 from app.services.face_cleanup import FaceCleanupService
@@ -41,6 +41,8 @@ class QueueManager:
                 worked |= await self._process_enrollment()
                 worked |= await self._process_expired_tasks()
                 worked |= await self._process_face_cleanup()
+                worked |= await self._process_export_jobs()
+                await self._purge_expired_export_jobs()
                 if not worked:
                     await asyncio.sleep(self.poll_interval)
             except asyncio.CancelledError:
@@ -173,3 +175,211 @@ class QueueManager:
 
             await session.commit()
             return True
+
+    # ---------------------------------------------------------------------------
+    # Export job processor (S05-F09)
+    # ---------------------------------------------------------------------------
+
+    async def _collect_csv_to_file(
+        self,
+        job: ExportJob,
+        dest_path: Path,
+    ) -> int:
+        """Stream CSV for *job* into *dest_path* and return the data-row count.
+
+        Opens its own DB session so the streaming cursor is isolated from the
+        outer session that holds the row-lock on the ExportJob.
+        """
+        from app.services.export_service import (
+            stream_contacts_csv,
+            stream_participants_csv,
+        )
+
+        params: dict = job.params or {}
+        job_type: str = job.job_type
+
+        async with self.db_session_factory() as read_session:
+            if job_type == "attendance":
+                stream = stream_participants_csv(read_session, params)
+            elif job_type == "contacts":
+                stream = stream_contacts_csv(read_session, params)
+            else:
+                raise ValueError(f"Unknown export job_type: {job_type!r}")
+
+            row_count = 0
+            # Byte-count the BOM (3 bytes) + header row for the first chunk;
+            # subsequent chunks are all data rows.  We count newlines to
+            # approximate data rows without parsing.
+            first_chunk = True
+            with dest_path.open("wb") as fh:
+                async for chunk in stream:
+                    fh.write(chunk)
+                    if first_chunk:
+                        # Strip BOM + header line from newline count
+                        stripped = chunk.lstrip(b"\xef\xbb\xbf")
+                        # The first chunk contains BOM + header row + optional data rows
+                        lines = stripped.count(b"\n")
+                        # Subtract 1 for header row
+                        row_count += max(0, lines - 1)
+                        first_chunk = False
+                    else:
+                        row_count += chunk.count(b"\n")
+
+        return row_count
+
+    async def _process_export_jobs(self) -> bool:
+        """Pick the oldest pending ExportJob and process it.
+
+        Returns True if work was done (a job was picked up), False otherwise.
+
+        Uses SELECT ... FOR UPDATE SKIP LOCKED on Postgres so multiple worker
+        processes don't race on the same job.  On SQLite (tests) the hint is
+        ignored — that is fine.
+        """
+        async with self.db_session_factory() as session:
+            stmt = (
+                select(ExportJob)
+                .where(ExportJob.status == "pending")
+                .order_by(ExportJob.created_at)
+                .limit(1)
+                .with_for_update(skip_locked=True)
+            )
+            result = await session.execute(stmt)
+            job: Optional[ExportJob] = result.scalar_one_or_none()
+            if job is None:
+                return False
+
+            # Transition: pending -> running
+            job.status = "running"
+            await session.commit()
+            logger.info(
+                "ExportJob %s started: type=%s fmt=%s",
+                job.id, job.job_type, job.fmt,
+            )
+
+        # Work is done outside the lock so the session above is closed.
+        # Re-open to write final status.
+        async with self.db_session_factory() as session:
+            # Reload the job so this session can mutate it
+            result = await session.execute(
+                select(ExportJob).where(ExportJob.id == job.id)
+            )
+            job = result.scalar_one()
+
+            try:
+                # Build destination path
+                exports_dir = Path(legacy_settings.STORAGE_PATH) / "exports"
+                exports_dir.mkdir(parents=True, exist_ok=True)
+
+                timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+                filename = f"{job.job_type}_{job.id}_{timestamp}.{job.fmt}"
+                dest_path = exports_dir / filename
+
+                # HIGH 2 defense-in-depth: resolve the destination path and
+                # confirm it stays inside exports_dir before writing.  The
+                # router now allowlists job_type and fmt at create time, but
+                # jobs created before that fix or via direct DB access could
+                # still carry malicious values, so we re-check here at the
+                # write primitive.
+                resolved_dest = dest_path.resolve()
+                resolved_exports_dir = exports_dir.resolve()
+                try:
+                    resolved_dest.relative_to(resolved_exports_dir)
+                except ValueError:
+                    raise ValueError(
+                        f"ExportJob {job.id}: computed path {resolved_dest} "
+                        f"escapes exports directory {resolved_exports_dir}"
+                    )
+
+                row_count = await self._collect_csv_to_file(job, dest_path)
+
+                file_bytes = dest_path.stat().st_size
+
+                # expires_at = created_at + 24h  (created_at is naive UTC)
+                created_naive = job.created_at
+                expires_at = created_naive + timedelta(hours=24)
+
+                job.status = "ready"
+                job.file_path = f"exports/{filename}"
+                job.file_bytes = file_bytes
+                job.row_count = row_count
+                job.expires_at = expires_at
+                job.finished_at = datetime.now(timezone.utc).replace(tzinfo=None)
+
+                logger.info(
+                    "ExportJob %s ready: rows=%d bytes=%d path=%s",
+                    job.id, row_count, file_bytes, job.file_path,
+                )
+
+            except Exception as exc:
+                error_text = str(exc)[:500]
+                job.status = "failed"
+                job.error = error_text
+                job.finished_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                logger.exception("ExportJob %s failed: %s", job.id, error_text)
+
+            await session.commit()
+
+        await self._record_job_run("export_jobs")
+        return True
+
+    async def _purge_expired_export_jobs(self) -> None:
+        """Transition ready/failed ExportJobs past their expires_at to 'expired'.
+
+        Also unlinks the associated file (if any) and nulls file_path.
+        """
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+        async with self.db_session_factory() as session:
+            result = await session.execute(
+                select(ExportJob)
+                .where(ExportJob.status.in_(["ready", "failed"]))
+                .where(ExportJob.expires_at <= now)
+                .limit(50)
+            )
+            jobs = result.scalars().all()
+            if not jobs:
+                return
+
+            for job in jobs:
+                # Unlink file if present
+                if job.file_path:
+                    file_abs = Path(legacy_settings.STORAGE_PATH) / job.file_path
+                    try:
+                        file_abs.unlink(missing_ok=True)
+                    except OSError:
+                        logger.warning(
+                            "ExportJob %s: could not delete file %s",
+                            job.id, file_abs,
+                        )
+                    job.file_path = None
+
+                job.status = "expired"
+                logger.info("ExportJob %s expired", job.id)
+
+            await session.commit()
+
+    async def _record_job_run(self, job_name: str) -> None:
+        """Insert a row into the S16-owned job_runs table if it exists.
+
+        Guarded: if the table does not yet exist (S16 migration not yet
+        applied) the method silently returns so this worker never crashes
+        because of a missing table.
+        """
+        try:
+            async with self.db_session_factory() as session:
+                # Check table existence without inspecting dialect-specific catalogs
+                await session.execute(
+                    text(
+                        "INSERT INTO job_runs (job_name, ran_at) "
+                        "VALUES (:job_name, :ran_at)"
+                    ),
+                    {
+                        "job_name": job_name,
+                        "ran_at": datetime.now(timezone.utc).replace(tzinfo=None),
+                    },
+                )
+                await session.commit()
+        except Exception:
+            # Table does not exist yet (S16 not applied) or any other error — ignore
+            pass

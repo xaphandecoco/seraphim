@@ -11,6 +11,7 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Pagination } from '@/components/ui/Pagination';
 import { StatusBadge, getTierTone } from '@/components/ui/StatusBadge';
 import { EmptyState, ErrorState } from '@/components/ui/StateViews';
+import { ExportMenu } from '@/components/export/ExportMenu';
 
 import type { ContactListItem } from '@/types';
 
@@ -164,15 +165,18 @@ export function ContactsPage() {
             <Users size={18} className="text-foreground/50" aria-hidden="true" />
             <h1 className="text-lg font-bold text-foreground">Contacts</h1>
           </div>
-          <button
-            type="button"
-            onClick={() => navigate('/contacts/new')}
-            className="flex min-h-[36px] items-center gap-1.5 rounded-xl bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/85 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-ring"
-            aria-label="New Contact"
-          >
-            <Plus size={15} aria-hidden="true" />
-            New Contact
-          </button>
+          <div className="flex items-center gap-2">
+            <ExportMenu jobType="contacts" filters={filters} />
+            <button
+              type="button"
+              onClick={() => navigate('/contacts/new')}
+              className="flex min-h-[36px] items-center gap-1.5 rounded-xl bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/85 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-ring"
+              aria-label="New Contact"
+            >
+              <Plus size={15} aria-hidden="true" />
+              New Contact
+            </button>
+          </div>
         </div>
       </header>
 

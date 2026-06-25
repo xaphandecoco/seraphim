@@ -135,10 +135,13 @@ async def resolve_audience(
                 detail="audience.group_id is required for mode='group'",
             )
 
-        # Lazy import — Group and GroupMember are owned by S09
+        # Lazy import — Group and GroupMember are owned by S09.
+        # Catch both ImportError (name absent from module) and NameError
+        # (CPython may bind earlier names in a multi-name import before
+        # raising; guard against any residual reference error).
         try:
             from app.models import Contact, Group, GroupMember  # type: ignore[attr-defined]
-        except ImportError:
+        except (ImportError, NameError):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
@@ -184,10 +187,12 @@ async def resolve_audience(
                 detail="audience.saved_search_id is required for mode='saved_search'",
             )
 
-        # Lazy import — SavedSearch is owned by S09
+        # Lazy import — SavedSearch is owned by S09.
+        # Catch both ImportError and NameError for the same reason as the
+        # group branch above.
         try:
             from app.models import SavedSearch  # type: ignore[attr-defined]
-        except ImportError:
+        except (ImportError, NameError):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(

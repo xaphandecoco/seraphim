@@ -10,6 +10,8 @@ import { EventTypeBadge } from '@/components/events/EventTypeBadge';
 import { SessionTimeBadge } from '@/components/events/SessionTimeBadge';
 import { EventFormDrawer } from '@/components/events/EventFormDrawer';
 import { ParticipantGrid } from '@/components/events/ParticipantGrid';
+import { BulkParticipantPanel } from '@/components/participants/BulkParticipantPanel';
+import { ExportMenu } from '@/components/export/ExportMenu';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ErrorState, LoadingState } from '@/components/ui/StateViews';
 
@@ -75,6 +77,7 @@ export function EventDetailPage() {
 
   const [editOpen, setEditOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [selectedParticipantContactIds, setSelectedParticipantContactIds] = useState<number[]>([]);
 
   // ---------- Data fetch -------------------------------------------------------
 
@@ -283,9 +286,22 @@ export function EventDetailPage() {
           </div>
         </section>
 
+        {/* Bulk participant panel + export */}
+        <section aria-label="Bulk operations" className="space-y-2">
+          <BulkParticipantPanel eventId={event.id} selectedIds={selectedParticipantContactIds} />
+          <div className="flex justify-end">
+            <ExportMenu jobType="participants" eventId={event.id} />
+          </div>
+        </section>
+
         {/* Participant grid */}
         <section aria-label="Participants section" className="rounded-2xl border border-border bg-card p-4">
-          <ParticipantGrid eventId={event.id} canEdit={canEdit} />
+          <ParticipantGrid
+            eventId={event.id}
+            canEdit={canEdit}
+            selectedIds={selectedParticipantContactIds}
+            onSelectionChange={setSelectedParticipantContactIds}
+          />
         </section>
       </main>
 

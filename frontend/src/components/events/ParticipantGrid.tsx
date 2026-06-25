@@ -84,19 +84,32 @@ interface ParticipantCardProps {
   participant: EventParticipant;
   eventId: number;
   canEdit: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: (contactId: number) => void;
 }
 
-function ParticipantCard({ participant, eventId, canEdit }: ParticipantCardProps) {
+function ParticipantCard({ participant, eventId, canEdit, isSelected, onToggleSelect }: ParticipantCardProps) {
   const addedAt = participant.created_at
     ? new Date(participant.created_at).toLocaleDateString()
     : '—';
 
   return (
-    <div className="rounded-2xl bg-card border border-border p-4 space-y-2">
+    <div className={`rounded-2xl bg-card border p-4 space-y-2 ${isSelected ? 'border-primary bg-primary/5' : 'border-border'}`}>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-semibold text-foreground truncate">
-          {participant.contact_display_name ?? `Contact #${participant.contact_id}`}
-        </span>
+        <div className="flex items-center gap-2 min-w-0">
+          {onToggleSelect && participant.contact_id != null && (
+            <input
+              type="checkbox"
+              checked={!!isSelected}
+              onChange={() => onToggleSelect(participant.contact_id!)}
+              aria-label="Select participant"
+              className="rounded border border-border accent-primary shrink-0"
+            />
+          )}
+          <span className="text-sm font-semibold text-foreground truncate">
+            {participant.contact_display_name ?? `Contact #${participant.contact_id}`}
+          </span>
+        </div>
         <StatusCell
           participant={participant}
           eventId={eventId}
@@ -117,11 +130,13 @@ function ParticipantCard({ participant, eventId, canEdit }: ParticipantCardProps
 export interface ParticipantGridProps {
   eventId: number;
   canEdit: boolean;
+  selectedIds?: number[];
+  onSelectionChange?: (ids: number[]) => void;
 }
 
 // ---------- Main component ----------------------------------------------------
 
-export function ParticipantGrid({ eventId, canEdit }: ParticipantGridProps) {
+export function ParticipantGrid({ eventId, canEdit, selectedIds, onSelectionChange }: ParticipantGridProps) {
   const queryClient = useQueryClient();
 
   const [page, setPage] = useState(1);
@@ -252,7 +267,7 @@ export function ParticipantGrid({ eventId, canEdit }: ParticipantGridProps) {
         <DataTable
           columns={columns}
           rows={items}
-          getRowKey={(row) => row.participant_id}
+          getRowKey={(row) => row.contact_id ?? row.participant_id}
           isLoading={isLoading}
           emptyState={
             <EmptyState
@@ -260,6 +275,12 @@ export function ParticipantGrid({ eventId, canEdit }: ParticipantGridProps) {
               title="No participants yet"
               description="Add a participant to get started."
             />
+          }
+          selectedKeys={onSelectionChange ? new Set(selectedIds ?? []) : undefined}
+          onSelectionChange={
+            onSelectionChange
+              ? (keys) => onSelectionChange(Array.from(keys) as number[])
+              : undefined
           }
         />
       </div>
@@ -279,6 +300,18 @@ export function ParticipantGrid({ eventId, canEdit }: ParticipantGridProps) {
               participant={p}
               eventId={eventId}
               canEdit={canEdit}
+              isSelected={onSelectionChange && p.contact_id != null ? (selectedIds ?? []).includes(p.contact_id) : undefined}
+              onToggleSelect={
+                onSelectionChange
+                  ? (contactId) => {
+                      const current = selectedIds ?? [];
+                      const next = current.includes(contactId)
+                        ? current.filter((id) => id !== contactId)
+                        : [...current, contactId];
+                      onSelectionChange(next);
+                    }
+                  : undefined
+              }
             />
           ))
         )}

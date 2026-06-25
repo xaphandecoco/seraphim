@@ -4,7 +4,10 @@ Ownership: S05-F05.
 Consumed by: S05 router, S06 migration ETL (bulk_upsert_participants).
 
 All operations are set-based — ZERO per-row Python iteration.
-The session never commits inside this module; callers are responsible.
+Each mutating function commits the session itself (primary mutation +
+audit_svc.record in a single commit, wrapped in try/except per AC15).
+bulk_upsert_participants is the exception — it does NOT commit; its
+caller (S06 ETL) is responsible for the commit.
 
 Public API
 ----------

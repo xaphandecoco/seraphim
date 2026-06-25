@@ -16,11 +16,13 @@ from app.routers import (
     attendance,
     audit,
     auth,
+    bulk_participants,
     cameras,
     custom_fields,
     enrollment,
     event_series as event_series_router,
     events,
+    export as export_router,
     health,
     leaderboard,
     logs,
@@ -121,6 +123,8 @@ app.include_router(attendance.router, dependencies=[Depends(check_setup_complete
 app.include_router(audit.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(uploads_router.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(analytics.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(bulk_participants.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(export_router.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(custom_fields.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(storage_router.router)
 

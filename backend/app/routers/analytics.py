@@ -114,45 +114,6 @@ async def queue_health(
     ]
 
 
-@router.get("/export/attendance")
-async def export_attendance_csv(
-    event_id: int | None = None,
-    db: AsyncSession = Depends(get_db),
-    _user=Depends(require_admin),
-):
-    """Stream participant records as CSV."""
-    query = (
-        select(
-            Participant.id,
-            Participant.contact_id,
-            Participant.event_id,
-            Participant.status,
-            Participant.source,
-            Participant.created_at,
-        )
-        .order_by(Participant.created_at.desc())
-    )
-    if event_id:
-        query = query.where(Participant.event_id == event_id)
-
-    result = await db.execute(query)
-    rows = result.all()
-
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["id", "contact_id", "event_id", "status", "source", "created_at"])
-    for r in rows:
-        writer.writerow([r.id, r.contact_id, r.event_id, r.status, r.source,
-                         r.created_at.isoformat() if r.created_at else ""])
-
-    output.seek(0)
-    return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=attendance.csv"},
-    )
-
-
 @router.get("/export/logs")
 async def export_logs_csv(
     db: AsyncSession = Depends(get_db),
