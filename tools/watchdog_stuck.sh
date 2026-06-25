@@ -19,7 +19,7 @@ IDLE_THRESHOLD_MIN="${IDLE_THRESHOLD_MIN:-20}"   # minutes of silence => stuck (
 
 # 1. Extract the in-flight build runId from the log's "IMPLEMENT building (wf_...)" marker.
 #    Tolerant of markdown noise (backticks/asterisks) between "building" and the runId.
-runid="$(grep -E 'IMPLEMENT building' "$LOG" 2>/dev/null \
+runid="$(grep -E '(IMPLEMENT|PLAN) building' "$LOG" 2>/dev/null \
           | grep -oE 'wf_[a-z0-9-]+' | tail -1)"
 
 if [ -z "${runid:-}" ]; then
