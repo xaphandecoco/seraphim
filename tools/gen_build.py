@@ -54,6 +54,16 @@ src = src.replace('while (pendingTasks.length > 0 && qaRound < 5)',
 src = src.replace('qaRound < 5', 'qaRound < 2')
 src = src.replace('qaRound}/5', 'qaRound}/2')
 src = src.replace('5 rounds of standard QA failed', '2 rounds of standard QA failed')
+# SPEED FIX: clear pendingTasks on a clean QA pass so a fully-green round does NOT
+# spuriously trigger the Expert-QA escalation (an Opus agent + an extra wave) every build.
+# (Canonical leaves pendingTasks set on break, so `if (pendingTasks.length > 0)` was always true.)
+src = src.replace('if (failures.length === 0) break',
+                  'if (failures.length === 0) { pendingTasks = []; break }')
+# SPEED: the loop writes its own commits and never uses senpai's docs/PR text — skip the
+# docs agent (saves one wave through the 2-wide concurrency pipe). '' is falsy so agent() is
+# never evaluated (short-circuit); docsAndPr falls back to '' downstream.
+# NOTE: agent( was already rewritten to aGuarded( above, so target that form.
+src = src.replace('const docs = await aGuarded(', "const docs = '' && aGuarded(")
 src = src.replace("name: 'senpai-team-v1',", f"name: '{run_name}',")
 
 open(out_path, 'w', encoding='utf-8').write(src)
