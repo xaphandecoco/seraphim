@@ -24,6 +24,10 @@ import { AuditPage } from '@/pages/AuditPage';
 import { BulkPhotoUploadPage } from '@/pages/BulkPhotoUploadPage';
 import { EventDetailPage } from '@/pages/EventDetailPage';
 import { EventSeriesPage } from '@/pages/EventSeriesPage';
+import { NameMatchReviewPage } from '@/pages/NameMatchReviewPage';
+import { CommunityReportsPage } from '@/pages/CommunityReportsPage';
+import { CommunityReportFormPage } from '@/pages/CommunityReportFormPage';
+import { CommunityReportDetailPage } from '@/pages/CommunityReportDetailPage';
 
 function AuthInit() {
   useAuth();
@@ -77,6 +81,10 @@ function App() {
         <Route path="/pit" element={<AdminRoute><PitPage /></AdminRoute>} />
         <Route path="/logs" element={<AdminRoute><LogsPage /></AdminRoute>} />
         <Route path="/bulk-upload" element={<AdminRoute><BulkPhotoUploadPage /></AdminRoute>} />
+        <Route path="/name-match/review" element={<AdminRoute><NameMatchReviewPage /></AdminRoute>} />
+        <Route path="/community-reports" element={<ProtectedRoute><CommunityReportsPage /></ProtectedRoute>} />
+        <Route path="/community-reports/new" element={<ProtectedRoute><CommunityReportFormPage /></ProtectedRoute>} />
+        <Route path="/community-reports/:id" element={<ProtectedRoute><CommunityReportDetailPage /></ProtectedRoute>} />
       </Routes>
     </div>
   );

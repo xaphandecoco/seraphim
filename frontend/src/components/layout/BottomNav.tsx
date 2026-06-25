@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ClipboardList, Trophy, Calendar, CalendarRange, Users, Settings, Settings2, AlertTriangle, FileText, ShieldCheck, MoreHorizontal, X, Upload } from 'lucide-react';
+import { ClipboardList, Trophy, Calendar, CalendarRange, Users, Settings, Settings2, AlertTriangle, FileText, ShieldCheck, MoreHorizontal, X, Upload, UserCheck, FileCheck } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { useTaskStore } from '@/store/taskStore';
 
@@ -36,6 +36,8 @@ export function BottomNav() {
     { path: '/settings', label: 'Settings', icon: Settings },
     { path: '/settings/custom-fields', label: 'Custom Fields', icon: Settings2 },
     { path: '/settings/event-series', label: 'Event Series', icon: CalendarRange },
+    { path: '/name-match/review', label: 'Name Review', icon: UserCheck },
+    { path: '/community-reports', label: 'Reports', icon: FileCheck },
   ];
 
   return (

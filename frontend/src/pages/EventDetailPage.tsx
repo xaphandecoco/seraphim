@@ -1,11 +1,13 @@
 import { useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Calendar, Edit, MapPin, Trash2 } from 'lucide-react';
+import { ArrowLeft, Calendar, Edit, MapPin, Trash2, Loader2 } from 'lucide-react';
 
 import { useAuthStore } from '@/store/authStore';
 import { getEvent, deleteEvent } from '@/services/events';
+import { submitNameList } from '@/services/attendance';
+import type { NameListIntakeResponse } from '@/types/nameMatch';
 import { EventTypeBadge } from '@/components/events/EventTypeBadge';
 import { SessionTimeBadge } from '@/components/events/SessionTimeBadge';
 import { EventFormDrawer } from '@/components/events/EventFormDrawer';
@@ -79,6 +81,11 @@ export function EventDetailPage() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [selectedParticipantContactIds, setSelectedParticipantContactIds] = useState<number[]>([]);
 
+  // Name list intake state
+  const [nameListText, setNameListText] = useState('');
+  const [nameListSource, setNameListSource] = useState<'manual' | 'community_report'>('manual');
+  const [nameListResult, setNameListResult] = useState<NameListIntakeResponse | null>(null);
+
   // ---------- Data fetch -------------------------------------------------------
 
   const {
@@ -118,6 +125,27 @@ export function EventDetailPage() {
     queryClient.invalidateQueries({ queryKey: ['events'] });
     setEditOpen(false);
   };
+
+  // Name list intake mutation
+  const nameListMutation = useMutation({
+    mutationFn: () => {
+      // Clear any prior result so a stale success banner never lingers during a re-submit.
+      setNameListResult(null);
+      const names = nameListText
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean);
+      return submitNameList({ event_id: id!, names, source: nameListSource });
+    },
+    onSuccess: (result) => {
+      setNameListResult(result);
+      queryClient.invalidateQueries({ queryKey: ['participants', id] });
+    },
+    onError: (err: unknown) => {
+      const axiosErr = err as { response?: { data?: { detail?: string } } };
+      toast.error(axiosErr.response?.data?.detail ?? 'Failed to submit');
+    },
+  });
 
   // ---------- Loading / error states -----------------------------------------
 
@@ -302,6 +330,70 @@ export function EventDetailPage() {
             selectedIds={selectedParticipantContactIds}
             onSelectionChange={setSelectedParticipantContactIds}
           />
+        </section>
+
+        {/* Attendance by Name List */}
+        <section aria-label="Attendance by name list">
+          <details className="rounded-2xl border border-border bg-card">
+            <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-foreground hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-ring rounded-2xl">
+              Attendance by Name List
+            </summary>
+            <div className="border-t border-border px-4 pb-4 pt-4 space-y-3">
+              <div>
+                <label htmlFor="name-list-textarea" className="mb-1 block text-xs font-semibold text-muted-foreground">
+                  Names (one per line)
+                </label>
+                <textarea
+                  id="name-list-textarea"
+                  rows={6}
+                  value={nameListText}
+                  onChange={(e) => { setNameListText(e.target.value); setNameListResult(null); }}
+                  placeholder="Enter names, one per line"
+                  className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+              <div>
+                <label htmlFor="name-list-source" className="mb-1 block text-xs font-semibold text-muted-foreground">Source</label>
+                <select
+                  id="name-list-source"
+                  value={nameListSource}
+                  onChange={(e) => setNameListSource(e.target.value as 'manual' | 'community_report')}
+                  className="rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="manual">Manual</option>
+                  <option value="community_report">Community Report</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => nameListMutation.mutate()}
+                  disabled={nameListMutation.isPending || !nameListText.trim()}
+                  className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  {nameListMutation.isPending ? (
+                    <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                  ) : null}
+                  {nameListMutation.isPending ? 'Submitting…' : 'Submit'}
+                </button>
+              </div>
+              {nameListResult && (
+                <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700" aria-live="polite">
+                  <p className="font-semibold">
+                    {nameListResult.matched} matched, {nameListResult.review_queue} in review
+                  </p>
+                  {nameListResult.review_queue > 0 && (
+                    <Link
+                      to="/name-match/review"
+                      className="mt-1 inline-block text-xs font-semibold text-primary hover:underline focus:outline-none"
+                    >
+                      Review unmatched names
+                    </Link>
+                  )}
+                </div>
+              )}
+            </div>
+          </details>
         </section>
       </main>
 
