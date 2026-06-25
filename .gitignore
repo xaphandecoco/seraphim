@@ -54,6 +54,9 @@ coverage/
 htmlcov/
 .pytest_cache/
 *.db
+*.db-journal
+*.db-wal
+*.db-shm
 backend/test*.db
 .test-storage/
 
