@@ -4,17 +4,34 @@
 
 ---
 
+## ⏸ LOOP PAUSED (2026-06-25, owner request: "stop after this sprint")
+S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` — all green. S03 planned, build script ready, **NOT launched**. Auto-resume cron **cancelled**. **Full continuation brief: [`HANDOFF.md`](./HANDOFF.md).** To resume: read HANDOFF.md → build S03 (`Workflow({scriptPath:"%TEMP%\\claude\\s03_implement.js"})`) → Opus critique → commit → continue DAG; re-arm the cron if running unattended.
+
 ## ⚠️ BLOCKERS / QUESTIONS FOR OWNER (read me first)
 
 **Non-blocking owner FYIs (loop continues with stated defaults — change anytime):**
 - **[S02 Q2] Custom-field option lists are STUBBED.** PEPSOL stages, Ministry, Community, Followup-status, Membership-class select options are seeded as placeholders (help_text="Pending owner confirmation — update in admin UI"). The engine works; set real values via the admin UI. **Needed before the S06 data-migration dry-run**, not before S02.
 - **[S02 Q3] "Community" defaulted to MULTI-select.** Confirm whether a contact can belong to multiple communities. If single, I'll flip the seed to single `select` (cheap). Defaulted to multi per spec.
 
+**AUTONOMOUS DECISIONS made while you slept (review/override when up):**
+- **[S07 design] Adopted the as-built `compreface_subject_id` STRING-keyed FK** (engineers deviated from the spec's integer `subject_id`; the build is GREEN — 722 passed — and internally consistent, and the string key is the natural CompreFace key, compatible with S24's face remap). Expert-QA recommended this. CARRIED-FORWARD: S07 spec-doc reconciliation + recognition-history enrichment (event_title/occurrence_date/confidence/tier — currently bare Participant fields). Revert to integer design is possible but costly; not recommended.
+- **[Budget] Generated build scripts now cap the QA loop at 2 rounds** (canonical `senpai-team-v1.js` untouched at 5). Why: S02 and S07 EACH burned ~3M tokens spinning 5 QA rounds + expert-QA on code that was actually green (criteria drift, not bugs). My Opus critique + the real green gate are the quality bar. Override if you want the full 5-round senpai QA in the loop.
+
 ---
 
 ## ⏰ AUTO-RESUME (token limit)
 
-Token limit is a rolling **5-hour** window (first reset ~6:10 AM). **Recurring** in-session cron **`b52868be`** fires at **01:13, 06:13, 11:13, 16:13, 21:13** daily (~every 5h, max gap 5h) to re-poke this session and un-stick the loop if it stalled on the limit. Each poke re-reads this log + `git log` and is duplicate-safe (no-ops if work is already in flight; trusts git over the log; never restarts a committed sprint). Session-only but owner confirmed the app stays open, so this covers the rate-limited-but-open case. Auto-expires after 7 days (loop finishes well before). If you wake and the loop is mid-sprint with no recent progress, just say "continue".
+Token limit is a rolling **5-hour** window. **Recurring** in-session cron **`94e47e63`** fires **every 2h at :23** (refreshed 2026-06-25 from the old 5h cron, which couldn't fire — see below). Each poke re-reads this log + `git log`, follows the RESUME PLAYBOOK, and is duplicate-safe (no-ops if work is in flight; trusts git over the log; never restarts a committed sprint). Session-only, but owner confirmed the app stays open. Auto-expires after 7 days. If you wake mid-sprint with no recent progress, just say "continue".
+
+**THE REAL auto-resume fix (early-abort):** builds now short-circuit after 5 consecutive agent failures (session-limit fingerprint) and return in seconds — instead of grinding ~28 min failing every agent (which is what blocked the old cron from ever finding an idle window). Implemented in the reusable generator `%TEMP%\claude\gen_build.py`; all build scripts are generated through it. Combined with task-notification auto-re-invoke (a returning workflow wakes this session) + the 2h cron, recovery after a reset is now prompt.
+
+**⚠️ Cron limitation seen 2026-06-25 06:10:** the cron fires only while the REPL is IDLE. When the 6:10 limit hit, the S07 build kept running-and-erroring (every agent failing "session limit") right up until it returned ~much later, so there was no idle moment at 06:13 for the poke. Net: a build that dies ON the limit blocks the cron. Recovery = resume from the journal (below).
+
+**RESUME PLAYBOOK — if a senpai BUILD died on the session limit (partial/broken tree):** do NOT re-run fresh. Resume from its journal so finished agents replay from cache:
+`Workflow({scriptPath: <generated impl script>, resumeFromRunId: <runId>})`. Generated build scripts live in the session Temp dir. Known runs:
+- S07 build: `C:\Users\JOHNAT~1\AppData\Local\Temp\claude\s07_implement.js` · runId `wf_2daafecb-581` (resumed as weibtt61v).
+- S03 build: `C:\Users\JOHNAT~1\AppData\Local\Temp\claude\s03_implement.js` · NOT yet launched (held until S07 commits).
+After resume completes: Opus-critique → commit → next.
 
 ---
 
@@ -53,8 +70,8 @@ Token limit is a rolling **5-hour** window (first reset ~6:10 AM). **Recurring**
 |--------|-------|--------|--------|-------|
 | S01 | Schema inversion & CiviCRM excision | ✅ committed | `2ee70d7` | critic PASS, 0/13 unmet; 3 non-blocking polish items carried forward |
 | S02 | Dynamic custom-field engine | ✅ committed | `14c4329` | Opus critic PASS; QA spun 5 rounds on Postgres-only ACs (process bug, fixed below); +incidental ruff cleanup |
-| S03 | Contact CRUD & profile | 🔄 planning | — | **Chain-C**, parallel w/ S07 |
-| S07 | Face enrollment & bulk photo ingestion | 🔄 planning | — | **Chain-F**, parallel w/ S03 (needs S01+S02 only) |
+| S03 | Contact CRUD & profile | ⏸ plan ready, build held | — | no migration; builds after S07 commit (shared conftest/face_storage) |
+| S07 | Face enrollment & bulk photo ingestion | ✅ committed | `8d87084` | Opus critic PASS (722 passed); as-built string-keyed design adopted; survived a 6:10 limit-kill via journal resume |
 | S04 | Event CRUD & management | ⏳ queued | — | Chain-C; owns event_series + session_time |
 | S05 | Bulk participants & export at scale | ⏳ queued | — | |
 | S22 | (per master) | ⏳ queued | — | |
@@ -73,6 +90,9 @@ Legend: ✅ committed · 🔄 in progress · ⏳ queued · ⛔ blocked (see top)
 - Both depend only on S01+S02 (committed `14c4329`). **PLANs launched in parallel** (read-only, safe). Anti-spin seed applied (migrations Postgres-only / CI-gated).
 - Build plan: run the two IMPLEMENTs in **isolated git worktrees**, then merge into the branch — resolving the few infra-file conflicts (`models.py`/`main.py`/`conftest.py`/`schemas.py`) and **linearizing alembic heads** (both may add a migration off `h1i2j3k4l5m6` → branched heads to rebase) with a Sonnet merge agent, then re-gate. One commit per sprint.
 - Critique each with the Opus critic before its commit.
+- **2026-06-25 ~06:30 — overload learning:** ran S03+S07 PLANs in parallel; S03's Opus architect hit `API Error: Overloaded` (intake+recon ok, ~260K spent, then died). Two concurrent Opus architects + Opus orchestration overloaded the API. **Adjustment: sequence the PLAN phases (one Opus architect at a time); still parallelize the BUILD phases (Sonnet-engineer-heavy — that's where the wall-clock win is).** Retrying S03 PLAN after S07's architect finishes.
+- **Revised to PIPELINED parallelism (safer than concurrent builds):** S07 PLAN succeeded; **S07 BUILD now running** (`wyx8dmq3c`) while **S03 PLAN re-runs** (`wuasanbad`). Builds are SEQUENCED (S07 commit → then S03 build on that base) → no concurrent file writes, no alembic head branching, no merge step. S03's migration chains off S07's head (build told to run `alembic heads`).
+- **S07 open questions:** no owner blockers — all engineer-resolvable. **Integration note:** S07 `FacePanel` is built STANDALONE; mounting it into S03's `ContactDetailPage.tsx` is a small POST-merge task after both land.
 
 ### S02 — Dynamic custom-field engine
 - **Goal:** A dynamic custom-field engine (groups + 8 field types) so the church's contact attributes are admin-configurable, replacing CiviCRM custom fields. Single validation chokepoint for all `custom_data` writes; admin CRUD UI reused by S03+.
