@@ -5,7 +5,7 @@
 ---
 
 ## 🔄 LOOP RUNNING (2026-06-25, resumed in CLOUD — new agent, full autonomy)
-S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` · **S03 ✅ `a7839af`** · **S04 ✅ `37608a9`** · **S05 ✅ `c753618`** · **S22 ✅ backend `cc64c57` + frontend `79fbe77`** (workflow stuck at 101m on F06/F07 → orchestrator finished: fixed 2 backend test fails, implemented F08-F10 frontend directly with post-review fixes). Next: S06.
+S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` · **S03 ✅ `a7839af`** · **S04 ✅ `37608a9`** · **S05 ✅ `c753618`** · **S22 ✅ backend `cc64c57` + frontend `79fbe77`** (workflow stuck at 101m on F06/F07 → orchestrator finished: fixed 2 backend test fails, implemented F08-F10 frontend directly with post-review fixes). **🔄 S06 PLAN building (wf_01cb9d99-b6c)** — senpai Intake→Recon→Architect for CiviCRM data-migration ETL. Live alembic head = `c1d2e3f4a5b6` (S06 migration down_rev). S06 reads files-only, synthetic XLSX fixtures (real artifact gates only S21 cutover, not S06 code). Next after S06: S24.
 
 **S22 STUCK-WORKFLOW POSTMORTEM + PREVENTION (`05fecff`):** F06/F07 agents idled 101 min (90-min reasoning loops between tool calls — invisible to transcript-mtime watchdog until silence exceeded threshold). Prevention shipped: (1) watchdog cron now 15-min (was 1hr), threshold 20m; (2) gen_build.py injects `effort:'medium'` default on engineer agents so they can't enter long reasoning loops; (3) log carries CronCreate recreation snippet + auto-recovery prompt. Backend green gate after recovery: 963 passed/0 failed; frontend 310 tests + build + lint.
 
