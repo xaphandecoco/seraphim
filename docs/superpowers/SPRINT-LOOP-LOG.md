@@ -5,7 +5,9 @@
 ---
 
 ## 🔄 LOOP RUNNING (2026-06-25, resumed in CLOUD — new agent, full autonomy)
-S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` · **S03 ✅ `a7839af`** · **S04 ✅ `37608a9`** · **S05 ✅ committed**. Next: S22 (attendance intake + AI name matching) per build DAG, then S06.
+S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` · **S03 ✅ `a7839af`** · **S04 ✅ `37608a9`** · **S05 ✅ `c753618`** · **S22 🔄 IMPLEMENT building** (`wf_b59d7ee9-5ce`; PLAN auto-approved, 10 feature + 3 patch, real migration + Claude name-matching service). Next after S22: S06.
+
+**RESUME (if S22 build dies on limit):** `Workflow({scriptPath:'/home/user/seraphim/tools/build/s22_implement.js', resumeFromRunId:'wf_b59d7ee9-5ce'})` → critique → commit → push. Durable plan: `docs/superpowers/build-journal/s22_args.json`. S22 migration down_rev = a2b3c4d5e6f7. ⚠️ S22 PLAN flagged: spec §4.3 `match_name` signature vs master §2.6 frozen contract — architect resolved with keyword-compatible signature (verify in critique). Model: claude-sonnet-4-6 for matching agent (configurable via admin_settings `name_match.claude_model`); tests NEVER call live LLM (stub gate on ENVIRONMENT==test / no API key / claude_enabled=false).
 
 **S05 CRITIQUE: build done (50 agents, 2.1M tok, 2 QA rounds). Security: initial BLOCK → 3 findings fixed → re-audit PASS.** Findings: HIGH async `include_deleted` PII bypass (export.py:447 clamp), HIGH export path-traversal (containment check), MED CSV formula-injection (`_sanitize_cell`). I added 5 security regression tests. Green gate ✅ — backend 906 passed/0 failed (deterministic `-p no:randomly`; random order causes file-SQLite lock flake — NOT real failures), frontend 295 tests + build + lint, ruff clean. **Opus critic FAIL → 1 blocker FIXED:** `audience.py` mode='ids' read `getattr(audience,'ids')` but the real `AudienceSelector` field is `contact_ids` → every explicit-id bulk op silently resolved to ZERO contacts (tests masked it with `SimpleNamespace(ids=...)` shims). Fixed: resolver now reads `contact_ids` (falls back to `ids` for shims) + added an HTTP-level `mode='ids'` regression test. Re-verified green.
 
