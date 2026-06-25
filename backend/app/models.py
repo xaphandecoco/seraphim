@@ -159,7 +159,12 @@ class ComprefaceSubject(Base):
         String(20), default="pending"
     )  # pending | active
     sample_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_trained_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    # S07: soft-delete/purge support + enrollment provenance + orphan tracking
+    enrollment_source: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    is_orphan: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    purged_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
 class Detection(Base):
@@ -355,6 +360,77 @@ class PitQueue(Base):
     admin_note: Mapped[Optional[str]] = mapped_column(Text)
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class PhotoIngestBatch(Base):
+    """Tracks progress and per-image results for a bulk-upload job.
+
+    The UI polls GET /uploads/photos/batch/{batch_id} to show live progress.
+    report: list of per-image dicts capped at 500 entries in-process.
+    """
+    __tablename__ = "photo_ingest_batches"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    event_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("events.id", ondelete="SET NULL"), nullable=True
+    )
+    uploaded_by_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="processing"
+    )  # processing | completed | failed
+    total_images: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    processed_images: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    faces_detected: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    auto_logged: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    tasks_created: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    skipped: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    deduplicated: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    errors: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    report: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_photo_ingest_batches_status", "status"),
+    )
+
+
+class FaceSample(Base):
+    """One enrolled face image for a CompreFace subject.
+
+    source values: manual | detection | bulk_ingest | backfill
+    compreface_image_id: UUID returned by CompreFace add_example; NULL if
+        enrollment via the remote API has not yet occurred.
+    """
+    __tablename__ = "face_samples"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    compreface_subject_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("compreface_subjects.compreface_subject_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    contact_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True
+    )
+    image_path: Mapped[str] = mapped_column(Text, nullable=False)
+    thumb_path: Mapped[str] = mapped_column(Text, nullable=False)
+    compreface_image_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    source: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="manual"
+    )  # manual | detection | bulk_ingest | backfill
+    added_by_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    quality_score: Mapped[Optional[float]] = mapped_column(Numeric(5, 3), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+
+    __table_args__ = (
+        Index("ix_face_samples_contact_id", "contact_id"),
+        Index("ix_face_samples_subject_id", "compreface_subject_id"),
+    )
 
 
 class VolunteerStat(Base):

@@ -1,12 +1,16 @@
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
+import cv2
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import legacy_settings
 from app.models import (
+    ComprefaceSubject,
     Contact,
     Detection,
     Log,
@@ -16,6 +20,11 @@ from app.models import (
     TaskAction,
     VolunteerStat,
 )
+from app.services.compreface import ComprefaceClient
+from app.services.enrollment import EnrollmentService
+from app.services.face_storage import FaceStorage
+
+logger = logging.getLogger(__name__)
 
 
 class TaskService:
@@ -405,6 +414,68 @@ class TaskService:
             event_id=detection.event_id,
         )
         self.session.add(log)
+
+        if member_id is not None:
+            await self._maybe_auto_enroll(detection, member_id)
+
+    async def _maybe_auto_enroll(
+        self, detection: Detection, contact_id: int
+    ) -> None:
+        """Fire-and-forget auto-enrollment: enroll the detection's face crop for
+        a contact if the subject is not already active with samples.
+
+        Never raises — all exceptions are caught and logged so a CompreFace
+        outage cannot block task resolution.
+        """
+        if detection is None or not detection.image_path:
+            return
+
+        subject_id_str = f"contact_{contact_id}"
+        result = await self.session.execute(
+            select(ComprefaceSubject).where(
+                (ComprefaceSubject.compreface_subject_id == subject_id_str)
+                & (ComprefaceSubject.enrollment_status == "active")
+                & (ComprefaceSubject.sample_count > 0)
+            )
+        )
+        if result.scalar_one_or_none() is not None:
+            # Already enrolled with samples — nothing to do.
+            return
+
+        client: Optional[ComprefaceClient] = None
+        try:
+            full_disk_path = (
+                legacy_settings.STORAGE_PATH.rstrip("/")
+                + "/"
+                + detection.image_path.lstrip("/")
+            )
+            face_crop = cv2.imread(full_disk_path)
+            if face_crop is None:
+                logger.warning(
+                    "_maybe_auto_enroll: could not read image for detection_id=%s path=%s",
+                    detection.id,
+                    full_disk_path,
+                )
+                return
+
+            client = ComprefaceClient()
+            storage = FaceStorage(legacy_settings.STORAGE_PATH)
+            svc = EnrollmentService(client=client, storage=storage)
+            await svc.enroll_contact_face(
+                self.session,
+                contact_id,
+                face_crop,
+                source="detection",
+            )
+        except Exception:
+            logger.exception(
+                "_maybe_auto_enroll failed: detection_id=%s contact_id=%s",
+                detection.id,
+                contact_id,
+            )
+        finally:
+            if client is not None:
+                await client.close()
 
     async def _update_volunteer_stats(self, volunteer_id: int, action_type: str):
         """Update volunteer gamification stats."""

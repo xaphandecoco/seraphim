@@ -70,3 +70,41 @@ export interface TaskEvent {
   data?: Task;
   pending_count?: number;
 }
+
+export interface FaceSample {
+  id: number;
+  compreface_subject_id: string;
+  contact_id: number | null;
+  image_path: string;
+  thumb_path: string | null;
+  compreface_image_id: string | null;
+  source: 'manual' | 'detection' | 'bulk_ingest' | 'backfill';
+  quality_score: number | null;
+  created_at: string;
+}
+
+export interface FacePanelData {
+  subject_id: number | null;
+  compreface_subject_id: string | null;
+  enrollment_status: string | null;
+  sample_count: number;
+  is_orphan: boolean;
+  purged_at: string | null;
+  last_trained_at: string | null;
+  samples: FaceSample[];
+}
+
+export interface PhotoIngestBatch {
+  id: number;
+  event_id: number | null;
+  status: 'processing' | 'completed' | 'failed';
+  total_files: number;
+  processed_images: number;
+  faces_found: number;
+  tasks_created: number;
+  errors: number;
+  report: Record<string, unknown>[];
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+}

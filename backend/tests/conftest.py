@@ -225,6 +225,30 @@ async def volunteer_auth_headers(volunteer_user):
     return {"Authorization": f"Bearer {token}"}
 
 
+@pytest_asyncio.fixture
+async def viewer_user(db_session):
+    from app.models import User
+
+    user = User(
+        email="viewer@lightnc.org",
+        password_hash=hash_password("viewpass123"),
+        role="viewer",
+        is_active=True,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user
+
+
+@pytest_asyncio.fixture
+async def viewer_auth_headers(viewer_user):
+    token = make_token(
+        viewer_user.id, viewer_user.email, viewer_user.role, "Viewer"
+    )
+    return {"Authorization": f"Bearer {token}"}
+
+
 # ---------------------------------------------------------------------------
 # Domain / supporting-data fixtures
 # ---------------------------------------------------------------------------

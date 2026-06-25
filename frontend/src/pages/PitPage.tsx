@@ -5,6 +5,8 @@ import { AlertTriangle, UserCheck, Trash2, UserX, ArrowLeft } from 'lucide-react
 import { api } from '@/services/api';
 import { useNavigate } from 'react-router-dom';
 import type { Task } from '@/types';
+import { MemberSearchModal } from '@/components/tasks/MemberSearchModal';
+import type { Member } from '@/types';
 
 async function fetchPitTasks(): Promise<Task[]> {
   const res = await api.get('/pit');
@@ -15,6 +17,7 @@ export function PitPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [actionLoading, setActionLoading] = useState<number | null>(null);
+  const [enrollTaskId, setEnrollTaskId] = useState<number | null>(null);
 
   const { data: tasks = [], isLoading } = useQuery({
     queryKey: ['pit'],
@@ -22,6 +25,10 @@ export function PitPage() {
   });
 
   const handleAction = async (taskId: number, action: 'enroll' | 'delete' | 'non-person') => {
+    if (action === 'enroll') {
+      setEnrollTaskId(taskId);
+      return;
+    }
     setActionLoading(taskId);
     try {
       await api.post(`/pit/${taskId}/${action}`);
@@ -31,6 +38,23 @@ export function PitPage() {
       toast.error(err.response?.data?.detail || `Failed to ${action} task`);
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const handleEnrollSelect = async (member: Member) => {
+    if (enrollTaskId === null) return;
+    try {
+      await api.post(
+        `/pit/${enrollTaskId}/enroll`,
+        { contact_id: member.contact_id },
+        { headers: { 'Content-Type': 'application/json' } },
+      );
+      queryClient.invalidateQueries({ queryKey: ['pit'] });
+      toast.success('Enrolled successfully');
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Failed to enroll');
+    } finally {
+      setEnrollTaskId(null);
     }
   };
 
@@ -115,6 +139,14 @@ export function PitPage() {
           </div>
         )}
       </main>
+
+      {enrollTaskId !== null && (
+        <MemberSearchModal
+          mode="add"
+          onSelect={handleEnrollSelect}
+          onClose={() => setEnrollTaskId(null)}
+        />
+      )}
     </div>
   );
 }

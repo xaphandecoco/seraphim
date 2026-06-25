@@ -19,6 +19,7 @@ import { AttendancePage } from '@/pages/AttendancePage';
 import { CustomFieldsPage } from '@/pages/CustomFieldsPage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { AuditPage } from '@/pages/AuditPage';
+import { BulkPhotoUploadPage } from '@/pages/BulkPhotoUploadPage';
 
 function AuthInit() {
   useAuth();
@@ -64,6 +65,7 @@ function App() {
         <Route path="/dashboard" element={<AdminRoute><DashboardPage /></AdminRoute>} />
         <Route path="/pit" element={<AdminRoute><PitPage /></AdminRoute>} />
         <Route path="/logs" element={<AdminRoute><LogsPage /></AdminRoute>} />
+        <Route path="/bulk-upload" element={<AdminRoute><BulkPhotoUploadPage /></AdminRoute>} />
       </Routes>
     </div>
   );

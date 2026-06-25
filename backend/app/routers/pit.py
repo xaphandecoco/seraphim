@@ -1,14 +1,19 @@
 from datetime import datetime, timezone
 
+import cv2
+import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import legacy_settings
 from app.database import get_db
-from app.services.face_storage import to_storage_url
 from app.dependencies import require_admin
 from app.models import Detection, PitQueue, Task
-from app.schemas import TaskResponse
+from app.schemas import PitEnrollRequest, TaskResponse
+from app.services.compreface import ComprefaceClient
+from app.services.enrollment import EnrollmentService
+from app.services.face_storage import FaceStorage, to_storage_url
 
 router = APIRouter(prefix="/pit", tags=["pit"])
 
@@ -53,23 +58,58 @@ async def list_pit_tasks(
 @router.post("/{task_id}/enroll", response_model=TaskResponse)
 async def enroll_pit_task(
     task_id: int,
-    contact_id: int,
+    body: PitEnrollRequest,
     db: AsyncSession = Depends(get_db),
     user=Depends(require_admin),
 ):
-    """Enroll an unidentified pit face to a CiviCRM member."""
+    """Enroll an unidentified pit face to a contact."""
     task = await db.get(Task, task_id)
     if not task or task.status != "pit":
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Pit task not found"
         )
 
+    detection = await db.get(Detection, task.detection_id)
+
+    if not detection or not detection.image_path:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Pit task has no associated detection image; cannot enroll",
+        )
+
+    # Enroll the face sample via EnrollmentService before mutating task/detection state.
+    client = ComprefaceClient()
+    storage = FaceStorage(legacy_settings.STORAGE_PATH)
+    service = EnrollmentService(client, storage)
+    try:
+        image_bytes = storage.read_detection_full_image(detection.image_path)
+        if not image_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Detection image file not found on disk; cannot enroll",
+            )
+        face_crop = cv2.imdecode(
+            np.frombuffer(image_bytes, dtype=np.uint8), cv2.IMREAD_COLOR
+        )
+        if face_crop is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Detection image could not be decoded; cannot enroll",
+            )
+        await service.enroll_contact_face(
+            session=db,
+            contact_id=body.contact_id,
+            face_crop=face_crop,
+            source="detection",
+        )
+    finally:
+        await client.close()
+
     task.pit_status = "enrolled"
     task.status = "resolved"
 
-    detection = await db.get(Detection, task.detection_id)
     if detection:
-        detection.matched_name = f"member:{contact_id}"
+        detection.matched_name = f"member:{body.contact_id}"
         detection.is_enrolled = True
 
     pit = await db.execute(

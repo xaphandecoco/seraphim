@@ -18,6 +18,7 @@ from app.routers import (
     auth,
     cameras,
     custom_fields,
+    enrollment,
     events,
     health,
     leaderboard,
@@ -112,6 +113,8 @@ app.include_router(cameras.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(events.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(members.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(pit.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(enrollment.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(enrollment.backfill_router, dependencies=[Depends(check_setup_complete)])
 app.include_router(attendance.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(audit.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(uploads_router.router, dependencies=[Depends(check_setup_complete)])

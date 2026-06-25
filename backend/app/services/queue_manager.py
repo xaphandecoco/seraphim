@@ -9,8 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import dynamic_settings, legacy_settings
 from app.database import async_session
+import cv2
+import numpy as np
+
 from app.models import ComprefaceSubject, Detection, Task
 from app.services.compreface import ComprefaceClient
+from app.services.enrollment import EnrollmentService
 from app.services.face_cleanup import FaceCleanupService
 from app.services.face_storage import FaceStorage
 
@@ -54,6 +58,7 @@ class QueueManager:
             result = await session.execute(
                 select(ComprefaceSubject)
                 .where(ComprefaceSubject.enrollment_status == "pending")
+                .where(ComprefaceSubject.purged_at.is_(None))
                 .limit(5)
             )
             subjects = result.scalars().all()
@@ -62,6 +67,7 @@ class QueueManager:
 
             client = ComprefaceClient()
             storage = FaceStorage(legacy_settings.STORAGE_PATH)
+            service = EnrollmentService(client, storage)
             try:
                 for subject in subjects:
                     logger.info(
@@ -69,7 +75,7 @@ class QueueManager:
                         subject.compreface_subject_id, subject.contact_id
                     )
 
-                    # Find the detection that triggered enrollment
+                    # Find the most recent detection for this subject
                     det_result = await session.execute(
                         select(Detection)
                         .where(Detection.compreface_subject_id == subject.compreface_subject_id)
@@ -85,7 +91,7 @@ class QueueManager:
                         )
                         continue
 
-                    # Read full image bytes
+                    # Read full image bytes and decode to ndarray for EnrollmentService
                     image_bytes = storage.read_detection_full_image(detection.image_path)
                     if not image_bytes:
                         logger.error(
@@ -94,25 +100,31 @@ class QueueManager:
                         )
                         continue
 
-                    # Ensure subject exists in Compreface
-                    await client.add_subject(subject.compreface_subject_id)
-
-                    # Upload face sample
-                    success = await client.add_example(
-                        subject.compreface_subject_id, image_bytes
+                    face_crop = cv2.imdecode(
+                        np.frombuffer(image_bytes, dtype=np.uint8), cv2.IMREAD_COLOR
                     )
-                    if success:
-                        subject.enrollment_status = "active"
-                        subject.sample_count += 1
+                    if face_crop is None:
+                        logger.error(
+                            "Failed to decode enrollment image for subject %s",
+                            subject.compreface_subject_id
+                        )
+                        continue
+
+                    try:
+                        await service.enroll_contact_face(
+                            session,
+                            contact_id=subject.contact_id,
+                            face_crop=face_crop,
+                            source="detection",
+                        )
                         logger.info(
                             "Enrolled subject %s", subject.compreface_subject_id
                         )
-                    else:
-                        logger.error(
-                            "Failed to add example for subject %s",
-                            subject.compreface_subject_id
+                    except Exception:
+                        logger.exception(
+                            "Enrollment failed for subject %s contact_id=%s",
+                            subject.compreface_subject_id, subject.contact_id
                         )
-                await session.commit()
             finally:
                 await client.close()
 

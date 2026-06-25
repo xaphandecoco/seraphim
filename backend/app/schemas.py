@@ -539,3 +539,110 @@ class CustomFieldDefPatchResponse(BaseModel):
     is_active: bool
     help_text: Optional[str] = None
     affected_contacts: int = 0
+
+
+# ============================================================================
+# S07 — Face Enrollment & Photo Ingest
+# ============================================================================
+
+
+class FaceSampleResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    compreface_subject_id: str
+    contact_id: Optional[int] = None
+    image_path: str
+    thumb_path: Optional[str] = None
+    thumb_url: Optional[str] = None
+    compreface_image_id: Optional[str] = None
+    source: str
+    quality_score: Optional[float] = None
+    created_at: datetime
+
+
+class FacePanelResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    contact_id: Optional[int] = None
+    subject_id: Optional[int] = None
+    compreface_subject_id: Optional[str] = None
+    enrollment_status: Optional[str] = None
+    sample_count: int
+    is_orphan: bool
+    purged_at: Optional[datetime] = None
+    last_trained_at: Optional[datetime] = None
+    samples: List[FaceSampleResponse]
+
+
+class RecognitionHistoryItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    event_id: int
+    contact_id: int
+    status: str
+    source: str
+    detection_id: Optional[int] = None
+    created_at: datetime
+
+
+class RecognitionHistoryResponse(BaseModel):
+    items: List[RecognitionHistoryItem]
+    total: int
+    page: int
+    page_size: int
+
+
+class PhotoIngestBatchResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    event_id: Optional[int] = None
+    status: str
+    total_images: int
+    processed_images: int
+    faces_detected: int
+    auto_logged: int
+    tasks_created: int
+    skipped: int
+    deduplicated: int
+    errors: int
+    report: List[Dict[str, Any]]
+    finished_at: Optional[datetime] = None
+    created_at: datetime
+
+
+# ============================================================================
+# PIT Enrollment request body (S07)
+# ============================================================================
+
+class PitEnrollRequest(BaseModel):
+    contact_id: int
+
+
+class BackfillRequest(BaseModel):
+    dry_run: bool = True
+
+
+class BackfillReportResponse(BaseModel):
+    orphans_found: int
+    samples_seeded: int
+    unregistered_cf_subjects: int
+    dry_run: bool
+
+
+# Used by enrollment router backfill endpoint
+class BackfillResponse(BaseModel):
+    subjects_scanned: int
+    samples_found: int
+    samples_pushed: int
+    errors: int
+    dry_run: bool
+
+
+# Used by enrollment router retrain endpoint
+class RetrainResponse(BaseModel):
+    compreface_subject_id: str
+    samples_pushed: int
+    last_trained_at: Optional[datetime] = None

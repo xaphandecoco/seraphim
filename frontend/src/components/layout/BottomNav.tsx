@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ClipboardList, Trophy, Calendar, Users, Settings, Settings2, AlertTriangle, FileText, ShieldCheck, MoreHorizontal, X } from 'lucide-react';
+import { ClipboardList, Trophy, Calendar, Users, Settings, Settings2, AlertTriangle, FileText, ShieldCheck, MoreHorizontal, X, Upload } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { useTaskStore } from '@/store/taskStore';
 
@@ -31,6 +31,7 @@ export function BottomNav() {
 
   const adminTabs = [
     { path: '/pit', label: 'Pit Queue', icon: AlertTriangle },
+    { path: '/bulk-upload', label: 'Bulk Upload', icon: Upload },
     { path: '/logs', label: 'System Logs', icon: FileText },
     { path: '/settings', label: 'Settings', icon: Settings },
     { path: '/settings/custom-fields', label: 'Custom Fields', icon: Settings2 },
