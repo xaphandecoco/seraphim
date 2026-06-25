@@ -38,6 +38,8 @@ TEST_JWT_SECRET = "seraphim-test-secret-do-not-use-in-production-x"
 # Pre-load the test secret into dynamic_settings so verify_token works in request handlers
 dynamic_settings._settings["jwt_secret"] = TEST_JWT_SECRET
 dynamic_settings._settings["setup_complete"] = True
+# Ensure name_match Claude stub path is active in dynamic_settings as well
+dynamic_settings._settings["name_match.claude_enabled"] = False
 dynamic_settings._initialized = True
 
 
@@ -101,9 +103,36 @@ def _cleanup_sqlite_db_at_session_start():
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
     """Per-test schema for full isolation: create all tables on the app engine, yield a
     session, then drop everything. The HTTP path (overridden get_db) and the pipeline's
-    direct `async_session()` both use this same engine, so all writes share one DB."""
+    direct `async_session()` both use this same engine, so all writes share one DB.
+
+    S22-AC14: inserts an AdminSetting row key='name_match.claude_enabled' with
+    value={'enabled': false} so that dynamic_settings loaded from DB also reflects
+    the disabled stub path, and so that tests which reload dynamic_settings from DB
+    see the correct value.
+    """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Seed AdminSetting immediately on the same connection so the row is visible
+        # to the yielded session.  S22-AC14: name_match.claude_enabled=false ensures
+        # the Claude stub path is active even if something reloads dynamic_settings
+        # from the DB during a test.
+        from sqlalchemy import text as _text
+        from datetime import datetime as _dt, timezone as _tz
+        _now = _dt.now(_tz.utc).replace(tzinfo=None).isoformat()
+        await conn.execute(
+            _text(
+                "INSERT OR IGNORE INTO admin_settings"
+                " (key, value, category, description, requires_restart, sensitive, updated_at)"
+                " VALUES (:key, :val, :cat, :desc, 0, 0, :now)"
+            ),
+            {
+                "key": "name_match.claude_enabled",
+                "val": '{"enabled": false}',
+                "cat": "name_match",
+                "desc": "Enable Claude AI for name matching (S22)",
+                "now": _now,
+            },
+        )
     try:
         async with async_session() as session:
             yield session

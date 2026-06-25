@@ -604,3 +604,166 @@ class CustomFieldDef(Base):
         if "options" not in kwargs:
             kwargs["options"] = []
         super().__init__(**kwargs)
+
+
+# ---------------------------------------------------------------------------
+# S22 — Name Matching tables (spec §3.1-3.3)
+# ---------------------------------------------------------------------------
+
+class NameAlias(Base):
+    """Canonical alias → contact mapping used by the name-matching pipeline.
+
+    alias_text: normalised lowercase string (e.g. 'liz', 'beth').
+    alias_type: nick | typo | alt_spelling | maiden | preferred
+    source: who created this alias — admin | bulk_import | community_report | inferred
+    meta: arbitrary JSONB bag for future provenance fields.
+    contact_id ondelete CASCADE — alias records are purged when the contact is deleted.
+    created_by_id ondelete SET NULL — user row may be removed without losing the alias.
+    """
+    __tablename__ = "name_alias"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    alias_text: Mapped[str] = mapped_column(String(255), nullable=False)
+    alias_type: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="nick"
+    )  # nick | typo | alt_spelling | maiden | preferred
+    contact_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("contacts.id", ondelete="CASCADE"), nullable=False
+    )
+    created_by_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    source: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="admin"
+    )  # admin | bulk_import | community_report | inferred
+    meta: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+    __table_args__ = (
+        Index("uq_name_alias_text", "alias_text", unique=True),
+        Index("ix_name_alias_contact_id", "contact_id"),
+        Index("ix_name_alias_alias_type", "alias_type"),
+    )
+
+
+class CommunityReport(Base):
+    """Volunteer-submitted community report with name-list and metadata.
+
+    raw_text: the original free-form name string submitted by the volunteer.
+    parsed_names: JSONB list of dicts produced by the name-extraction step;
+        each dict has at minimum {"raw": str, "matched_contact_id": int|null}.
+    status: pending | processing | complete | partial | archived
+    match_status: pending | complete | partial  — tracks name-matching progress
+    date_of_activity: DateTime (not Date) — mirrors the utc_now pattern; the
+        CommunityReportCreate Pydantic schema accepts a `date` field and the
+        handler coerces it to a naive UTC datetime before persisting.
+    All FK references use ondelete SET NULL so that deleting a contact, event,
+    or user does not cascade-delete the report.
+    participants.source value 'community_report' needs no DDL — it is already
+    covered by the String(30) source column on the participants table (CN-07).
+    """
+    __tablename__ = "community_report"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    event_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("events.id", ondelete="SET NULL"), nullable=True
+    )
+    # event_title: free-text fallback when event_id is not supplied
+    event_title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    submitted_by_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    # submitted_by_contact_id: auto-resolved from users.email → contacts.email
+    submitted_by_contact_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True
+    )
+    raw_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    parsed_names: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    # S22-F06 extended fields
+    zone: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    topics: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    prayer_items: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    remarks: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    attendee_names: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    event_leader_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    event_leader_contact_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True
+    )
+    photo_paths: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    # match_status: pending | complete | partial
+    match_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending"
+    )
+    matched_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    review_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending"
+    )  # pending | processing | complete | partial | archived
+    date_of_activity: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+    __table_args__ = (
+        Index("ix_community_report_event_id", "event_id"),
+        Index("ix_community_report_status", "status"),
+        Index("ix_community_report_submitted_by_id", "submitted_by_id"),
+        Index("ix_community_report_match_status", "match_status"),
+        Index("ix_community_report_zone", "zone"),
+    )
+
+
+class NameMatchReviewQueue(Base):
+    """One unresolved name-match candidate requiring human review.
+
+    raw_name: the raw string token being matched.
+    candidate_contact_id: the top-scoring contact suggestion (nullable — may be
+        null when no candidate clears the confidence threshold).
+    score: Jaro-Winkler or composite score in [0, 1].
+    status: pending | accepted | rejected | skipped
+    community_report_id FK → community_report.id ondelete SET NULL; the review
+        queue row becomes orphaned (community_report_id = NULL) if the source
+        report is deleted, preserving the audit trail.
+    resolved_by_id ondelete SET NULL — user may be removed without losing the
+        queue entry.
+    """
+    __tablename__ = "name_match_review_queue"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    community_report_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("community_report.id", ondelete="SET NULL"), nullable=True
+    )
+    event_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("events.id", ondelete="SET NULL"), nullable=True
+    )
+    contact_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True
+    )
+    raw_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    candidate_contact_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True
+    )
+    score: Mapped[Optional[float]] = mapped_column(Numeric(5, 4), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending"
+    )  # pending | accepted | rejected | skipped
+    resolved_by_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+    __table_args__ = (
+        Index("ix_nmrq_community_report_id", "community_report_id"),
+        Index("ix_nmrq_event_id", "event_id"),
+        Index("ix_nmrq_contact_id", "contact_id"),
+        Index("ix_nmrq_status", "status"),
+        Index("ix_nmrq_candidate_contact_id", "candidate_contact_id"),
+    )

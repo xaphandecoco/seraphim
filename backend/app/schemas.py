@@ -1045,3 +1045,187 @@ class ExportJobResponse(BaseModel):
     expires_at: Optional[datetime] = None
     created_at: datetime
     finished_at: Optional[datetime] = None
+
+
+# ============================================================================
+# S22 — Name-List Intake & Matching
+# ============================================================================
+
+class NameListIntakeRequest(BaseModel):
+    event_id: int
+    names: List[str] = Field(min_length=1, max_length=500)
+    source: str = "name_list"
+    community_report_id: Optional[int] = None
+
+
+class MatchCandidateSchema(BaseModel):
+    """One fuzzy-match candidate returned for a single input name."""
+    contact_id: int
+    display_name: str
+    score: float
+    match_tier: Literal["exact", "high", "medium", "low"]
+
+
+class NameMatchResultItem(BaseModel):
+    """Per-name result entry inside NameListIntakeResponse."""
+    input_name: str
+    status: Literal["matched", "review", "unmatched"]
+    matched_contact_id: Optional[int] = None
+    matched_contact_name: Optional[str] = None
+    candidates: List[MatchCandidateSchema] = []
+
+
+class NameListIntakeResponse(BaseModel):
+    event_id: int
+    total: int = 0
+    matched: int = 0
+    skipped_existing: int = 0
+    review_queue: int = 0
+    # Set to True when >50 names are queued for async Claude processing (spec sec4.4 step5)
+    claude_pending: Optional[bool] = None
+    results: List[NameMatchResultItem] = []
+
+
+# ============================================================================
+# S22 — Review Queue
+# ============================================================================
+
+class ReviewQueueItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    event_id: int
+    input_name: str
+    status: Literal["pending", "resolved", "skipped"]
+    candidates: List[MatchCandidateSchema] = []
+    resolved_contact_id: Optional[int] = None
+    # Populated by router serializer; not an ORM attribute
+    event_title: Optional[str] = None
+    resolved_contact_name: Optional[str] = None
+    submitted_by_name: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class PaginatedReviewQueueResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    items: List[ReviewQueueItem]
+
+
+class ReviewQueueResolveRequest(BaseModel):
+    contact_id: Optional[int] = None
+    action: Literal["accept", "skip", "create"]
+
+
+# ============================================================================
+# S22 — Name Aliases
+# ============================================================================
+
+class NameAliasCreate(BaseModel):
+    alias_name: str = Field(min_length=1, max_length=255)
+    contact_id: int
+
+
+class NameAliasUpdate(BaseModel):
+    alias_name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    contact_id: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class NameAliasTeach(BaseModel):
+    """Teach the matcher a new alias from a resolved review-queue item."""
+    review_queue_item_id: int
+    contact_id: int
+
+
+class NameAliasResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    alias_name: str
+    contact_id: int
+    is_active: bool
+    # Populated by router serializer; not an ORM attribute
+    contact_display_name: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class PaginatedNameAliasResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    items: List[NameAliasResponse]
+
+
+# ============================================================================
+# S22 — Community Reports
+# ============================================================================
+
+class CommunityReportCreate(BaseModel):
+    event_id: Optional[int] = None
+    event_title: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    date_of_activity: date
+    zone: Optional[str] = Field(default=None, max_length=100)
+    topics: Optional[str] = None
+    prayer_items: Optional[str] = None
+    remarks: Optional[str] = None
+    attendee_names: List[str] = Field(default_factory=list)
+    event_leader_name: Optional[str] = Field(default=None, max_length=255)
+    photo_paths: List[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def require_event_id_or_event_title(self) -> "CommunityReportCreate":
+        if self.event_id is None and not self.event_title:
+            raise ValueError("Either event_id or event_title must be provided")
+        return self
+
+
+class CommunityReportUpdate(BaseModel):
+    status: Optional[str] = None
+    zone: Optional[str] = Field(default=None, max_length=100)
+    topics: Optional[str] = None
+    prayer_items: Optional[str] = None
+    remarks: Optional[str] = None
+    event_id: Optional[int] = None
+    event_title: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    date_of_activity: Optional[date] = None
+
+
+class CommunityReportResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    event_id: Optional[int] = None
+    event_title: Optional[str] = None
+    date_of_activity: Optional[date] = None
+    zone: Optional[str] = None
+    topics: Optional[str] = None
+    prayer_items: Optional[str] = None
+    remarks: Optional[str] = None
+    attendee_names: List[str] = []
+    event_leader_name: Optional[str] = None
+    event_leader_contact_id: Optional[int] = None
+    photo_paths: List[str] = []
+    match_status: str = "pending"
+    matched_count: int = 0
+    review_count: int = 0
+    status: str = "pending"
+    submitted_by_id: Optional[int] = None
+    submitted_by_contact_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+    # Populated by router serializer; not an ORM attribute
+    submitted_by_name: Optional[str] = None
+
+
+class CommunityReportDetailResponse(CommunityReportResponse):
+    """Extended community report response including review queue items and matched contacts."""
+    review_queue_items: List[ReviewQueueItem] = []
+    matched_contacts: List[Any] = []
+
+
+class PaginatedCommunityReportResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    items: List[CommunityReportResponse]

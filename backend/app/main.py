@@ -18,6 +18,7 @@ from app.routers import (
     auth,
     bulk_participants,
     cameras,
+    community_reports as community_reports_router,
     custom_fields,
     enrollment,
     event_series as event_series_router,
@@ -27,6 +28,8 @@ from app.routers import (
     leaderboard,
     logs,
     members,
+    name_aliases,
+    name_match as name_match_router,
     pit,
     settings as settings_router,
     setup,
@@ -126,6 +129,9 @@ app.include_router(analytics.router, dependencies=[Depends(check_setup_complete)
 app.include_router(bulk_participants.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(export_router.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(custom_fields.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(name_match_router.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(name_aliases.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(community_reports_router.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(storage_router.router)
 
 
