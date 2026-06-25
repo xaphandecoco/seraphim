@@ -115,7 +115,13 @@ async def resolve_audience(
     if mode == "ids":
         from app.models import Contact
 
-        raw_ids: list[int] = list(getattr(audience, "ids", None) or [])
+        # The Pydantic AudienceSelector field is `contact_ids`; fall back to
+        # `ids` only for lightweight test shims that use the short name.
+        raw_ids: list[int] = list(
+            getattr(audience, "contact_ids", None)
+            or getattr(audience, "ids", None)
+            or []
+        )
         if not raw_ids:
             # Return a statement that produces zero rows
             return base.where(Contact.id.in_([]))

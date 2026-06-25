@@ -5,7 +5,11 @@
 ---
 
 ## 🔄 LOOP RUNNING (2026-06-25, resumed in CLOUD — new agent, full autonomy)
-S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` · **S03 ✅ `a7839af`** · **S04 ✅ `37608a9`** · **S05 🔄 IMPLEMENT building** (`wf_5d828499-f3a`; PLAN auto-approved, 12 feature + 7 patch tasks, real migration).
+S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` · **S03 ✅ `a7839af`** · **S04 ✅ `37608a9`** · **S05 ✅ committed**. Next: S22 (attendance intake + AI name matching) per build DAG, then S06.
+
+**S05 CRITIQUE: build done (50 agents, 2.1M tok, 2 QA rounds). Security: initial BLOCK → 3 findings fixed → re-audit PASS.** Findings: HIGH async `include_deleted` PII bypass (export.py:447 clamp), HIGH export path-traversal (containment check), MED CSV formula-injection (`_sanitize_cell`). I added 5 security regression tests. Green gate ✅ — backend 906 passed/0 failed (deterministic `-p no:randomly`; random order causes file-SQLite lock flake — NOT real failures), frontend 295 tests + build + lint, ruff clean. **Opus critic FAIL → 1 blocker FIXED:** `audience.py` mode='ids' read `getattr(audience,'ids')` but the real `AudienceSelector` field is `contact_ids` → every explicit-id bulk op silently resolved to ZERO contacts (tests masked it with `SimpleNamespace(ids=...)` shims). Fixed: resolver now reads `contact_ids` (falls back to `ids` for shims) + added an HTTP-level `mode='ids'` regression test. Re-verified green.
+
+**S05 non-blocking carry-forwards (owner FYI):** (1) sync XLSX endpoints (`export.py` /contacts.xlsx,/participants.xlsx) use openpyxl+`.all()` (NOT memory-bounded); the constant-memory `export_service.build_*_xlsx` builders are only reachable via the async job path, which the router restricts to `fmt=csv` — so streaming XLSX is currently unreachable in prod. CSV (the headline 33k path) streams correctly. Follow-up: wire async XLSX or stream the sync path. (2) async "participants" export job_type is implemented as `job_type='attendance'` — internally consistent, naming divergence from spec. (3) export_jobs cols are String(50)/String(10) vs spec String(30)/String(8) — migration+model agree (no S04-class bug), just wider than spec.
 
 **S04 CRITIQUE: FAIL → FIXED → PASS.** Opus found migration/model divergence on `event_series` table (migration had `name`/`description`/`updated_at`; ORM + service use `title`/`session_time`/`default_location`). Also found event_type string mismatch in test (`"SundayService"` vs `"Sunday Celebration"`). Both fixed by orchestrator. Green gate: backend 794/0, frontend 263/263, ruff clean, build clean. Committed `37608a9` + pushed.
 
@@ -15,7 +19,7 @@ S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` · **S03 ✅ `a7839a
 
 **S04 notes:** owns a REAL migration (event_series table + 6 events cols, down_rev i3j4k5l6m7n8). After S04 → S08 (needs S07 spec-doc reconciliation to string-keyed design FIRST per carry-forward). Build sequentially (shared conftest/schemas/models — no concurrent builds). Launch senpai via `scriptPath:'/root/.claude/workflows/senpai-team-v1.js'` (NOT name: — the by-name lookup uses a stale session-cached def WITH agentType that fails in cloud; the scriptPath canonical is patched: 0 agentType, 6 Opus/15 Sonnet).
 
-**RESUME (if S05 build dies on limit):** `Workflow({scriptPath:'/home/user/seraphim/tools/build/s05_implement.js', resumeFromRunId:'wf_5d828499-f3a'})` → critique → commit → push. Durable plan: `docs/superpowers/build-journal/s05_args.json`. S05 migration down_rev = j4k5l6m7n8o9.
+**S05 done.** Migration `a2b3c4d5e6f7_s05_export_jobs` down_rev = j4k5l6m7n8o9 (live head). Next sprint = S22. Durable plans live under `docs/superpowers/build-journal/`.
 
 **S03 CRITIQUE: build done (27 agents, 1.2M tok, sec PASS, QA 1 round). GREEN GATE ✅ — backend 740 passed/8 skip/1 xfail (+18 S03 tests), frontend build+lint+215 tests, ruff clean. Opus critic FAIL → 2 defects:**
 - **D1 (AC17) ruff F401 unused `FaceSample` import** → ✅ FIXED by orchestrator (removed import; ruff clean). [trivial, allowed since it's a lint-only delete, not feature code]

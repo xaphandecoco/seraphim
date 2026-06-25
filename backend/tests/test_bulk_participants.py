@@ -347,6 +347,38 @@ async def test_bulk_preview_no_write(
 
 
 # ---------------------------------------------------------------------------
+# Regression (Opus DoD critique): mode='ids' must resolve the REAL
+# AudienceSelector.contact_ids field through the HTTP layer.  Earlier tests
+# only exercised SimpleNamespace shims with a short `ids` attr, masking a
+# field-name mismatch (resolver read `ids`, schema field is `contact_ids`)
+# that silently resolved every explicit-id bulk op to ZERO contacts.
+# Preview runs on SQLite (COUNT, not INSERT...SELECT).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_bulk_preview_mode_ids_resolves_contact_ids(
+    client: AsyncClient,
+    event_obj,
+    three_contacts,
+    volunteer_auth_headers,
+):
+    target_ids = [three_contacts[0].id, three_contacts[1].id]
+    body = {
+        "event_id": event_obj.id,
+        "audience": {"mode": "ids", "contact_ids": target_ids},
+    }
+    resp = await client.post(
+        "/participants/bulk-preview", json=body, headers=volunteer_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["contact_count"] == 2, (
+        "mode='ids' must resolve AudienceSelector.contact_ids, not silently 0"
+    )
+
+
+# ---------------------------------------------------------------------------
 # AC9 — bulk-add defaults source='bulk'
 # (skipped on SQLite — INSERT...SELECT issue)
 # ---------------------------------------------------------------------------
