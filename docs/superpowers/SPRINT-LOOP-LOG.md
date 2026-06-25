@@ -5,6 +5,7 @@
 ---
 
 ## 🔄 LOOP RUNNING (2026-06-25, resumed in CLOUD — new agent, full autonomy)
+**🔄 S24 PLAN building (wf_426135e9-21f)** — FR transition & cutover bridge. Live alembic head = `eed28c4ef46a` (S06's migration; any S24 migration down_revs from here). Depends on S06 (external_id map, shipped a0951ca) + S07 (EnrollmentService, face_samples). S24 = idempotent ComprefaceSubject.contact_id remap (external_id match) + consent backfill + verification; does NOT convert attendance history (S06 owns it). Gates S21. Watch for spec-vs-as-built drift (S06/S22 both had it). [prior PLAN stub-then-rerun pattern: if architect returns stub planSummary, re-run architect-only with intake+recon reused.]
 S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` · **S03 ✅ `a7839af`** · **S04 ✅ `37608a9`** · **S05 ✅ `c753618`** · **S22 ✅ backend `cc64c57` + frontend `79fbe77`** (workflow stuck at 101m on F06/F07 → orchestrator finished: fixed 2 backend test fails, implemented F08-F10 frontend directly with post-review fixes). **✅ S06 DONE `a0951ca`** (CiviCRM data-migration ETL). wf_63bba796-ef1; 34 agents, 1.37M tok, security PASS, 2 QA rounds. Final green gate: backend **1102 passed/0 failed** + ruff clean, frontend build+lint+**323 tests**. Opus critique found 3 real bugs that green tests passed over — all FIXED before commit (see below). **Next: S24** (FR transition & cutover bridge — depends on S06 external_id map + S07; gates S21).
 
 **S06 CRITIQUE detail (Opus found the bugs green tests missed):**
