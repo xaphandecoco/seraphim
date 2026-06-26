@@ -30,7 +30,7 @@ The **SPRINT-LOOP-LOG.md** (`docs/superpowers/SPRINT-LOOP-LOG.md`) is the master
 | S06 | Data migration / ETL (CiviCRM → Seraphim) | ✅ Committed | `a0951ca` | 2026-06-25 | Dry-run + live import phases; per-row audit trail (ImportBatch/ImportRowResult); Opus found 3 bugs (dry-run audit loss, divergence, FE contract) |
 | S24 | FR transition & cutover bridge | ✅ Committed | (PR created) | 2026-06-25 | BiometricConsent model + migration; remap_subjects service; consent backfill; verification endpoint; orphan relink/retire UI; FR Status Panel in Settings |
 | S23 | Member status & engagement engine | ✅ Committed | `3e52929` | 2026-06-26 | Snapshot recompute (7 derived columns); admin on-demand endpoint + fast summary; 2 APScheduler cron jobs (HAS_SCHEDULER guarded); 3 integration fixes in QA |
-| S16 | Settings, system status & scheduled jobs | ✅ Committed | `<pending>` | 2026-06-26 | APScheduler host (AsyncIOScheduler, 9 jobs), job_runs table + ORM model; settings endpoints (GET/PUT); system-status + config-checklist; security BLOCK→fix (immutable keys protection); started_at canonicalization |
+| S16 | Settings, system status & scheduled jobs | ✅ Committed | `d048c2a` | 2026-06-26 | APScheduler host (AsyncIOScheduler, 9 jobs), job_runs table + ORM model; settings endpoints (GET/PUT); system-status + config-checklist; security BLOCK→fix (immutable keys protection); started_at canonicalization |
 
 **Queued (awaiting build):**
 
