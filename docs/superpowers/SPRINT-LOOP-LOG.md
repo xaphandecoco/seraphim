@@ -141,7 +141,7 @@ After resume completes: Opus-critique → commit → next.
 | S16 | Settings, system status & scheduled jobs | ✅ committed | `d048c2a` | APScheduler host; job_runs table; settings endpoints; security BLOCK→fix (immutable-keys) |
 | S08 | Biometric consent & right-to-be-forgotten | ✅ committed | `f69f91a` | BiometricPurgeService; 7 endpoints; scheduler auto-purge; security BLOCK→fix (2 HIGH RTBF gaps) |
 | S09 | Advanced search, saved searches & smart groups | ✅ committed | `91525ee` | Native CiviCRM Advanced Search replacement; injection-safe compile_criteria; whitelist field registry; security BLOCK→fix (3 bugs) |
-| S10 | CSV/XLSX import wizard | ✅ committed | `<pending>` | Self-service 4-step import wizard; reuses S06 ETL; security BLOCK→fix (HIGH PII exposure in staging files) |
+| S10 | CSV/XLSX import wizard | ✅ committed | `ea77663` | Self-service 4-step import wizard; reuses S06 ETL; security BLOCK→fix (HIGH PII exposure in staging files) |
 | … | remaining leaves | ⏳ queued | — | S11–S20 |
 
 Legend: ✅ committed · 🔄 in progress · ⏳ queued · ⛔ blocked (see top)
