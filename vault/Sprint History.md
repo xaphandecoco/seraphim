@@ -32,6 +32,7 @@ The **SPRINT-LOOP-LOG.md** (`docs/superpowers/SPRINT-LOOP-LOG.md`) is the master
 | S23 | Member status & engagement engine | ✅ Committed | `3e52929` | 2026-06-26 | Snapshot recompute (7 derived columns); admin on-demand endpoint + fast summary; 2 APScheduler cron jobs (HAS_SCHEDULER guarded); 3 integration fixes in QA |
 | S16 | Settings, system status & scheduled jobs | ✅ Committed | `d048c2a` | 2026-06-26 | APScheduler host (AsyncIOScheduler, 9 jobs), job_runs table + ORM model; settings endpoints (GET/PUT); system-status + config-checklist; security BLOCK→fix (immutable keys protection); started_at canonicalization |
 | S08 | Biometric consent & right-to-be-forgotten | ✅ Committed | `f69f91a` | 2026-06-26 | BiometricPurgeService (irreversible RTBF erasure); consent lifecycle (record/update/revoke/deletion-request); 7 biometric endpoints (RBAC); scheduler auto-purge job; security BLOCK→fix (2 HIGH RTBF gaps fixed pre-merge) |
+| S09 | Advanced search, saved searches & smart groups | ✅ Committed | `<pending>` | 2026-06-26 | Native replacement for CiviCRM Advanced Search / Search Builder / Smart Groups; migration (3 tables); whitelist field registry (15 core + 7 S23-derived); injection-safe compile_criteria pipeline; security BLOCK→fix (3 bugs: bypassable DoS check, cross-owner IDOR, LIKE escape) |
 
 **Queued (awaiting build):**
 
@@ -184,6 +185,26 @@ The **SPRINT-LOOP-LOG.md** (`docs/superpowers/SPRINT-LOOP-LOG.md`) is the master
 - **Dependencies:** `apscheduler>=3.10.4` added to `backend/requirements.txt`.
 - **Green gates:** backend full suite (test segment 209 + affected files 65 + isolated S16 components) + frontend 341 tests; security PASS. Full-suite pending (15-min runtime).
 - **Carry-forward:** Dual job_runs writes (scheduler wrapper + member_status_service raw-SQL) non-blocking observability nit; Fernet key derived from jwt_secret (single SHA-256 hash unless SETTINGS_FERNET_KEY env set); series-id fallback behavior (legacy keys); notifier jobs skip "awaiting S18"; trigger endpoint TOCTOU (admin-only, LOW).
+
+---
+
+### S09: Advanced Search, Saved Searches & Smart Groups
+
+**Goal:** Native replacement for CiviCRM Advanced Search / Search Builder / Smart Groups — an injection-safe structured-query stack with whitelist-enforced field/operator validation, parameterized SQL generation, and DoS guards.
+
+**Outcome:**
+- **Migration** `s09a1b2c3d4e5` (down_revision `s08a1b2c3d4e5`): 3 tables (`saved_searches`, `groups`, `group_members`) with proper indexes and unique constraints. Models added.
+- **`services/search_fields.py`** (new): whitelist field registry (15 core + 7 S23-derived: tier/is_active/is_regular/is_connected/weeks_absent/attendance_count/last_attended_at) + active custom fields (reuses S02 get_active_schema). Per-data_type operator sets (select, text, date, etc.). Dialect-branched JSONB resolve.
+- **`services/search_service.py`** (new): `compile_criteria` — the injection gate (whitelist → operator-check → type-coerce → PARAMETERIZE pipeline; InvalidCriteria on unknown field/op; depth ≤ 10 / nodes ≤ 100 / list ≤ 200 DoS guards). `run_search`, saved-search CRUD (owner-scoped, cross-owner → 404), group CRUD (smart = live-resolved, static = frozen group_members snapshot). Promote saved→smart endpoint.
+- **`routers/search.py`** (new): two routers `/search` + `/groups`; all require_volunteer. GET /groups bare array; include_deleted admin-gated.
+- **Frontend:** FilterBuilder (recursive AND/OR), FieldPicker, OperatorSelect, AdvancedSearchPage, SavedSearchesPage, GroupsPage, GroupDetailPage; reuses S03 DataTable/Pagination/ContactListItem; adapts ContactPickerModal for contact_reference input.
+- **Security incident (BLOCK → FIXED):** Security audit found HIGH + MEDIUM vulnerabilities the 95 green tests missed:
+  1. **HIGH (DoS-guard bypass):** `_check_bounds` discriminated leaf vs group via `"conditions" in node` while compiler used `"logic" in node`, so a leaf with a huge value list PLUS empty `conditions:[]` skipped length check → unbounded IN clause. **FIX:** unconditional list check + unified `"logic"` discrimination.
+  2. **MEDIUM (cross-owner IDOR):** `populate_static_group` loaded SavedSearch by id without owner_id filter → volunteer could use another user's private criteria. **FIX:** owner-scoped populate → 404 on mismatch.
+  3. **LOW:** `contains_any` LIKE escape missing. **FIX:** escape=`\\`.
+- **All fixed + 3 regression tests added; re-audit PASS** (verified across 6 bypass shapes).
+- Green gates: backend 99 isolated S09 tests + segment + frontend 392 tests; security PASS.
+- **Carry-forward:** 5 items documented in BLOCKERS.md 🟡 (rate-limiting, org-wide group visibility, JSONB optimization, reserved-word caution, S11 FK manifest).
 
 ---
 

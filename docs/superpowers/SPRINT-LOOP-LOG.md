@@ -140,13 +140,42 @@ After resume completes: Opus-critique → commit → next.
 | S21 | (per master) | ⏳ queued | — | |
 | S16 | Settings, system status & scheduled jobs | ✅ committed | `d048c2a` | APScheduler host; job_runs table; settings endpoints; security BLOCK→fix (immutable-keys) |
 | S08 | Biometric consent & right-to-be-forgotten | ✅ committed | `f69f91a` | BiometricPurgeService; 7 endpoints; scheduler auto-purge; security BLOCK→fix (2 HIGH RTBF gaps) |
-| … | remaining leaves | ⏳ queued | — | S09–S20 |
+| S09 | Advanced search, saved searches & smart groups | ✅ committed | `<pending>` | Native CiviCRM Advanced Search replacement; injection-safe compile_criteria; whitelist field registry; security BLOCK→fix (3 bugs) |
+| … | remaining leaves | ⏳ queued | — | S10–S20 |
 
 Legend: ✅ committed · 🔄 in progress · ⏳ queued · ⛔ blocked (see top)
 
 ---
 
 ## 📝 PER-SPRINT LOG (newest first)
+
+### S09 — Advanced Search, Saved Searches & Smart Groups
+- **Goal:** Native replacement for CiviCRM Advanced Search / Search Builder / Smart Groups — an injection-safe structured-query stack with whitelist-enforced field/operator validation, parameterized SQL generation, and DoS guards.
+- **Definition of Done:**
+  1. Migration `s09a1b2c3d4e5` (down_revision `s08a1b2c3d4e5`): 3 tables (saved_searches, groups, group_members) with uniques/indexes; ORM models added
+  2. `services/search_fields.py`: whitelist field registry — 15 core + 7 S23-derived (tier/is_active/is_regular/is_connected/weeks_absent/attendance_count/last_attended_at) + active custom fields (reuses S02 get_active_schema); per-data_type operator sets; dialect-branched JSONB resolve
+  3. `services/search_service.py`: `compile_criteria` injection gate (whitelist→operator-check→type-coerce→PARAMETERIZE); InvalidCriteria on unknown field/op; depth(≤10)/node(≤100)/list(≤200) DoS guards; non-bypassable soft-delete; run_search; saved-search CRUD (owner-scoped); group CRUD (smart=live, static=frozen snapshot); promote saved→smart
+  4. `routers/search.py`: two routers /search + /groups; all require_volunteer; GET /groups bare array; include_deleted admin-gated
+  5. Frontend: FilterBuilder (recursive AND/OR), FieldPicker, OperatorSelect, AdvancedSearchPage, SavedSearchesPage, GroupsPage, GroupDetailPage; reuses S03 DataTable/Pagination/ContactListItem; adapts ContactPickerModal for contact_reference input
+  6. Security audit PASS: 3 bugs found + fixed (DoS bypass, IDOR, LIKE escape); 3 regression tests added; re-audit PASS
+  7. Green gates: backend 99 isolated S09 tests + segment + frontend 392 tests; security PASS
+- **Status:** PASS, committed. Green gate (verified in segments): backend **99 isolated S09 tests + segment** (all S09 + regression files) **passed/0 failed** + frontend build+lint+**392 tests**; security **PASS** (re-audit after 3 security findings BLOCK→fix).
+- **Security incident (BLOCK → FIXED):**
+  1. **HIGH (DoS-guard bypass):** `_check_bounds` discriminated leaf vs group via `"conditions" in node` while compiler used `"logic" in node` → leaf with huge value list PLUS empty `conditions:[]` skipped length check → unbounded IN clause. **FIX:** unconditional list check + unified `"logic"` discrimination.
+  2. **MEDIUM (cross-owner IDOR):** `populate_static_group` loaded SavedSearch by id without owner_id filter → volunteer could use another user's private criteria. **FIX:** owner-scoped populate → 404 on mismatch.
+  3. **LOW:** `contains_any` LIKE missing escape. **FIX:** escape=`\\`.
+  4. **RE-AUDIT: PASS** (verified across 6 bypass shapes).
+- **Carry-forward assumptions:** (all documented in BLOCKERS.md 🟡)
+  - Search/groups endpoints not individually rate-limited (codebase-wide gap, same class as S16/S08).
+  - Groups org-wide visible to all volunteers; any can rename/delete (only smart-criteria EDIT admin-gated); by design per DoD.
+  - `contains_any` uses LIKE-containment on JSON text; Postgres `@>` JSONB would be faster at scale (no GIN index this sprint).
+  - `groups` is SQL reserved word (SQLAlchemy quotes it; raw SQL must quote `"groups"`).
+  - S11 (merge) must add `group_members.contact_id` to loser→survivor FK manifest (CN-04).
+- **Next:** S10 (remaining leaves).
+
+✅ **S09 committed — safe to resume with S10.**
+
+---
 
 ### S08 — Biometric Consent & Right-to-be-Forgotten
 - **Goal:** Implement biometric-consent lifecycle (record/update/revoke/deletion-request) and irreversible right-to-be-forgotten (RTBF) purge under Philippine RA 10173 compliance. Extend S24's consent table with RTBF columns and purge semantics.

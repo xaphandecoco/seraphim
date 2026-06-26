@@ -27,7 +27,7 @@ from alembic.script import ScriptDirectory
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = BACKEND_DIR / "alembic.ini"
 
-EXPECTED_HEAD = "s08a1b2c3d4e5"  # updated by S08 (biometric consent RTBF; chains s08a1b2c3d4e5 -> s16a1b2c3d4e5 -> a3b4c5d6e7f8)
+EXPECTED_HEAD = "s09a1b2c3d4e5"  # updated by S09 (search/saved-searches/groups; chains s09a1b2c3d4e5 -> s08a1b2c3d4e5 -> s16a1b2c3d4e5)
 INITIAL_REV = "74e9ab60ea7e"
 
 
@@ -75,10 +75,10 @@ def test_revision_chain_is_connected_back_to_initial(script_dir):
     )
 
 
-def test_head_down_revision_is_s16(script_dir):
-    """Regression: the S08 head (biometric consent RTBF) builds on the S16 job_runs/settings migration."""
+def test_head_down_revision_is_s08(script_dir):
+    """Regression: the S09 head (search/groups) builds on the S08 biometric-consent migration."""
     head = script_dir.get_revision(EXPECTED_HEAD)
-    assert head.down_revision == "s16a1b2c3d4e5"
+    assert head.down_revision == "s08a1b2c3d4e5"
 
 
 # ---------------------------------------------------------------------------

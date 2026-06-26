@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { Users, Plus, Search } from 'lucide-react';
+import { Users, Plus, Search, SlidersHorizontal } from 'lucide-react';
 
 import { useAuthStore } from '@/store/authStore';
 import { useContacts } from '@/hooks/useContacts';
@@ -167,6 +167,15 @@ export function ContactsPage() {
           </div>
           <div className="flex items-center gap-2">
             <ExportMenu jobType="contacts" filters={filters} />
+            <button
+              type="button"
+              onClick={() => navigate('/contacts/search')}
+              className="flex min-h-[36px] items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-1.5 text-sm font-semibold text-foreground/70 hover:bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+              aria-label="Advanced Search"
+            >
+              <SlidersHorizontal size={15} aria-hidden="true" />
+              Advanced Search
+            </button>
             <button
               type="button"
               onClick={() => navigate('/contacts/new')}

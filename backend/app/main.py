@@ -41,6 +41,7 @@ from app.routers import (
     tasks,
     uploads as uploads_router,
 )
+from app.routers.search import groups_router, search_router
 from app.sse import broadcaster
 
 
@@ -151,6 +152,8 @@ app.include_router(migration.router, dependencies=[Depends(check_setup_complete)
 app.include_router(fr_transition_router.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(biometric_router.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(storage_router.router)
+app.include_router(search_router, dependencies=[Depends(check_setup_complete)])
+app.include_router(groups_router, dependencies=[Depends(check_setup_complete)])
 
 
 @app.get("/tasks/feed")

@@ -1436,3 +1436,106 @@ class RetentionReportResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+# ============================================================================
+# S09 — Advanced Search, Saved Searches & Smart Groups
+# ============================================================================
+
+
+class SearchRequest(BaseModel):
+    """Body for POST /search."""
+    criteria: Optional[Dict[str, Any]] = None
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=25, ge=1, le=100)
+    sort: Optional[str] = None
+    include_deleted: bool = False
+
+
+class ValidateRequest(BaseModel):
+    """Body for POST /search/validate."""
+    criteria: Dict[str, Any]
+
+
+class FieldSpecOut(BaseModel):
+    """One entry in the field registry response."""
+    key: str
+    label: str
+    kind: str          # core | derived | custom
+    type: str          # string | int | number | bool | date | datetime | enum | multiselect
+    ops: List[str]
+    options: Optional[List[Dict[str, str]]] = None
+    nullable: bool
+
+
+class FieldRegistryResponse(BaseModel):
+    fields: List[FieldSpecOut]
+
+
+class SavedSearchCreate(BaseModel):
+    name: str = Field(max_length=120)
+    entity: str = "contact"
+    criteria: Dict[str, Any]
+
+
+class SavedSearchUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=120)
+    criteria: Optional[Dict[str, Any]] = None
+
+
+class SavedSearchOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    owner_id: int
+    name: str
+    entity: str
+    criteria: Dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+
+
+class GroupCreate(BaseModel):
+    name: str = Field(max_length=120)
+    entity: str = "contact"
+    group_type: Literal["smart", "static"]
+    criteria: Optional[Dict[str, Any]] = None
+
+    @model_validator(mode="after")
+    def smart_requires_criteria(self) -> "GroupCreate":
+        if self.group_type == "smart" and not self.criteria:
+            raise ValueError("criteria is required for smart groups")
+        return self
+
+
+class GroupUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=120)
+    criteria: Optional[Dict[str, Any]] = None
+
+
+class GroupResponse(BaseModel):
+    """Group row returned by GET /groups and friends."""
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    entity: str
+    group_type: str
+    criteria: Optional[Dict[str, Any]] = None
+    owner_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+    member_count: Optional[int] = None  # None when with_counts=false
+
+
+class GroupMemberAdd(BaseModel):
+    contact_ids: List[int] = Field(max_length=500)
+
+
+class PopulateRequest(BaseModel):
+    criteria: Optional[Dict[str, Any]] = None
+    saved_search_id: Optional[int] = None
+    mode: Literal["replace", "append"] = "append"
+
+
+class PromoteRequest(BaseModel):
+    group_name: str = Field(max_length=120)
+    entity: str = "contact"

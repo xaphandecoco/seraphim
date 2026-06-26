@@ -1,5 +1,45 @@
 ## [Unreleased]
 
+### S09 — Advanced Search, Saved Searches & Smart Groups (Sprint complete 2026-06-26)
+
+Native replacement for CiviCRM Advanced Search / Search Builder / Smart Groups with injection-safe query compilation, whitelist-enforced field/operator validation, and DoS guards.
+
+**Backend**
+- `services/search_fields.py` (new): whitelist field registry — 15 core fields + 7 S23-derived snapshot fields (tier, is_active, is_regular, is_connected, weeks_absent, attendance_count, last_attended_at) + active custom fields via S02 get_active_schema reuse. Per-data-type operator sets (select, text, date, number, checkbox, contact_reference, multiselect). Dialect-branched JSONB resolution.
+- `services/search_service.py` (new): compilation pipeline (whitelist → operator-check → type-coerce → parameterize); InvalidCriteria on unknown field/op; DoS guards (depth ≤ 10, node_count ≤ 100, list_length ≤ 200); run_search (non-bypassable soft-delete filtering); saved-search CRUD (owner-scoped, cross-owner → 404); group CRUD (smart = live-resolved, static = frozen group_members snapshot).
+- `routers/search.py` (new): two routers `/search` (POST run_search, POST validate, POST save, GET/DELETE saved searches) + `/groups` (POST create, GET list [bare array], GET/{id} detail, PATCH/DELETE, POST {id}/populate).  All require_volunteer; include_deleted admin-gated.
+- `app/models.py`: SavedSearch, Group, GroupMember ORM models with proper indexes + unique constraints.
+- Migration `s09a1b2c3d4e5_s09_search_and_groups.py` (new): creates `saved_searches`, `groups`, `group_members` tables (with unique constraints, indexes, FK to contacts); down_revision `s08a1b2c3d4e5`.
+
+**Frontend**
+- `pages/AdvancedSearchPage.tsx` (new): structured query builder with FilterBuilder component.
+- `components/search/FilterBuilder.tsx` (new): recursive AND/OR/nested condition builder (handles depth ≤ 10).
+- `components/search/FieldPicker.tsx`, `OperatorSelect.tsx` (new): whitelist-backed field and operator selectors.
+- `pages/SavedSearchesPage.tsx`, `pages/GroupsPage.tsx`, `pages/GroupDetailPage.tsx` (new): management UIs.
+- `services/search.ts`, `hooks/useSearch.ts` (new): TanStack Query client for search endpoints.
+- `types/index.ts`: SavedSearch, Group, SearchCriteria, FilterCondition types.
+- `components/search/ContactPickerModal.tsx` (adapted): used for contact_reference field input in FilterBuilder.
+
+**Security audit**
+- Initial findings: 1 HIGH (DoS-guard bypass), 1 MEDIUM (cross-owner IDOR), 1 LOW (LIKE escape).
+- **HIGH FIXED:** `_check_bounds` discriminated leaf vs group via `"conditions" in node`; compiler used `"logic" in node` → leaf with huge value list + empty conditions skipped check → unbounded IN clause. Fixed: unconditional list check + unified logic discrimination.
+- **MEDIUM FIXED:** `populate_static_group` loaded SavedSearch by id without owner_id filter → volunteer could use private criteria. Fixed: owner-scoped load → 404 on mismatch.
+- **LOW FIXED:** `contains_any` LIKE operator missing escape; added escape=`\\`.
+- **3 regression tests added** (bypass shapes: huge list, mixed conditions, IDOR cross-owner).
+- Re-audit: PASS.
+
+**Integration**
+- Whitelist registry reuses S02 `get_active_schema()` for custom fields (no N+1).
+- Soft-delete enforcement is non-bypassable (hardcoded AND clause, never in user criteria).
+- `test_migrations.py` EXPECTED_HEAD updated to `s09a1b2c3d4e5`; down_revision test to `s08a1b2c3d4e5`.
+
+**Key assumptions (documented in BLOCKERS.md)**
+- Search/groups endpoints lack individual @limiter.limit (codebase-wide gap); carry-forward to consider SlowAPIMiddleware.
+- Groups are org-wide visible to all volunteers; any can rename/delete (only smart-criteria EDIT is admin-gated); by design per DoD.
+- `contains_any` uses LIKE-containment on JSON text (LIKE-fast); Postgres `@>` JSONB would be faster at scale (no GIN index this sprint).
+- `groups` is a SQL reserved word (SQLAlchemy auto-quotes); raw SQL must quote `"groups"`.
+- S11 (merge contacts) must add `group_members.contact_id` to FK manifest to prevent orphans.
+
 ### S08 — Biometric Consent & Right-to-be-Forgotten (Sprint complete 2026-06-26)
 
 Full biometric-consent lifecycle (record/update/revoke/deletion-request) and irreversible right-to-be-forgotten purge under Philippine RA 10173 data-protection compliance.

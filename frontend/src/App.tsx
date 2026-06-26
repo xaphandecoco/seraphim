@@ -32,6 +32,10 @@ import { MigrationPage } from '@/pages/MigrationPage';
 import { MigrationReportPage } from '@/pages/MigrationReportPage';
 import { FROrphanReviewPage } from '@/pages/FROrphanReviewPage';
 import { RetentionReport } from '@/pages/RetentionReport';
+import { AdvancedSearchPage } from '@/pages/AdvancedSearchPage';
+import { SavedSearchesPage } from '@/pages/SavedSearchesPage';
+import { GroupsPage } from '@/pages/GroupsPage';
+import { GroupDetailPage } from '@/pages/GroupDetailPage';
 
 // S16 — lazy-load TanStack-Query-heavy pages to keep App.tsx initial bundle light
 const SystemStatusPage = lazy(() =>
@@ -90,9 +94,13 @@ function App() {
         <Route path="/events/:id" element={<ProtectedRoute><EventDetailPage /></ProtectedRoute>} />
         {/* S15: gate contacts from viewer */}
         <Route path="/contacts" element={<ProtectedRoute><ContactsPage /></ProtectedRoute>} />
+        <Route path="/contacts/search" element={<ProtectedRoute><AdvancedSearchPage /></ProtectedRoute>} />
         <Route path="/contacts/new" element={<ProtectedRoute><ContactFormPage mode="create" /></ProtectedRoute>} />
         <Route path="/contacts/:id" element={<ProtectedRoute><ContactDetailPage /></ProtectedRoute>} />
         <Route path="/contacts/:id/edit" element={<ProtectedRoute><ContactFormPage mode="edit" /></ProtectedRoute>} />
+        <Route path="/searches" element={<ProtectedRoute><SavedSearchesPage /></ProtectedRoute>} />
+        <Route path="/groups" element={<ProtectedRoute><GroupsPage /></ProtectedRoute>} />
+        <Route path="/groups/:id" element={<ProtectedRoute><GroupDetailPage /></ProtectedRoute>} />
         <Route path="/attendees" element={<Navigate to="/contacts" replace />} />
         <Route path="/audit" element={<ProtectedRoute><AuditPage /></ProtectedRoute>} />
         <Route path="/settings" element={<AdminRoute><SettingsPage /></AdminRoute>} />

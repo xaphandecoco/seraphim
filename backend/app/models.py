@@ -939,3 +939,104 @@ class JobRun(Base):
         Index("ix_job_runs_job_name", "job_name"),
         Index("ix_job_runs_started_at", "started_at"),
     )
+
+
+# ---------------------------------------------------------------------------
+# S09 — Advanced Search, Saved Searches & Smart Groups
+# ---------------------------------------------------------------------------
+
+class SavedSearch(Base):
+    """User-owned saved query preset for a given entity type.
+
+    criteria: arbitrary JSONB filter document interpreted by the search service.
+    entity: the target entity — defaults to 'contact'; extensible to 'event' etc.
+    owner_id ondelete CASCADE — saved searches are purged when the owner is deleted.
+    Unique per (owner_id, name) so each user's namespace is distinct.
+    """
+    __tablename__ = "saved_searches"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    owner_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    entity: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="contact", default="contact"
+    )
+    criteria: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+    __table_args__ = (
+        UniqueConstraint("owner_id", "name", name="uq_saved_searches_owner_name"),
+        Index("ix_saved_searches_owner_id", "owner_id"),
+    )
+
+
+class Group(Base):
+    """Named group of contacts, either static (manually curated) or smart
+    (membership derived at query time from the criteria JSONB document).
+
+    group_type: 'smart' | 'static'  — enforced at the application layer.
+    criteria: populated for smart groups; NULL for static groups.
+    owner_id ondelete SET NULL — group survives its owner being deleted.
+    Unique per (name, entity).
+    """
+    __tablename__ = "groups"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    entity: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="contact", default="contact"
+    )
+    group_type: Mapped[str] = mapped_column(String(20))  # smart | static
+    criteria: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    owner_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+    __table_args__ = (
+        UniqueConstraint("name", "entity", name="uq_groups_name_entity"),
+    )
+
+
+class GroupMember(Base):
+    """Join record binding a contact to a static group.
+
+    Smart-group membership is computed dynamically and is never stored here.
+    group_id ondelete CASCADE — member rows purged when the group is deleted.
+    contact_id ondelete CASCADE — member rows purged when the contact is deleted.
+    added_by_id ondelete SET NULL — preserves the row when the adding user is gone.
+    Unique per (group_id, contact_id) to prevent duplicate membership.
+    """
+    __tablename__ = "group_members"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    group_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("groups.id", ondelete="CASCADE"), nullable=False
+    )
+    contact_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("contacts.id", ondelete="CASCADE"), nullable=False
+    )
+    added_by_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    added_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now
+    )
+
+    __table_args__ = (
+        UniqueConstraint("group_id", "contact_id", name="uq_group_members_group_contact"),
+        Index("ix_group_members_group_id", "group_id"),
+        Index("ix_group_members_contact_id", "contact_id"),
+    )

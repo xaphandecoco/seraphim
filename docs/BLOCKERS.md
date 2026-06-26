@@ -15,6 +15,16 @@ the end of a run. **Hard blockers (could build on bad data) are pinned at the to
 
 ## 🟡 Assumptions (documented defaults — confirm when convenient)
 
+- [S09] **LOW:** Search/groups endpoints (`POST /search`, `POST /search/validate`, `POST /groups/{id}/populate`) not individually rate-limited. No `@limiter.limit` decorators; codebase-wide gap (same class as S16/S08 trigger endpoint, S16 settings endpoints). **FOLLOW-UP:** add limits to search endpoints or install SlowAPIMiddleware globally.
+
+- [S09] **LOW:** Groups are org-wide visible to all volunteers; any volunteer can rename/delete any group. Only smart-criteria EDIT is admin-gated (populate_static_group). **DESIGN:** by DoD; confirm org-wide visibility is acceptable to owner.
+
+- [S09] **OPTIMIZATION:** `multiselect` field `contains_any` uses LIKE-containment on the JSON text (LIKE `%\"value\"%`). Postgres-native `@>` JSONB containment would be faster at scale (GIN-indexable). **FOLLOW-UP:** migrate to JSONB operator when scale demands; low priority.
+
+- [S09] **DB RESERVED WORD:** `groups` is a SQL reserved word; SQLAlchemy auto-quotes it. Raw SQL must quote `"groups"` or queries fail. No action needed (ORM handles it); note for team.
+
+- [S09] **MERGE DEPENDENCY (S11):** When S11 (merge contacts) runs, it must add `group_members.contact_id` to its loser→survivor FK manifest (Contact Namespace item CN-04). Without it, merging a contact in a group leaves orphaned group_members rows pointing to a purged loser contact.
+
 - [S08] **MEDIUM (non-blocking, security-PASS):** detection-crop FILE can orphan on a rare unlink OSError → `det.image_path` is cleared regardless of unlink success, so a file that failed to delete has no DB retry handle and a later clean retry stamps purged_at while the orphan remains. Bounded: requires a real FS error; orphan has NO queryable DB linkage (path/subject/matched_name cleared → no re-identification); time-based FaceCleanupService is a backstop. **FOLLOW-UP PATCH:** only clear image_path after successful unlink (keep row as retry handle) + keep purged_at NULL until detection-crop files confirmed gone.
 
 - [S08] **LOW:** purge / immediate deletion-request return HTTP 200 even on result.status=='partial_failure'; immediate-purge path doesn't set deletion_requested_at so a not-yet-due partial failure isn't auto-retried unless admin re-invokes. **FOLLOW-UP:** set deletion_requested_at on the immediate path and/or surface a distinct partial_failure signal.
