@@ -139,7 +139,7 @@ After resume completes: Opus-critique → commit → next.
 | S23 | Member status & engagement engine | ✅ committed | `3e52929` | 7 derived snapshot columns; admin endpoint + summary; HAS_SCHEDULER guarded |
 | S21 | (per master) | ⏳ queued | — | |
 | S16 | Settings, system status & scheduled jobs | ✅ committed | `d048c2a` | APScheduler host; job_runs table; settings endpoints; security BLOCK→fix (immutable-keys) |
-| S08 | Biometric consent & right-to-be-forgotten | ✅ committed | `<pending>` | BiometricPurgeService; 7 endpoints; scheduler auto-purge; security BLOCK→fix (2 HIGH RTBF gaps) |
+| S08 | Biometric consent & right-to-be-forgotten | ✅ committed | `f69f91a` | BiometricPurgeService; 7 endpoints; scheduler auto-purge; security BLOCK→fix (2 HIGH RTBF gaps) |
 | … | remaining leaves | ⏳ queued | — | S09–S20 |
 
 Legend: ✅ committed · 🔄 in progress · ⏳ queued · ⛔ blocked (see top)
