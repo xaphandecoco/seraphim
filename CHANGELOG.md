@@ -1,5 +1,39 @@
 ## [Unreleased]
 
+### S11 — Find & Merge Duplicate Contacts (Sprint complete 2026-06-26)
+
+Native on-demand duplicate detection and atomic, FK-complete contact merge with admin-tunable dedup rules.
+
+**Backend**
+- `services/dedupe_service.py` (new): duplicate detection via pairwise difflib scoring against active dedup rule set; atomic merge engine with `_REASSIGNMENT_TARGETS` manifest (10 FK reassignments + 2 non-FK rewrites); collision-aware status/UNIQUE precedence; safe loser soft-delete + post-commit cleanup.
+- `models.py`: new `DedupeRuleSet` ORM model (name, is_default, rules JSONB, field_weights, threshold).
+- `routers/dedupe.py` (new): candidates (list with scoring), preview (merge diff), merge (execute), history (audit); rule-set CRUD (admin write); viewer 403.
+- Migration `s11a1b2c3d4e5` (new, down_revision `s10a1b2c3d4e5`): new `dedupe_rule_set` table; seeded with Default set.
+- **Safety net:** `test_manifest_covers_all_contact_fks` introspection test walks `Base.metadata` for every contacts.id FK; fails build if missing from manifest — self-maintaining guard (intended to break when S12 lands `activities.target_contact_id` until added).
+- **Integration fixture** covers all FK tables including collision rows; verifies zero residual loser refs + no UNIQUE violations post-merge.
+
+**Frontend**
+- `pages/DuplicatesPage.tsx` (new): three tabs (Candidates, Rules[admin-only], History).
+- `components/duplicates/MergeModal.tsx` (new): side-by-side merge preview, survivor-default, per-field chooser, same-person confirmation gate.
+- `components/duplicates/DedupeRuleEditor.tsx` (new): admin rule management.
+- `services/dedupe.ts`, `hooks/useDedupe.ts` (new): TanStack Query client for dedupe endpoints.
+- `types/index.ts`: DedupeRuleSet, Duplicate, MergePreview, MergeResult types.
+
+**Security audit**
+- Initial findings: 0 BLOCK. 3 hardening fixes applied: (1) re-check is_deleted under with_for_update lock (TOCTOU double-merge guard); (2) sanitize rollback 500 detail + post-commit warning strings (no raw exception to client).
+- Re-audit: PASS.
+
+**Integration**
+- `test_migrations.py` EXPECTED_HEAD updated to `s11a1b2c3d4e5`; down_revision test to `s10a1b2c3d4e5`.
+- Recon caught spec gaps: name_match_review_queue has both `contact_id` + `candidate_contact_id` (both reassigned); name_alias.alias_text is globally UNIQUE (collision handling corrected).
+
+**Key assumptions (documented in BLOCKERS.md)**
+- S12 FK manifest guard: when `activities.target_contact_id` lands, introspection test will fail until added to manifest (intended).
+- biometric_consent merge collision deletes loser row (archived in audit); "consent_given TRUE-wins" is future option.
+- Endpoints not rate-limited (codebase-wide @limiter gap).
+- Merge is irreversible-by-design; audit_log contact_merge row is recovery seed.
+- is_default single-row invariant is app-layer only.
+
 ### S10 — CSV/XLSX Import Wizard (Sprint complete 2026-06-26)
 
 Self-service 4-step import wizard for bulk contact and participant onboarding, reusing the proven S06 ETL pipeline.

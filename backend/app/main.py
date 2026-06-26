@@ -22,6 +22,7 @@ from app.routers import (
     cameras,
     community_reports as community_reports_router,
     custom_fields,
+    dedupe as dedupe_router,
     enrollment,
     event_series as event_series_router,
     events,
@@ -136,6 +137,7 @@ app.include_router(cameras.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(events.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(event_series_router.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(members.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(dedupe_router.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(pit.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(enrollment.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(enrollment.backfill_router, dependencies=[Depends(check_setup_complete)])

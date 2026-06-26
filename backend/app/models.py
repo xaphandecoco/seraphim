@@ -1071,3 +1071,37 @@ class GroupMember(Base):
         Index("ix_group_members_group_id", "group_id"),
         Index("ix_group_members_contact_id", "contact_id"),
     )
+
+
+# ---------------------------------------------------------------------------
+# S11 — Find & Merge Duplicates: Dedupe Rule Set
+# ---------------------------------------------------------------------------
+
+class DedupeRuleSet(Base):
+    """Named set of field-weighting rules used by the duplicate-detection engine.
+
+    rules: JSONB list of dicts, e.g.
+        [{"field": "email", "weight": 100}, {"field": "phone", "weight": 50}]
+    threshold: minimum composite score (0-100) to flag a candidate pair.
+    is_default: exactly one row should carry is_default=True; enforced at the
+        application layer (not a DB constraint).
+    """
+
+    __tablename__ = "dedupe_rule_set"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    threshold: Mapped[int] = mapped_column(Integer, nullable=False, default=70)
+    rules: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_dedupe_rule_set_name"),
+    )

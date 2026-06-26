@@ -142,13 +142,41 @@ After resume completes: Opus-critique → commit → next.
 | S08 | Biometric consent & right-to-be-forgotten | ✅ committed | `f69f91a` | BiometricPurgeService; 7 endpoints; scheduler auto-purge; security BLOCK→fix (2 HIGH RTBF gaps) |
 | S09 | Advanced search, saved searches & smart groups | ✅ committed | `91525ee` | Native CiviCRM Advanced Search replacement; injection-safe compile_criteria; whitelist field registry; security BLOCK→fix (3 bugs) |
 | S10 | CSV/XLSX import wizard | ✅ committed | `ea77663` | Self-service 4-step import wizard; reuses S06 ETL; security BLOCK→fix (HIGH PII exposure in staging files) |
-| … | remaining leaves | ⏳ queued | — | S11–S20 |
+| S11 | Find & merge duplicate contacts | ✅ committed | `<pending>` | Native duplicate detection + merge; dedup-rule-set admin config; FK-complete merge with manifest introspection guard; security PASS + 3 hardening fixes |
+| … | remaining leaves | ⏳ queued | — | S12–S20 |
 
 Legend: ✅ committed · 🔄 in progress · ⏳ queued · ⛔ blocked (see top)
 
 ---
 
 ## 📝 PER-SPRINT LOG (newest first)
+
+### S11 — Find & Merge Duplicate Contacts
+- **Goal:** Native on-demand duplicate detection and human-confirmed contact merge with admin-tunable dedup rules. Atomic, FK-complete merge using manifest introspection to ensure zero orphaned references.
+- **Definition of Done:**
+  1. Migration `s11a1b2c3d4e5` (down_revision `s10a1b2c3d4e5`): new `dedupe_rule_set` table; seeded with Default set
+  2. Dedup rule engine: `dedupe_service.py` pairwise difflib scoring against active rule set (NOT S22's match_name)
+  3. Merge engine with `_REASSIGNMENT_TARGETS` manifest: 10 FK reassignments + 2 non-FK rewrites; PLAIN UPDATE + COLLISION-AWARE (status/UNIQUE precedence); atomic single-txn; soft-delete + post-commit cleanup
+  4. Introspection test (`test_manifest_covers_all_contact_fks`): walks `Base.metadata`, fails build if any FK missing — self-maintaining guard (will break when S12 `activities.target_contact_id` lands until added)
+  5. Integration fixture: seeds survivor+loser in EVERY FK table (incl. collisions); verifies zero residual loser refs + no UNIQUE violations
+  6. Endpoints (`routers/dedupe.py`): candidates/preview/merge/history (volunteer+) + rule-set CRUD (admin write); viewer 403
+  7. Frontend: DuplicatesPage (Candidates/Rules[admin]/History), MergeModal (preview, survivor-default, per-field chooser, same-person gate), DedupeRuleEditor
+  8. Security audit PASS (no BLOCK); 3 hardening fixes (re-check is_deleted under lock, sanitize rollback detail, post-commit warnings)
+  9. Green gates: backend 32 isolated + segment 96; frontend 434 tests; security PASS
+- **Status:** PASS, committed. Green gate verified: backend **32 isolated S11 tests + segment 96 passed/0 failed**; frontend **434 tests** + build + lint; security **PASS**.
+- **Recon findings:** name_match_review_queue has both `contact_id` + `candidate_contact_id` (both reassigned); name_alias.alias_text is globally UNIQUE (collision handling corrected in merge logic).
+- **Security incident (PASS):** No blockers. 3 cheap hardening fixes applied: (1) re-check is_deleted UNDER with_for_update lock (TOCTOU double-merge→duplicate-audit-row guard); (2) sanitize rollback 500 detail string (no raw exception to client); (3) post-commit warning strings sanitized. Re-audit: PASS.
+- **Carry-forward assumptions:** (all documented in BLOCKERS.md 🟡)
+  - S12 FK guard: when `activities.target_contact_id` lands, introspection test will FAIL until added to manifest (by design).
+  - biometric_consent merge collision deletes loser row (archived in audit); "consent_given TRUE-wins" is future option (one-liner).
+  - /dedupe/merge + /dedupe/candidates not endpoint-rate-limited (codebase-wide @limiter gap).
+  - Merge is irreversible-by-design; audit_log contact_merge row (full before/after) is recovery/unmerge seed.
+  - is_default single-row invariant is app-layer only (no DB partial unique index).
+- **Next:** S12 (remaining leaves).
+
+✅ **S11 committed — safe to resume with S12.**
+
+---
 
 ### S10 — CSV/XLSX Import Wizard
 - **Goal:** Self-service 4-step import wizard (Upload → Map → Preview → Run) for bulk contact + participant onboarding, reusing S06's proven ETL pipeline.

@@ -53,6 +53,16 @@ the end of a run. **Hard blockers (could build on bad data) are pinned at the to
 
 - [S23/S16] **ASSUMPTION:** `main.py` lifespan calls `register_s23_jobs(...)` with an Ellipsis placeholder behind `HAS_SCHEDULER=False`; when S16 lands and flips the flag it MUST pass a real AsyncIOScheduler or boot will TypeError. Affects: `backend/app/main.py`, `backend/app/scheduler.py`. **HARD note for S16 implementation.**
 
+- [S11] **CARRY-FORWARD:** When S12 lands `activities.target_contact_id`, the introspection test (`test_manifest_covers_all_contact_fks`) WILL FAIL until `("activities", "target_contact_id")` is added to `_REASSIGNMENT_TARGETS`. This is by design — the test is a self-maintaining sentinel for missing FKs. Affects: `backend/app/services/dedupe_service.py`, `backend/tests/test_dedupe_manifest.py`.
+
+- [S11] **CARRY-FORWARD:** biometric_consent merge collision DELETES the loser's consent row (archived in audit before deletion). A future option ("consent_given TRUE-wins" precedence rule) is a one-liner change. Affects: `backend/app/services/dedupe_service.py`.
+
+- [S11] **LOW:** `/dedupe/merge` + `/dedupe/candidates` endpoints not individually rate-limited (codebase-wide @limiter gap, same class as S09/S10/S16). Affects: `backend/app/routers/dedupe.py`.
+
+- [S11] **ASSUMPTION:** Merge is irreversible-by-design. The `audit_log` row with `operation='contact_merge'` (full before/after state) is the recovery/unmerge seed for future operator-action support. No merged_into_id column, no unmerge UI this sprint. Affects: `backend/app/services/dedupe_service.py`, `backend/tests/test_dedupe_integration.py`.
+
+- [S11] **ASSUMPTION:** `DedupRuleSet.is_default` single-row invariant is app-layer only (default rule-set enforced in service, not DB). No partial unique index on `is_default=true`. Affects: `backend/app/services/dedupe_service.py`.
+
 - [S16] **ASSUMPTION:** `GET /settings/system-status` response shape uses a flat `services: { postgres: boolean, redis: boolean, compreface: boolean }` object (per the locked API contract in the task), NOT the `ServiceStatusItem { ok, detail, latency_ms }` shape in the Pydantic schema (spec §4.2). The frontend `SystemStatus` type and `SystemStatusPanel` component are built against the flat boolean shape. If the backend emits the richer shape, update `SystemStatus.services` in `types/index.ts` and adjust `SystemStatusPanel`. Affects: `frontend/src/types/index.ts`, `frontend/src/components/settings/SystemStatusPanel.tsx`.
 
 - [S16] **ASSUMPTION:** `ScheduledJobsPanel` shares the `['settings', 'system-status']` TanStack Query cache with `SystemStatusPage` to surface last-run status per job. If the backend's `/settings/system-status` jobs array becomes expensive to compute, the panel can be switched to use `/settings/jobs?page=1&page_size=9` instead without changing the public API contract. Affects: `frontend/src/components/settings/ScheduledJobsPanel.tsx`.
@@ -106,6 +116,18 @@ the end of a run. **Hard blockers (could build on bad data) are pinned at the to
 - [S10/backend] **ASSUMPTION:** Header BOM stripping in `staging.py` uses `.strip('﻿')` (defensive) because real-world Windows-exported CSV files sometimes have two BOM sequences (one from the content string, one from the utf-8-sig codec). The staging code strips any leading/trailing BOM characters from header names. Affects: `backend/app/services/imports/staging.py`.
 
 - [S10/backend] **ASSUMPTION:** import_batch.mode widened to VARCHAR(20) on Postgres (wizard_preview=14 chars); downgrade does NOT narrow it (truncation risk). Affects: `backend/alembic/versions/s10a1b2c3d4e5_s10_csv_xlsx_import_wizard.py`, `backend/app/models.py`.
+
+- [S11/backend] **ASSUMPTION:** `_REASSIGNMENT_TARGETS` is a mixed `frozenset` of `(table, col)` tuples AND plain strings for the two non-FK rewrite paths (`"detections.matched_name"`, `"contacts.custom_data:contact_reference"`). The introspection test checks `contact_fks - _REASSIGNMENT_TARGETS`; strings are excluded from the FK column scan but remain in the set for completeness. Affects: `backend/app/services/dedupe_service.py`, `backend/tests/test_dedupe_manifest.py`.
+
+- [S11/backend] **ASSUMPTION:** `RuleSetOut.rules` is typed `List[Dict[str, Any]]` (not `List[RuleWeightItem]`) to prevent output-side Pydantic validation from rejecting existing DB rows that might have fields outside the current `_DEDUPE_VALID_FIELDS` constant. Affects: `backend/app/schemas.py`.
+
+- [S11/backend] **ASSUMPTION:** Post-commit `recompute_contacts` uses a NEW `async with async_session() as _pc_db:` session (not the already-committed session) because `recompute_contacts` calls `commit()` internally. Affects: `backend/app/services/dedupe_service.py`.
+
+- [S11/backend] **ASSUMPTION:** `NameAlias.alias_text` is globally unique (per `uq_name_alias_text` index). The merge collision check uses `NameAlias.contact_id != lid` (not `== sid`) to catch any alias_text already taken by ANY other contact, not just the survivor. This is stricter than necessary but avoids unique-constraint violations. Affects: `backend/app/services/dedupe_service.py`.
+
+- [S11/backend] **ASSUMPTION:** `logs.matched_name` rewrite is included in `stats` under key `"logs.matched_name"` even though `"logs"` is not an FK in `_REASSIGNMENT_TARGETS`. The manifest frozenset only tracks contacts.id FKs + named non-FK paths; `logs.matched_name` is a companion to `detections.matched_name` handled under the same non-FK path string. The introspection test only checks FK coverage (not log rewrite). Affects: `backend/app/services/dedupe_service.py`.
+
+- [S11/backend] **ASSUMPTION:** S12 guard (`if await has_table(db, "activities"):`) covers only `activities.target_contact_id`. When S12 lands and adds that column, the introspection test (`test_manifest_covers_all_contact_fks`) will fail until `("activities", "target_contact_id")` is added to `_REASSIGNMENT_TARGETS`. This is by design — the test is a sentinel. Affects: `backend/app/services/dedupe_service.py`, `backend/tests/test_dedupe_manifest.py`.
 
 ---
 ### Format

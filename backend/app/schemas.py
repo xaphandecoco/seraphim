@@ -1634,3 +1634,141 @@ class PopulateRequest(BaseModel):
 class PromoteRequest(BaseModel):
     group_name: str = Field(max_length=120)
     entity: str = "contact"
+
+
+# ============================================================================
+# S11 — Find & Merge Duplicates
+# ============================================================================
+
+_DEDUPE_VALID_FIELDS: frozenset[str] = frozenset({
+    "first_name", "last_name", "suffix", "gender",
+    "birth_date", "phone", "email", "street_address",
+})
+
+
+class RuleWeightItem(BaseModel):
+    field: str
+    weight: float
+
+    @field_validator("field")
+    @classmethod
+    def validate_field(cls, v: str) -> str:
+        if v not in _DEDUPE_VALID_FIELDS:
+            raise ValueError(
+                f"field must be one of {sorted(_DEDUPE_VALID_FIELDS)}"
+            )
+        return v
+
+    @field_validator("weight")
+    @classmethod
+    def validate_weight(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("weight must be > 0")
+        return v
+
+
+class RuleSetIn(BaseModel):
+    name: str
+    is_default: bool = False
+    is_active: bool = True
+    threshold: int = Field(default=70, ge=1)
+    rules: List[RuleWeightItem] = []
+
+
+class RuleSetOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    is_default: bool
+    is_active: bool
+    threshold: int
+    rules: List[Dict[str, Any]]
+    created_at: datetime
+    updated_at: datetime
+
+
+class ContactLite(BaseModel):
+    id: int
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    participant_count: int = 0
+    face_sample_count: int = 0
+
+
+class CandidatePair(BaseModel):
+    contact_a: ContactLite
+    contact_b: ContactLite
+    score: float
+    matched_fields: List[str]
+    same_name: bool
+
+
+class CandidatesRequest(BaseModel):
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=25, ge=1, le=100)
+    rule_set_id: Optional[int] = None
+
+
+class CandidatesResponse(BaseModel):
+    items: List[CandidatePair]
+    total: int
+    page: int
+    page_size: int
+
+
+class FieldConflict(BaseModel):
+    survivor: Any
+    loser: Any
+    differs: bool
+
+
+class ReassignmentStat(BaseModel):
+    reassigned: int = 0
+    deleted: int = 0
+
+
+class MergePreviewRequest(BaseModel):
+    survivor_id: int
+    loser_id: int
+
+
+class MergePreviewResponse(BaseModel):
+    field_conflicts: Dict[str, FieldConflict]
+    custom_field_conflicts: Dict[str, FieldConflict]
+    reassignments: Dict[str, ReassignmentStat]
+    same_name: bool
+    warnings: List[str]
+
+
+class MergeRequest(BaseModel):
+    survivor_id: int
+    loser_id: int
+    confirm_same_name: bool = False
+    field_choices: Optional[Dict[str, str]] = None
+
+
+class MergeResponse(BaseModel):
+    survivor_id: int
+    reassignments: Dict[str, ReassignmentStat]
+    warnings: List[str]
+
+
+class MergeHistoryItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    actor_id: Optional[int] = None
+    action: str
+    entity: str
+    entity_id: Optional[int] = None
+    before: Optional[Dict[str, Any]] = None
+    after: Optional[Dict[str, Any]] = None
+    created_at: datetime
+
+
+class PaginatedMergeHistoryResponse(BaseModel):
+    items: List[MergeHistoryItem]
+    total: int
+    page: int
+    page_size: int

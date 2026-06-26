@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ClipboardList, Trophy, Calendar, CalendarRange, Users, Settings, Settings2, AlertTriangle, FileText, ShieldCheck, MoreHorizontal, X, Upload, UserCheck, FileCheck, Database, Fingerprint, Search, FileSpreadsheet } from 'lucide-react';
+import { ClipboardList, Trophy, Calendar, CalendarRange, Users, Settings, Settings2, AlertTriangle, FileText, ShieldCheck, MoreHorizontal, X, Upload, UserCheck, FileCheck, Database, Fingerprint, Search, FileSpreadsheet, Copy } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { useTaskStore } from '@/store/taskStore';
 
@@ -32,6 +32,7 @@ export function BottomNav() {
 
   const adminTabs = [
     { path: '/imports', label: 'Import', icon: FileSpreadsheet },
+    { path: '/duplicates', label: 'Duplicates', icon: Copy },
     { path: '/pit', label: 'Pit Queue', icon: AlertTriangle },
     { path: '/bulk-upload', label: 'Bulk Upload', icon: Upload },
     { path: '/logs', label: 'System Logs', icon: FileText },
@@ -124,6 +125,26 @@ export function BottomNav() {
               <FileSpreadsheet size={22} strokeWidth={location.pathname.startsWith('/imports') ? 2.5 : 2} aria-hidden="true" />
               <span className="mt-0.5 text-[10px] font-semibold" aria-hidden="true">Import</span>
               {location.pathname.startsWith('/imports') && (
+                <span className="absolute top-0 h-0.5 w-8 rounded-full bg-primary" aria-hidden="true" />
+              )}
+            </Link>
+          )}
+
+          {/* Duplicates link — visible to volunteer (non-admin) directly in nav bar */}
+          {isVolunteer && !isAdmin && (
+            <Link
+              to="/duplicates"
+              aria-label="Duplicates"
+              aria-current={location.pathname.startsWith('/duplicates') ? 'page' : undefined}
+              className={`relative flex flex-1 flex-col items-center justify-center py-2 transition-colors ${
+                location.pathname.startsWith('/duplicates')
+                  ? 'text-primary'
+                  : 'text-foreground/40 hover:text-foreground/70'
+              }`}
+            >
+              <Copy size={22} strokeWidth={location.pathname.startsWith('/duplicates') ? 2.5 : 2} aria-hidden="true" />
+              <span className="mt-0.5 text-[10px] font-semibold" aria-hidden="true">Duplicates</span>
+              {location.pathname.startsWith('/duplicates') && (
                 <span className="absolute top-0 h-0.5 w-8 rounded-full bg-primary" aria-hidden="true" />
               )}
             </Link>

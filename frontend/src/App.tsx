@@ -50,6 +50,11 @@ const JobRunsPage = lazy(() =>
 const ImportsListPage = lazy(() =>
   import('@/pages/ImportsListPage').then((m) => ({ default: m.ImportsListPage })),
 );
+
+// S11 — lazy-load duplicates page (volunteer+)
+const DuplicatesPage = lazy(() =>
+  import('@/pages/DuplicatesPage').then((m) => ({ default: m.DuplicatesPage })),
+);
 const ImportWizardPage = lazy(() =>
   import('@/pages/ImportWizardPage').then((m) => ({ default: m.ImportWizardPage })),
 );
@@ -136,6 +141,8 @@ function App() {
         <Route path="/settings/biometric" element={<AdminRoute><RetentionReport /></AdminRoute>} />
         {/* S10 — Import Wizard (volunteer+) */}
         <Route path="/imports" element={<VolunteerRoute><Suspense fallback={<PageFallback />}><ImportsListPage /></Suspense></VolunteerRoute>} />
+        {/* S11 — Find & Merge Duplicates (volunteer+) */}
+        <Route path="/duplicates" element={<VolunteerRoute><Suspense fallback={<PageFallback />}><DuplicatesPage /></Suspense></VolunteerRoute>} />
         <Route path="/imports/new" element={<VolunteerRoute><Suspense fallback={<PageFallback />}><ImportWizardPage /></Suspense></VolunteerRoute>} />
         <Route path="/imports/:batchId" element={<VolunteerRoute><Suspense fallback={<PageFallback />}><ImportReportPage /></Suspense></VolunteerRoute>} />
       </Routes>

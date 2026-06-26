@@ -34,6 +34,7 @@ The **SPRINT-LOOP-LOG.md** (`docs/superpowers/SPRINT-LOOP-LOG.md`) is the master
 | S08 | Biometric consent & right-to-be-forgotten | ✅ Committed | `f69f91a` | 2026-06-26 | BiometricPurgeService (irreversible RTBF erasure); consent lifecycle (record/update/revoke/deletion-request); 7 biometric endpoints (RBAC); scheduler auto-purge job; security BLOCK→fix (2 HIGH RTBF gaps fixed pre-merge) |
 | S09 | Advanced search, saved searches & smart groups | ✅ Committed | `91525ee` | 2026-06-26 | Native replacement for CiviCRM Advanced Search / Search Builder / Smart Groups; migration (3 tables); whitelist field registry (15 core + 7 S23-derived); injection-safe compile_criteria pipeline; security BLOCK→fix (3 bugs: bypassable DoS check, cross-owner IDOR, LIKE escape) |
 | S10 | CSV/XLSX import wizard | ✅ Committed | `ea77663` | 2026-06-26 | Self-service 4-step import wizard (Upload → Map → Preview → Run) for contacts + participants; reuses S06 ETL core; migration adds import_mapping_preset table; 13 API endpoints + frontend wizard UI; security BLOCK→fix (HIGH PII exposure in staging files) |
+| S11 | Find & merge duplicate contacts | ✅ Committed | `<pending>` | 2026-06-26 | Native duplicate detection + merge; dedup-rule-set admin config; FK-complete merge with manifest introspection guard; security PASS + 3 hardening fixes |
 
 **Queued (awaiting build):**
 
@@ -228,6 +229,25 @@ The **SPRINT-LOOP-LOG.md** (`docs/superpowers/SPRINT-LOOP-LOG.md`) is the master
 - **Security incident (BLOCK → FIXED):** Security audit found HIGH PII exposure the 76 green tests missed: staged import files (raw member CSVs) were written to STORAGE_PATH/imports/ which the PUBLIC `GET /storage/{path}` route serves to ANY authenticated token with no ownership check → a viewer/non-owner could read another user's uploaded PII by UUID (security-by-obscurity). **FIX:** serve_storage_file now rejects any path under `imports/` → 404. Plus MEDIUM (no rate-limit on upload/run/preview → added @limiter.limit decorators) + LOWs (match_key external_id collision → _create_contact_direct; entity allowlist → 422; mid-stream decode error → error row not 500; purge path-containment). **RE-AUDIT: PASS.**
 - Green gates: backend **96 isolated S10 tests + segment 123** passed/0 failed; frontend **426 tests** + build + lint; security PASS.
 - **Carry-forward:** 8 assumptions documented in BLOCKERS.md 🟡 (24h TTL, preset uniqueness, participant ON CONFLICT, rate-limiting gap, S06 event_ref requirement, purge audit-only, BOM stripping, mode varchar).
+
+---
+
+### S11: Find & Merge Duplicate Contacts
+
+**Goal:** Native on-demand duplicate detection and human-confirmed contact merge. Admin-tunable dedup rules with pairwise scoring. Atomic, FK-complete merge using manifest introspection to ensure zero orphaned references.
+
+**Outcome:**
+- **Dedup rule engine:** `dedupe_rule_set` table (weights, thresholds, field selectors, seeded with "Default" set); `services/dedupe_service.py` pairwise scoring via difflib against active rule set (NOT S22's match_name).
+- **Merge engine with `_REASSIGNMENT_TARGETS` safety net:** Complete FK manifest (10 contacts.id FKs + 2 non-FK rewrites). Atomic single-transaction merge: loser reassignment (PLAIN UPDATE + COLLISION-AWARE with status/UNIQUE precedence) → soft-delete loser → one audit row → commit. Post-commit recompute_contacts + CompreFace cleanup (non-fatal).
+- **Introspection test (`test_manifest_covers_all_contact_fks`)** walks `Base.metadata` for every contacts.id FK; fails build if missing from manifest — self-maintaining guard (will trip when S12 `activities.target_contact_id` lands until added).
+- **Integration fixture** seeds survivor+loser with rows in EVERY FK table (incl. collision rows); asserts zero residual loser FKs + no UNIQUE violation post-merge.
+- **Endpoints** (`routers/dedupe.py`): candidates/preview/merge/history (volunteer+) + rule-set CRUD (admin write); viewer 403.
+- **Frontend:** DuplicatesPage (Candidates/Rules[admin]/History), MergeModal (preview, survivor-default, per-field chooser, same-person gate), DedupeRuleEditor.
+- **Security incident (BLOCK → FIXED):** 3 cheap hardening fixes: (1) re-check is_deleted UNDER the with_for_update lock (close TOCTOU double-merge window); (2) sanitize rollback 500 detail string (no raw exception to client); (3) post-commit warning strings sanitized. Re-audit: PASS.
+- **Recon findings:** name_match_review_queue has both `contact_id` + `candidate_contact_id` (NOT `resolved_contact_id`); both reassigned. name_alias.alias_text is globally UNIQUE (collision handling the spec missed).
+- **Migration** `s11a1b2c3d4e5` (down_revision `s10a1b2c3d4e5`): new `dedupe_rule_set` table. `test_migrations.py` EXPECTED_HEAD updated to `s11a1b2c3d4e5`.
+- Green gates: backend **32 isolated S11 tests + segment 96** passed/0 failed; frontend **434 tests** + build + lint; security PASS.
+- **Carry-forward:** 5 assumptions documented in BLOCKERS.md 🟡 (S12 FK guard, collision delete, rate-limiting gap, irreversible design, is_default app-layer).
 
 ---
 
