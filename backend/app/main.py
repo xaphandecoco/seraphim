@@ -38,6 +38,8 @@ from app.routers import (
     name_aliases,
     name_match as name_match_router,
     pit,
+    profiles as profiles_router,
+    public as public_router,
     settings as settings_router,
     setup,
     storage as storage_router,
@@ -127,6 +129,14 @@ app.include_router(setup.router)
 
 # Auth endpoints (no setup check needed for login)
 app.include_router(auth.router)
+
+# S13 public newcomer form — no auth, no setup check (pre-setup form access allowed)
+app.include_router(public_router.router)
+
+# S13 profile management — admin/volunteer auth; requires setup complete
+app.include_router(
+    profiles_router.router, dependencies=[Depends(check_setup_complete)]
+)
 
 # All other endpoints require setup complete
 app.include_router(health.router)

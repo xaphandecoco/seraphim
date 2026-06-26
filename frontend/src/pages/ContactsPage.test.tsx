@@ -35,6 +35,22 @@ vi.mock('@/services/contacts', () => ({
   },
 }));
 
+// S13: mock profilesApi so the New Contact template dropdown fetch is controlled
+vi.mock('@/services/profilesApi', () => ({
+  profilesApi: {
+    list: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, page_size: 100 }),
+    get: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
+    render: vi.fn(),
+  },
+  publicNewcomerApi: {
+    getProfile: vi.fn(),
+    submit: vi.fn(),
+  },
+}));
+
 import { contactsApi } from '@/services/contacts';
 import { ContactsPage } from './ContactsPage';
 

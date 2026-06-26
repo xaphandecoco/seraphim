@@ -4,9 +4,8 @@
 
 ---
 
-## 🌙 RESUME 2026-06-26 — owner un-paused, autonomous overnight run (senpai-v2)
-**Owner woke the loop:** "proceed to the next sprints with /senpai-v2; ensure token-limit auto-resume; I will sleep now." Loop was PAUSED on the S21 hard blocker (docs/BLOCKERS.md). Decision: **un-pause and build the remaining BUILDABLE leaf sprints**, deferring S21 (operator-gated cutover) to last/artifacts-only. **Auto-resume cron `c2547445`** (15-min, fires :07/:22/:37/:52) recovers token-limit kills + advances the DAG when idle.
-**Build order (deps-correct, lowest buildable first):** `S23 → S16 → S08 → S09 → S10 → S11 → S12 → S13 → S15 → S14 → S17 → S18 → S19 → S20 → S21(artifacts-only, LAST)`. Built so far: S01–S12, S16, S22, S23, S24 (HEAD `079e121`). Env = **local Windows** (`C:\Users\John Atienza\Documents\Project Seraphim`), not cloud Linux — senpai-v2 agentTypes ARE supported here. **✅ S12 DONE `079e121`** (activities/assignable tasks; Activity+Outbox models, migration `s12a1b2c3d4e5`, 8 endpoints, full React UI; security caught+fixed a HIGH volunteer-PATCH-reassign bypass; dedupe manifest tuple resolves the S11 carry-forward; pushed to origin Gitea `git.lightnc.org`). **NEXT: S13** (next buildable leaf in the order `S13 → S15 → S14 → S17 → S18 → S19 → S20 → S21(artifacts-only, LAST)`). Live alembic head = `s12a1b2c3d4e5`. NOTE: local backend suite is slow (~15min serial) — verify in segments + isolated affected files; `anthropic` now installed locally.
+## 🌙 RESUME 2026-06-26 — PAUSED at owner request after S13
+**Owner decision:** "S13 complete; stop and document everything; open a PR." Loop is **PAUSED at owner request** after S13 completion. S13 delivered profiles engine + public newcomer form (intake pipeline, transactional outbox producer stub). **Next buildable leaf when owner resumes: S15** (per build order `S15 → S14 → S17 → S18 → S19 → S20 → S21(artifacts-only, LAST)`). Built so far: S01–S13, S16, S22, S23, S24 (HEAD = `<pending>` S13 hash). Env = **local Windows** (`C:\Users\John Atienza\Documents\Project Seraphim`). **✅ S13 DONE `<pending>`** (profiles + public form; `profiles` table + `Profile` ORM model, migration `s13a1b2c3d4e5`, GET `/public/newcomer/profile` + POST `/public/newcomer`, admin CRUD endpoints, ProfileFormRenderer/ProfileFormPage UIs, WelcomePage public form, transactional outbox producer stub [google_chat.new_friend + gmail.new_friend_report + prayer_request]; security caught+fixed HIGH membership-oracle authz leak + 3 MEDIUM + 3 LOW findings; M3 rate-limit-proxy ops gate documented for pre-public-launch). Live alembic head = `s13a1b2c3d4e5`. **⚠️ AUTONOMOUS LOOP PAUSED — do NOT auto-start S15.**
 
 ## ✅ S24 DONE — owner stopped sprint loop, PR created (2026-06-25)
 **S24 committed & pushed.** FR transition bridge: BiometricConsent model+migration, remap_subjects service, consent backfill, verification endpoint, orphan relink/retire UI, FR Status Panel in SettingsPage. Green gate: 82 S24 tests pass; frontend 323/323; ruff clean; build passes. Known carry-forward: full-suite test ordering issue (test_task_service / test_uploads fail in random-order full run but pass in isolation — pre-existing isolation problem, not a code bug). PR created from `docs/crm-specs-and-cve-remediation`. **Next sprint when loop resumes: S21 (final cutover — depends on S24).**
@@ -144,7 +143,8 @@ After resume completes: Opus-critique → commit → next.
 | S10 | CSV/XLSX import wizard | ✅ committed | `ea77663` | Self-service 4-step import wizard; reuses S06 ETL; security BLOCK→fix (HIGH PII exposure in staging files) |
 | S11 | Find & merge duplicate contacts | ✅ committed | `ab694a0` | Native duplicate detection + merge; dedup-rule-set admin config; FK-complete merge with manifest introspection guard; security PASS + 3 hardening fixes |
 | S12 | Activities (assignable tasks) | ✅ committed | `079e121` | Activities table + ORM models; ActivityService (CRUD, status transitions, role-aware); 8 endpoints; full React UI ("My Tasks"/"All", ActivityPanel on contact, FormModal, Card); security PASS + reassign authz fix |
-| … | remaining leaves | ⏳ queued | — | S13–S20 |
+| S13 | Profiles & public newcomer form | ✅ committed | `<pending>` | `profiles` table + ORM; admin CRUD + render; public GET/POST with rate-limit + 409/422 guards; ProfileFormRenderer/WelcomePage UIs; newcomer intake pipeline (5-min dedupe, Claude prayer-classification, transactional outbox); security BLOCK→fix (HIGH membership oracle, 3 MEDIUM, 3 LOW); M3 rate-limit-proxy ops gate |
+| … | remaining leaves | ⏳ queued | — | S15–S20 |
 
 Legend: ✅ committed · 🔄 in progress · ⏳ queued · ⛔ blocked (see top)
 
@@ -181,6 +181,68 @@ Legend: ✅ committed · 🔄 in progress · ⏳ queued · ⛔ blocked (see top)
 - **Next:** S13 (remaining leaves).
 
 ✅ **S12 committed — safe to resume with S13.**
+
+---
+
+### S13 — Profiles & Public Newcomer Form
+
+**Goal:** Seed preset profiles (templates for public intake forms). Implement public-facing newcomer form (unauthenticated POST) linked to a single is_public profile. Admin profile builder (CRUD + render preview). Backend newcomer intake pipeline: 5-min duplicate suppression, contact creation via S03, name resolution via S22 (invited_by/consolidated_by), Claude prayer-classification (fail-open), transactional outbox enqueue [google_chat.new_friend + gmail.new_friend_report always; gmail.prayer_request only if valid]. Rate-limited public endpoints. Production ops gate: M3 proxy-headers requirement for rate-limiter correctness.
+
+**Scope delivered:**
+- **Backend:**
+  - `models.py`: new `Profile` ORM (name, description, is_public, fields JSONB, created_at, updated_at)
+  - Migration `s13a1b2c3d4e5` (down_revision `s12a1b2c3d4e5`): `profiles` table; seeds 3 preset profiles (New Friend [is_public=true], Community Member, Volunteer) with `fields=[]`
+  - `routers/profiles.py` (new): admin CRUD (GET /profiles list + detail, POST create, PATCH update, DELETE with 409 if is_public + no alternative is_public). Endpoints render ProfileFormRenderer state + 409 on duplicate name + 422 custom-field-name validation + delete-last-public 409 guard.
+  - `routers/public.py` (new): UNAUTHENTICATED `GET /public/newcomer/profile` (returns chosen is_public profile, 404 if none configured) + rate-limited `POST /public/newcomer` (NewcomerSubmission: first_name, last_name, email, phone, invited_by_name, consolidated_by_name, prayer_request, new_friend_add_date, custom fields)
+  - `services/profile_service.py` (new): full newcomer intake pipeline: 5-min duplicate suppression (exact email + first_name+last_name match), contact creation via S03 `create_contact(db, payload, actor_id)->(contact,warnings)` (auto-writes audit + runs validate_and_coerce), S22 name_match resolution (invited_by/consolidated_by return NameMatchResult with outcome SINGLE/AMBIGUOUS/UNMATCHED), Claude prayer-request classification (fail-open; uses model claude-sonnet-4-6, skipped in tests), transactional outbox enqueue [google_chat.new_friend + gmail.new_friend_report always; gmail.prayer_request only if valid + classification succeeded] + best-effort `_drain_outbox_stub`
+  - `dynamic_settings.get_str()` (no get_json; spec reconciliation: same-origin CORS via app-level CORSMiddleware; per-request dynamic CORS deferred)
+  - Anthropic SDK: env ANTHROPIC_API_KEY, tests stubbed (ENVIRONMENT==test / no key / claude_enabled=false)
+  - Unseeded custom fields (service_time, prayer_request, season): merged directly into contact.custom_data after creation (CN-14 follow-up: S02 seed them)
+  - `first_visit_date` custom field key: seeded in S02; maps from form field `new_friend_add_date`
+- **Frontend:**
+  - `pages/WelcomePage.tsx` (new): public, no auth, no BottomNav. ProfileForm tied to chosen is_public profile. Handle 429 friendly, prayer-request conditional render based on profile.fields. Toast on success.
+  - `pages/ProfilesPage.tsx` (new): admin view; list all profiles, is_public toggle per row (inline via API), delete row (guards last-public)
+  - `pages/ProfileFormPage.tsx` (new): admin builder; create/edit profile; ProfileFormRenderer + SectionRenderer + ProfileFieldEditor (custom field CRUD); live preview
+  - `components/profiles/ProfileFormRenderer.tsx` (new): reusable form builder; renders profile.fields as sections/field groups; validates on submit (custom-field-name format)
+  - `components/profiles/SectionRenderer.tsx`, `ProfileFieldEditor.tsx` (new): per-section + per-field editors
+  - `hooks/useProfiles.ts`, `services/profilesApi.ts`, `types/index.ts` (new): TanStack Query client + API bindings + types
+  - `App.tsx`: routes (/welcome public, /profiles* AdminRoute); BottomNav Profiles entry
+  - `pages/ContactsPage.tsx`: "New from template" profile dropdown (lazy fetch, enabled on open)
+
+**Key reconciliations (spec was stale; recon corrected):**
+- Outbox already existed (S12) — imported, not recreated
+- `match_name()` returns NameMatchResult TypedDict (outcome SINGLE/AMBIGUOUS/UNMATCHED), not spec's MatchResult
+- `create_contact(db, payload, actor_id)->(contact, warnings)` auto-writes audit row AND runs validate_and_coerce (so non-seeded custom keys service_time/prayer_request/season merged post-creation to avoid 422)
+- `new_friend_add_date` → seeded custom field `first_visit_date`
+- `dynamic_settings.get_str()` only method (no get_json); same-origin CORS assumption
+- Anthropic via env ANTHROPIC_API_KEY, model claude-sonnet-4-6, tests skipped via ENVIRONMENT==test check
+
+**Security incident (BLOCK → FIXED):**
+1. **HIGH (membership oracle via PII leakage):** public POST `/public/newcomer` response leaked `invited_by_resolved.id`, `consolidated_by_resolved.id` (contact existence + membership oracle for religious-affiliation categories). **FIX:** response unconditionally returns `invited_by_resolved=None, consolidated_by_resolved=None`; resolution kept only in internal gmail outbox context.
+2. **MEDIUM (unbounded strings):** NewcomerSubmission fields lacked max_length bounds. **FIX:** first_name/last_name VARCHAR(100), email VARCHAR(255), phone VARCHAR(20), prayer_request VARCHAR(2000).
+3. **MEDIUM (no off-switch):** POST /public/newcomer returns 200 even if no is_public profile configured (silent drop). **FIX:** now returns 404 "No public form is configured" when no is_public profile exists (form has a real off-switch).
+4. **MEDIUM (rate-limit IP spoofing):** GET/POST /public/newcomer rate-limited (30/min) but get_remote_address behind nginx + Cloudflare Tunnel MUST have --proxy-headers + X-Forwarded-For, else per-IP limiting collapses to one global bucket. **FIX (ops requirement M3):** document in PRODUCTION_RUNBOOK + BLOCKERS.md as pre-public-launch gate; uvicorn MUST run with `--proxy-headers` and nginx must set trusted `X-Forwarded-For`.
+5. **LOW (webhook secret leaked):** _drain_outbox_stub stored raw exception (including webhook URL + secret) in error detail. **FIX:** store only redacted error (type + status code).
+6. **LOW (duplicate bypass):** duplicate query used LIKE wildcard instead of exact match. **FIX:** uses `func.lower(email) == func.lower(submission.email)` exact match (lower-case-sensitive).
+7. **LOW (rate-limit missing):** GET /public/newcomer/profile undecorated. **FIX:** added `@limiter.limit("30/minute")`.
+- **Re-audit: PASS.** All 7 findings fixed; 4 regression tests added (membership oracle, string bounds, 404 guard, duplicate exact-match).
+
+**Gates:**
+- Backend: `test_profiles` + `test_public_newcomer` = **19 passed/0 failed** (incl. test_newcomer_no_public_profile_404)
+- Invariants: migrations+dedupe_manifest+activities ✅ green
+- Regression slice (contacts/custom_fields/name_match): **89 passed/0 failed**
+- Final consolidated: **31 passed/0 failed**
+- Frontend: build + lint + test:run = **501 passed**
+
+**Carry-forward assumptions (all documented in BLOCKERS.md 🟡):**
+- 🔴 **M3 rate-limit-proxy requirement:** GET/POST /public/newcomer are rate-limited by per-IP client address (via `get_remote_address` helper). Behind nginx + Cloudflare Tunnel, uvicorn MUST run with `--proxy-headers --forwarded-allow-ips <nginx>` and nginx MUST set a trusted `X-Forwarded-For`, else per-IP limiting collapses to one global bucket or becomes XFF-spoofable. **This is a pre-public-launch OPS gate** — must be documented + validated before cutover.
+- [S13] CORS (same-origin assumption): spec §4.6 referenced `dynamic_settings.get_json()` for per-request CORS headers, but method does not exist. Decision: same-origin deployment (Cloudflare Tunnel → nginx → same container) sufficient; per-request CORS deferred.
+- [S13] Unseeded custom fields: `service_time`, `prayer_request`, `season` are NOT seeded by S02. Passed through `create_contact → validate_and_coerce` raises 422. Decision: merge directly into `contact.custom_data` post-creation. **CN-14 follow-up:** S02 should seed these fields.
+- [S13] `new_friend_add_date` → `first_visit_date`: form field maps to seeded S02 custom-field key.
+- [S13] ContactFormPage `?profile=` param deferred: ProfilesPage "New from template" dropdown fetches profiles + creates contact, but the deeper integration (pre-fill form from profile template) is post-S13 enhancement.
+- [S13] Outbox producer (S16/S17 expansion): `_drain_outbox_stub` persists google_chat.new_friend + gmail.new_friend_report + gmail.prayer_request rows; full NotificationService + push/email dispatch awaits S17/S18.
+
+✅ **S13 committed.**
 
 ---
 

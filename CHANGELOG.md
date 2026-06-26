@@ -1,5 +1,48 @@
 ## [Unreleased]
 
+### S13 — Profiles & Public Newcomer Form (Sprint complete 2026-06-26)
+
+Self-service intake-form templates with public-facing newcomer form. Admin profile builder (CRUD + render preview). Backend intake pipeline: deduplication, contact creation, name resolution, prayer-classification, transactional outbox producer stub.
+
+**Backend**
+- `app/models.py`: new `Profile` ORM model (name, description, is_public, fields JSONB, created_at, updated_at)
+- `services/profile_service.py` (new): newcomer intake pipeline (5-min duplicate suppression via exact email+name match, S03 contact creation, S22 name resolution for invited_by/consolidated_by, Claude prayer-classification [model claude-sonnet-4-6, fail-open], transactional outbox enqueue [google_chat.new_friend + gmail.new_friend_report always; gmail.prayer_request only if valid], best-effort _drain_outbox_stub)
+- `routers/profiles.py` (new): admin CRUD (list, detail, create, update with duplicate-name 409 + custom-field-name 422 validation, delete with last-public 409 guard); all require_admin
+- `routers/public.py` (new): unauthenticated `GET /public/newcomer/profile` (returns chosen is_public profile, 404 if none configured) + rate-limited `POST /public/newcomer` (NewcomerSubmission; 30/min per IP)
+- Migration `s13a1b2c3d4e5` (new, down_revision `s12a1b2c3d4e5`): new `profiles` table; seeds 3 preset profiles (New Friend [is_public=true], Community Member, Volunteer) with `fields=[]`
+- **Key reconciliations:** Outbox already existed (S12) — imported not recreated; `match_name()` returns NameMatchResult TypedDict (outcome SINGLE/AMBIGUOUS/UNMATCHED); `create_contact(db, payload, actor_id)->(contact,warnings)` auto-writes audit + runs validate_and_coerce; non-seeded custom fields (service_time/prayer_request/season) merged post-creation to avoid 422; `new_friend_add_date`→seeded `first_visit_date`; `dynamic_settings.get_str()` only method (no get_json); Anthropic via env ANTHROPIC_API_KEY, model claude-sonnet-4-6, tests skipped (ENVIRONMENT==test)
+
+**Frontend**
+- `pages/WelcomePage.tsx` (new): public form (no auth, no BottomNav), tied to is_public profile, conditional prayer-request field, handles 429 friendly, toast on success
+- `pages/ProfilesPage.tsx` (new): admin list + inline is_public toggle per row, delete with last-public guard
+- `pages/ProfileFormPage.tsx` (new): admin builder; create/edit; ProfileFormRenderer + SectionRenderer + ProfileFieldEditor (custom field CRUD); live preview
+- `components/profiles/ProfileFormRenderer.tsx`, `SectionRenderer.tsx`, `ProfileFieldEditor.tsx` (new): reusable form builder + field editors; validates custom-field names on submit
+- `services/profilesApi.ts`, `hooks/useProfiles.ts`, `types/index.ts` (new): TanStack Query client + types
+- `pages/ContactsPage.tsx`: "New from template" profile dropdown (lazy fetch, enabled on open)
+- `App.tsx`: routes (/welcome public, /profiles* AdminRoute); BottomNav Profiles entry
+
+**Security audit**
+- Initial findings: 1 HIGH (membership oracle via PII leak), 3 MEDIUM, 3 LOW
+- **HIGH FIXED:** public POST `/public/newcomer` response leaked `invited_by_resolved.id`, `consolidated_by_resolved.id` (contact existence oracle for religious-affiliation categories). Response now unconditionally returns `invited_by_resolved=None, consolidated_by_resolved=None`; resolution kept only in internal outbox context.
+- **MEDIUM FIXED:** (1) NewcomerSubmission string fields lacked max_length bounds → first_name/last_name VARCHAR(100), email VARCHAR(255), phone VARCHAR(20), prayer_request VARCHAR(2000). (2) POST /public/newcomer returned 200 even if no is_public profile configured → now returns 404 "No public form is configured" (form has real off-switch). (3) Rate-limit on GET/POST /public/newcomer keys on client IP via get_remote_address; behind nginx + Cloudflare Tunnel requires `--proxy-headers + X-Forwarded-For` or becomes global/spoofable (M3 ops gate: document in PRODUCTION_RUNBOOK pre-public-launch).
+- **LOW FIXED:** (1) _drain_outbox_stub stored raw exception (webhook URL + secret) in error detail → store only redacted error (type + status). (2) Duplicate query used LIKE wildcard → uses `func.lower(email) == func.lower(submission.email)` exact match. (3) GET /public/newcomer/profile undecorated → added `@limiter.limit("30/minute")`.
+- **4 regression tests added:** membership oracle, string bounds, 404 guard, duplicate exact-match.
+- **Re-audit: PASS.**
+
+**Integration**
+- `test_migrations.py` EXPECTED_HEAD updated to `s13a1b2c3d4e5`; down_revision test to `s12a1b2c3d4e5`
+- Outbox model reused (S12); no modifications
+
+**Key assumptions (documented in BLOCKERS.md)**
+- 🟡 **M3 rate-limit-proxy requirement (pre-public-launch ops gate):** GET/POST /public/newcomer rate-limited (30/min) by per-IP client address (get_remote_address). Behind nginx + Cloudflare Tunnel, uvicorn MUST run with `--proxy-headers --forwarded-allow-ips <nginx>` and nginx must set trusted X-Forwarded-For, else per-IP limiting collapses to one global bucket or becomes XFF-spoofable. **MUST document in PRODUCTION_RUNBOOK + validate pre-cutover.**
+- [S13] CORS (same-origin): dynamic_settings has no get_json method; same-origin deployment sufficient; per-request CORS deferred.
+- [S13] Unseeded custom fields (service_time, prayer_request, season): merged directly post-creation; CN-14 follow-up: S02 should seed them.
+- [S13] `new_friend_add_date` → `first_visit_date` custom field key seeded in S02.
+- [S13] ContactFormPage `?profile=` param deferred: deeper template pre-fill integration post-S13.
+- [S13] Outbox producer (S16/S17 expansion): stub persists rows; full NotificationService + push/email awaits S17/S18.
+
+---
+
 ### S12 — Activities (Assignable Tasks) (Sprint complete 2026-06-26)
 
 Assignable task/activity engine for contact-tied workflows. Admins + volunteers create, assign, and transition activity status; role-aware mutations with due-reminder producer stub.

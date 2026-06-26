@@ -1177,3 +1177,32 @@ class Outbox(Base):
     __table_args__ = (
         Index("ix_outbox_status_run_at", "status", "run_at"),
     )
+
+
+# ---------------------------------------------------------------------------
+# S13 — Profiles (form templates for templated contact creation)
+# ---------------------------------------------------------------------------
+
+
+class Profile(Base):
+    """Reusable form template driving the ProfileFormRenderer (S13).
+
+    fields: JSON array of ProfileFieldDescriptor objects (spec §3.2).
+    settings: JSON dict controlling renderer behaviour (spec §3.2).
+    owner_id: nullable FK to users.id; SET NULL on user deletion.
+    is_public: exactly one profile may be public at a time (enforced in service layer,
+        not a DB constraint).
+    """
+    __tablename__ = "profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    entity: Mapped[str] = mapped_column(String(30), nullable=False, default="contact")
+    fields: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    settings: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    is_public: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    owner_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)

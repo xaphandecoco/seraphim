@@ -36,13 +36,14 @@ The **SPRINT-LOOP-LOG.md** (`docs/superpowers/SPRINT-LOOP-LOG.md`) is the master
 | S10 | CSV/XLSX import wizard | ✅ Committed | `ea77663` | 2026-06-26 | Self-service 4-step import wizard (Upload → Map → Preview → Run) for contacts + participants; reuses S06 ETL core; migration adds import_mapping_preset table; 13 API endpoints + frontend wizard UI; security BLOCK→fix (HIGH PII exposure in staging files) |
 | S11 | Find & merge duplicate contacts | ✅ Committed | `<pending>` | 2026-06-26 | Native duplicate detection + merge; dedup-rule-set admin config; FK-complete merge with manifest introspection guard; security PASS + 3 hardening fixes |
 | S12 | Activities (assignable tasks, user-facing "Tasks") | ✅ Committed | `<pending>` | 2026-06-26 | Activities table + ORM models; ActivityService (CRUD, role-aware status matrix); 8 endpoints; full React UI ("My Tasks"/"All", ActivitiesPanel on contact, FormModal); security PASS + reassign authz fix (admin-only); manifest dedupe guard resolved |
+| S13 | Profiles & public newcomer form | ✅ Committed | `<pending>` | 2026-06-26 | Profiles table + ORM; admin CRUD + render; public GET/POST with rate-limit + guards; ProfileFormRenderer/WelcomePage UIs; newcomer intake pipeline (5-min dedupe, Claude prayer-classification, transactional outbox); security BLOCK→fix (HIGH membership oracle, 3 MEDIUM, 3 LOW); M3 rate-limit-proxy ops gate |
 
-**Queued (awaiting build):**
+**Paused (awaiting owner decision):**
 
 | Sprint | Title | Status | Notes |
 |--------|-------|--------|-------|
-| S21 | (Final cutover) | ⏳ Queued | Depends on S24 completion; next after S24 committed |
-| S08–S20 | (Remaining leaves) | ⏳ Queued | Backlog items; sequenced after S21 |
+| S15+ | (Remaining leaves) | ⏳ Paused at owner request | Autonomous loop STOPPED after S13; next buildable leaf is S15 when owner resumes |
+| S21 | (Final cutover) | ⏳ Paused | Depends on S24 completion; final artifact-only step |
 
 ## Notable Completed Sprints
 
@@ -267,6 +268,29 @@ The **SPRINT-LOOP-LOG.md** (`docs/superpowers/SPRINT-LOOP-LOG.md`) is the master
 - **Notable reconciliations:** `require_viewer` already exists (S15 shim); /activities/assignees uses it (AC10 + test plan require viewer 200); Dedupe FK manifest introspection test **RESOLVED** by adding `('activities', 'target_contact_id')` tuple (no longer fails on S12 landing)
 - Green gates: backend **38 isolated S12 tests + 42 migrations+manifest+dedupe + 42 regression** passed/0 failed; app imports clean; frontend **build + lint clean, 483 tests** (35 files); security **PASS**
 - **UX carry-forwards:** BottomNav 6-slot logic (Ranking → admin More sheet, Tasks tab added); "Tasks" label collision with detection-review tab (rename candidate: "Review"); target-contact ID input unshared (post-S12 contact-picker enhancement)
+
+---
+
+### S13: Profiles & Public Newcomer Form
+
+**Goal:** Implement intake-form templates (profiles) and a public-facing unauthenticated newcomer form. Admin profile builder. Backend newcomer pipeline: deduplication, contact creation, name resolution, prayer-classification, transactional outbox for notifications.
+
+**Outcome:**
+- **`profiles` table & ORM:** name, description, is_public, fields (JSONB form schema), created_at, updated_at
+- **Admin CRUD endpoints:** list, detail, create, update (with duplicate-name guard + custom-field-name validation), delete (with last-public guard)
+- **Public endpoints:** `GET /public/newcomer/profile` (returns chosen is_public profile, 404 if none) + `POST /public/newcomer` (NewcomerSubmission with first_name, last_name, email, phone, invited_by_name, consolidated_by_name, prayer_request, new_friend_add_date, custom fields; rate-limited 30/min)
+- **Newcomer intake pipeline** (`services/profile_service.py`): 5-min duplicate suppression (email + first/last name exact match), contact creation via S03, S22 name resolution (invited_by/consolidated_by), Claude prayer-classification (model claude-sonnet-4-6, fail-open, skipped in tests), transactional outbox enqueue [google_chat.new_friend + gmail.new_friend_report always; gmail.prayer_request only if valid], best-effort drain_outbox_stub
+- **Frontend:** WelcomePage (public, no auth, no BottomNav, tied to is_public profile), ProfilesPage (admin list + inline is_public toggle), ProfileFormPage (admin builder with ProfileFormRenderer + SectionRenderer + ProfileFieldEditor), ContactsPage "New from template" dropdown
+- **Notable reconciliations:** Outbox already existed (S12) — imported not recreated; match_name returns NameMatchResult TypedDict (outcome SINGLE/AMBIGUOUS/UNMATCHED); create_contact auto-writes audit + runs validate_and_coerce (non-seeded fields service_time/prayer_request/season merged post-creation); new_friend_add_date → first_visit_date custom field key; Anthropic via env ANTHROPIC_API_KEY, model claude-sonnet-4-6
+- **Security audit:** BLOCK → FIXED: HIGH (membership oracle via PII leak: invited_by_resolved.id / consolidated_by_resolved.id in public response → now unconditionally None); 3 MEDIUM (unbounded strings → max_length bounds, no off-switch → 404 guard, rate-limit IP spoofing → M3 ops gate documented); 3 LOW (webhook secret leak → redacted error, duplicate bypass → exact match, rate-limit missing → decorator added)
+- Green gates: backend **19 isolated S13 tests** (incl. test_newcomer_no_public_profile_404) + **89 regression** (contacts/custom_fields/name_match) + **31 final consolidated** passed/0 failed; frontend **build + lint + 501 tests** passed; security **PASS**
+- **Key ops requirement (M3 pre-public-launch gate):** Rate-limit (30/min on GET/POST /public/newcomer) keys on per-IP client address via get_remote_address. Behind nginx + Cloudflare Tunnel, uvicorn MUST run with `--proxy-headers --forwarded-allow-ips <nginx>` and nginx must set trusted X-Forwarded-For, else limiting collapses to one global bucket or becomes XFF-spoofable. **MUST document in PRODUCTION_RUNBOOK + validate pre-cutover.**
+
+**Notable:**
+- Public newcomer intake replaces the spec's n8n New Friend V2 orchestration; now native in Seraphim backend with Claude-powered prayer-classification and transactional outbox producer
+- Membership-oracle authz fix (HIGH security): public response was leaking existence/membership info via resolved contact IDs; fixed by unconditionally returning None (resolution kept in internal outbox context)
+- M3 rate-limiter proxy requirement is a pre-public-launch ops gate (documented in BLOCKERS.md 🟡); must be validated before newcomer form is exposed publicly
+- Outbox producer stub (S16/S17 expansion pending): persists google_chat.new_friend + gmail.new_friend_report + gmail.prayer_request rows; full NotificationService + push/email dispatch awaits S17/S18
 
 ---
 

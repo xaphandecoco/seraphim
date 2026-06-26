@@ -1162,6 +1162,124 @@ class PaginatedNameAliasResponse(BaseModel):
 
 
 # ============================================================================
+# S13 — Profiles & Public Newcomer Form
+# ============================================================================
+
+
+class ProfileFieldDescriptor(BaseModel):
+    id: str
+    field_type: Literal["core", "custom"]
+    core_field: Optional[str] = None
+    custom_field_name: Optional[str] = None
+    label_override: Optional[str] = None
+    placeholder: Optional[str] = None
+    default_value: Optional[Any] = None
+    is_required: bool = False
+    weight: int = 0
+    section: Optional[str] = None
+
+
+class ProfileSettings(BaseModel):
+    contact_subtype_default: Optional[str] = None
+    submit_label: str = "Submit"
+    success_message: str = "Thank you! Your information has been recorded."
+    redirect_after_submit: Optional[str] = None
+    notify_google_chat: bool = True
+    notify_gmail: bool = True
+    prayer_request_field: Optional[str] = None
+    invited_by_field: Optional[str] = None
+    consolidated_by_field: Optional[str] = None
+
+
+class ProfileCreate(BaseModel):
+    name: str
+    entity: str = "contact"
+    fields: List[ProfileFieldDescriptor] = []
+    settings: ProfileSettings = ProfileSettings()
+    is_public: bool = False
+
+
+class ProfileUpdate(BaseModel):
+    name: Optional[str] = None
+    fields: Optional[List[ProfileFieldDescriptor]] = None
+    settings: Optional[ProfileSettings] = None
+    is_public: Optional[bool] = None
+
+
+class ProfileResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    entity: str
+    fields: List[ProfileFieldDescriptor]
+    settings: ProfileSettings
+    is_public: bool
+    owner_id: Optional[int]
+    created_at: datetime
+    updated_at: datetime
+
+
+class PaginatedProfileResponse(BaseModel):
+    items: List[ProfileResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+class ProfileRenderResponse(BaseModel):
+    profile_id: int
+    name: str
+    fields: List[Dict[str, Any]]
+    settings: ProfileSettings
+
+
+class PublicProfileSchema(BaseModel):
+    name: str
+    settings: ProfileSettings
+    fields: List[Dict[str, Any]]
+
+
+class NewcomerSubmission(BaseModel):
+    # Honeypot: must be empty or absent; bots that fill this are silently accepted but ignored
+    website: Optional[str] = Field(default=None, max_length=255)
+
+    # Required core fields (M1: max_length prevents DB overflows and Anthropic cost abuse)
+    first_name: str = Field(max_length=100)
+    last_name: str = Field(max_length=100)
+
+    # Optional core fields
+    phone: Optional[str] = Field(default=None, max_length=30)
+    gender: Optional[str] = Field(default=None, max_length=30)
+    birth_date: Optional[str] = Field(default=None, max_length=10)       # YYYY-MM-DD
+    street_address: Optional[str] = Field(default=None, max_length=255)
+
+    # Custom field values (stored in contacts.custom_data)
+    facebook_name: Optional[str] = Field(default=None, max_length=255)
+    new_friend_add_date: Optional[str] = Field(default=None, max_length=10)  # YYYY-MM-DD; -> first_visit_date
+    service_time: Optional[str] = Field(default=None, max_length=200)
+    invited_by: Optional[str] = Field(default=None, max_length=200)          # free-text name -> S22 resolution
+    consolidated_by: Optional[str] = Field(default=None, max_length=200)     # free-text name -> S22 resolution
+    prayer_request: Optional[str] = Field(default=None, max_length=2000)
+    season: Optional[str] = Field(default=None, max_length=200)
+
+    @field_validator("first_name", "last_name")
+    @classmethod
+    def not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be blank")
+        return v.strip()
+
+
+class NewcomerResult(BaseModel):
+    contact_id: int
+    status: Literal["created", "duplicate"]
+    message: str
+    invited_by_resolved: Optional[bool] = None
+    consolidated_by_resolved: Optional[bool] = None
+
+
+# ============================================================================
 # S22 — Community Reports
 # ============================================================================
 

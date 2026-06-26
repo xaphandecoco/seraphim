@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { Users, Plus, Search, SlidersHorizontal } from 'lucide-react';
+import { Users, Plus, Search, SlidersHorizontal, ChevronDown } from 'lucide-react';
+import { useProfiles } from '@/hooks/useProfiles';
 
 import { useAuthStore } from '@/store/authStore';
 import { useContacts } from '@/hooks/useContacts';
@@ -101,6 +102,28 @@ export function ContactsPage() {
   const queryClient = useQueryClient();
   const isAdmin = useAuthStore((s) => s.isAdmin);
 
+  // ---- Profile dropdown (lazy: only fetch when dropdown is opened) ----------
+  const [showNewDropdown, setShowNewDropdown] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const { data: profilesData } = useProfiles(
+    { entity: 'contact', page: 1, page_size: 100 },
+    { enabled: showNewDropdown },
+  );
+  const profileItems = profilesData?.items ?? [];
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!showNewDropdown) return;
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowNewDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showNewDropdown]);
+
   const [searchInput, setSearchInput] = useState('');
   const search = useDebounce(searchInput, 300);
 
@@ -176,15 +199,51 @@ export function ContactsPage() {
               <SlidersHorizontal size={15} aria-hidden="true" />
               Advanced Search
             </button>
-            <button
-              type="button"
-              onClick={() => navigate('/contacts/new')}
-              className="flex min-h-[36px] items-center gap-1.5 rounded-xl bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/85 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-ring"
-              aria-label="New Contact"
-            >
-              <Plus size={15} aria-hidden="true" />
-              New Contact
-            </button>
+            {/* New Contact dropdown — [Blank] | [Profile templates] */}
+            <div ref={dropdownRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setShowNewDropdown((v) => !v)}
+                aria-haspopup="true"
+                aria-expanded={showNewDropdown}
+                aria-label="New Contact"
+                className="flex min-h-[36px] items-center gap-1.5 rounded-xl bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/85 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <Plus size={15} aria-hidden="true" />
+                New Contact
+                <ChevronDown size={13} aria-hidden="true" />
+              </button>
+
+              {showNewDropdown && (
+                <div
+                  className="absolute right-0 top-full z-30 mt-1 min-w-[180px] rounded-xl border border-border bg-card shadow-xl"
+                  role="menu"
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => { navigate('/contacts/new'); setShowNewDropdown(false); }}
+                    className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm font-semibold text-foreground hover:bg-background first:rounded-t-xl"
+                  >
+                    Blank
+                  </button>
+                  {profileItems.map((profile) => (
+                    <button
+                      key={profile.id}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        navigate(`/contacts/new?profile=${profile.id}`);
+                        setShowNewDropdown(false);
+                      }}
+                      className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-foreground hover:bg-background last:rounded-b-xl"
+                    >
+                      {profile.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </header>

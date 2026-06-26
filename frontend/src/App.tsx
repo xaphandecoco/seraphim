@@ -38,6 +38,17 @@ import { GroupsPage } from '@/pages/GroupsPage';
 import { GroupDetailPage } from '@/pages/GroupDetailPage';
 import { VolunteerRoute } from '@/components/layout/VolunteerRoute';
 
+// S13 — lazy-load Profiles pages (admin-only, rarely first load) + public WelcomePage
+const ProfilesPage = lazy(() =>
+  import('@/pages/ProfilesPage').then((m) => ({ default: m.ProfilesPage })),
+);
+const ProfileFormPage = lazy(() =>
+  import('@/pages/ProfileFormPage').then((m) => ({ default: m.ProfileFormPage })),
+);
+const WelcomePage = lazy(() =>
+  import('@/pages/WelcomePage').then((m) => ({ default: m.WelcomePage })),
+);
+
 // S16 — lazy-load TanStack-Query-heavy pages to keep App.tsx initial bundle light
 const SystemStatusPage = lazy(() =>
   import('@/pages/SystemStatusPage').then((m) => ({ default: m.SystemStatusPage })),
@@ -110,6 +121,8 @@ function App() {
         <Route path="/setup" element={<SetupPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/auth/callback" element={<OAuthCallbackPage />} />
+        {/* S13 — public newcomer form (no auth, no BottomNav) */}
+        <Route path="/welcome" element={<Suspense fallback={<PageFallback />}><WelcomePage /></Suspense>} />
         <Route path="/" element={<ProtectedRoute><TasksPage /></ProtectedRoute>} />
         <Route path="/ranking" element={<ProtectedRoute><RankingPage /></ProtectedRoute>} />
         <Route path="/events" element={<ProtectedRoute><EventsPage /></ProtectedRoute>} />
@@ -126,6 +139,10 @@ function App() {
         <Route path="/attendees" element={<Navigate to="/contacts" replace />} />
         <Route path="/activities" element={<ProtectedRoute><Suspense fallback={<PageFallback />}><ActivitiesPage /></Suspense></ProtectedRoute>} />
         <Route path="/audit" element={<ProtectedRoute><AuditPage /></ProtectedRoute>} />
+        {/* S13 — Profiles (admin-only) */}
+        <Route path="/profiles" element={<AdminRoute><Suspense fallback={<PageFallback />}><ProfilesPage /></Suspense></AdminRoute>} />
+        <Route path="/profiles/new" element={<AdminRoute><Suspense fallback={<PageFallback />}><ProfileFormPage /></Suspense></AdminRoute>} />
+        <Route path="/profiles/:id/edit" element={<AdminRoute><Suspense fallback={<PageFallback />}><ProfileFormPage /></Suspense></AdminRoute>} />
         <Route path="/settings" element={<AdminRoute><SettingsPage /></AdminRoute>} />
         <Route path="/settings/users" element={<AdminRoute><UserManagementPage /></AdminRoute>} />
         <Route path="/settings/custom-fields" element={<AdminRoute><CustomFieldsPage /></AdminRoute>} />

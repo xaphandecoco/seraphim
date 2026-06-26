@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ClipboardList, Trophy, Calendar, CalendarRange, Users, Settings, Settings2, AlertTriangle, FileText, ShieldCheck, MoreHorizontal, X, Upload, UserCheck, FileCheck, Database, Fingerprint, Search, FileSpreadsheet, Copy, ListTodo } from 'lucide-react';
+import { ClipboardList, Trophy, Calendar, CalendarRange, Users, Settings, Settings2, AlertTriangle, FileText, ShieldCheck, MoreHorizontal, X, Upload, UserCheck, FileCheck, Database, Fingerprint, Search, FileSpreadsheet, Copy, ListTodo, ClipboardCheck } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { useTaskStore } from '@/store/taskStore';
 import { useOverdueBadgeCount } from '@/hooks/useActivities';
@@ -53,6 +53,7 @@ export function BottomNav() {
     { path: '/settings/migration', label: 'Migration', icon: Database },
     { path: '/settings/biometric', label: 'Biometric', icon: Fingerprint },
     { path: '/contacts/search', label: 'Search & Groups', icon: Search },
+    { path: '/profiles', label: 'Profiles', icon: ClipboardCheck },
   ];
 
   return (
