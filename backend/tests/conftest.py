@@ -24,7 +24,12 @@ from app.config import dynamic_settings
 # recognition pipeline/workers hits the same database the fixtures set up.
 from app.database import Base, engine, async_session, get_db
 from app.dependencies import check_setup_complete
-from app.main import app
+# Import the FastAPI app eagerly so that ALL ORM models are registered on
+# Base.metadata before any fixture runs create_all(). (During S01 Phase 1 this
+# was temporarily lazy because router imports were broken; the backend repoint is
+# complete now, so eager import is restored — otherwise db_session.create_all
+# runs before the models are imported and silently skips tables like `users`.)
+from app.main import app  # noqa: F401  (registers all models via router imports)
 from app.utils.auth import create_access_token, hash_password
 
 # Stable test secret — must be ≥32 chars (matches our fail-fast assertion)
@@ -33,6 +38,8 @@ TEST_JWT_SECRET = "seraphim-test-secret-do-not-use-in-production-x"
 # Pre-load the test secret into dynamic_settings so verify_token works in request handlers
 dynamic_settings._settings["jwt_secret"] = TEST_JWT_SECRET
 dynamic_settings._settings["setup_complete"] = True
+# Ensure name_match Claude stub path is active in dynamic_settings as well
+dynamic_settings._settings["name_match.claude_enabled"] = False
 dynamic_settings._initialized = True
 
 
@@ -96,9 +103,36 @@ def _cleanup_sqlite_db_at_session_start():
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
     """Per-test schema for full isolation: create all tables on the app engine, yield a
     session, then drop everything. The HTTP path (overridden get_db) and the pipeline's
-    direct `async_session()` both use this same engine, so all writes share one DB."""
+    direct `async_session()` both use this same engine, so all writes share one DB.
+
+    S22-AC14: inserts an AdminSetting row key='name_match.claude_enabled' with
+    value={'enabled': false} so that dynamic_settings loaded from DB also reflects
+    the disabled stub path, and so that tests which reload dynamic_settings from DB
+    see the correct value.
+    """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Seed AdminSetting immediately on the same connection so the row is visible
+        # to the yielded session.  S22-AC14: name_match.claude_enabled=false ensures
+        # the Claude stub path is active even if something reloads dynamic_settings
+        # from the DB during a test.
+        from sqlalchemy import text as _text
+        from datetime import datetime as _dt, timezone as _tz
+        _now = _dt.now(_tz.utc).replace(tzinfo=None).isoformat()
+        await conn.execute(
+            _text(
+                "INSERT OR IGNORE INTO admin_settings"
+                " (key, value, category, description, requires_restart, sensitive, updated_at)"
+                " VALUES (:key, :val, :cat, :desc, 0, 0, :now)"
+            ),
+            {
+                "key": "name_match.claude_enabled",
+                "val": '{"enabled": false}',
+                "cat": "name_match",
+                "desc": "Enable Claude AI for name matching (S22)",
+                "now": _now,
+            },
+        )
     try:
         async with async_session() as session:
             yield session
@@ -122,6 +156,26 @@ async def _reset_rate_limiter():
         except Exception:
             pass
     yield
+
+
+# ---------------------------------------------------------------------------
+# Snapshot/restore global dynamic_settings around every test.
+#
+# Some endpoints (notably POST /setup) mutate the process-wide
+# `dynamic_settings` — e.g. /setup writes a fresh random `jwt_secret` and
+# reloads from the DB, which clobbers the TEST_JWT_SECRET this conftest installs.
+# Without restoration, every Bearer token in tests that run AFTER a /setup test
+# fails verification (401 cascade). Snapshot before, restore after, so no test
+# can poison auth/config for the rest of the session.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _restore_dynamic_settings():
+    saved_settings = dict(dynamic_settings._settings)
+    saved_initialized = dynamic_settings._initialized
+    yield
+    dynamic_settings._settings = saved_settings
+    dynamic_settings._initialized = saved_initialized
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +254,56 @@ async def volunteer_auth_headers(volunteer_user):
     return {"Authorization": f"Bearer {token}"}
 
 
+@pytest_asyncio.fixture
+async def viewer_user(db_session):
+    from app.models import User
+
+    user = User(
+        email="viewer@lightnc.org",
+        password_hash=hash_password("viewpass123"),
+        role="viewer",
+        is_active=True,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user
+
+
+@pytest_asyncio.fixture
+async def viewer_auth_headers(viewer_user):
+    token = make_token(
+        viewer_user.id, viewer_user.email, viewer_user.role, "Viewer"
+    )
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest_asyncio.fixture
+async def another_user(db_session):
+    """A second volunteer user for reassign tests — distinct from volunteer_user."""
+    from app.models import User
+
+    user = User(
+        email="another@lightnc.org",
+        password_hash=hash_password("anotherpass123"),
+        role="volunteer",
+        is_active=True,
+        name="Another Volunteer",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user
+
+
+@pytest_asyncio.fixture
+async def another_auth_headers(another_user):
+    token = make_token(
+        another_user.id, another_user.email, another_user.role, "Another Volunteer"
+    )
+    return {"Authorization": f"Bearer {token}"}
+
+
 # ---------------------------------------------------------------------------
 # Domain / supporting-data fixtures
 # ---------------------------------------------------------------------------
@@ -224,12 +328,12 @@ async def sample_camera(db_session):
 
 @pytest_asyncio.fixture
 async def sample_event(db_session):
-    from app.models import CiviCRMEvent
+    from app.models import Event
 
-    event = CiviCRMEvent(
-        event_id=1001,
+    # Minimal per CN-16 — no event_type, is_active, session_time (those are S04 columns)
+    event = Event(
         title="Sunday Service",
-        start_date=datetime.now(timezone.utc).replace(tzinfo=None),
+        start_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
     db_session.add(event)
     await db_session.commit()
@@ -238,19 +342,36 @@ async def sample_event(db_session):
 
 
 @pytest_asyncio.fixture
-async def sample_member(db_session):
-    from app.models import CiviCRMMember
+async def sample_contact(db_session):
+    from app.models import Contact
 
-    member = CiviCRMMember(
-        contact_id=5001,
+    contact = Contact(
         first_name="Juan",
         last_name="dela Cruz",
         email="juan@lightnc.org",
+        contact_type="individual",
     )
-    db_session.add(member)
+    db_session.add(contact)
     await db_session.commit()
-    await db_session.refresh(member)
-    return member
+    await db_session.refresh(contact)
+    return contact
+
+
+# Backwards-compat alias so tests still using sample_member fixture continue to work
+@pytest_asyncio.fixture
+async def sample_member(db_session):
+    from app.models import Contact
+
+    contact = Contact(
+        first_name="Juan",
+        last_name="dela Cruz",
+        email="juan@lightnc.org",
+        contact_type="individual",
+    )
+    db_session.add(contact)
+    await db_session.commit()
+    await db_session.refresh(contact)
+    return contact
 
 
 @pytest_asyncio.fixture
@@ -264,7 +385,7 @@ async def sample_detection(db_session, sample_camera, sample_event):
         tier="91-99",
         status="tasked",
         matched_name="Juan dela Cruz",
-        event_id=sample_event.event_id,
+        event_id=sample_event.id,  # use .id (not .event_id) on the new Event model
     )
     db_session.add(detection)
     await db_session.commit()
@@ -293,37 +414,253 @@ async def sample_task(db_session, sample_detection):
 
 
 @pytest_asyncio.fixture
-async def sample_attendance(db_session, sample_member, sample_event, sample_detection):
-    from app.models import Attendance
+async def sample_participant(db_session, sample_contact, sample_event, sample_detection):
+    from app.models import Participant
 
-    record = Attendance(
-        contact_id=sample_member.contact_id,
-        event_id=sample_event.event_id,
+    record = Participant(
+        contact_id=sample_contact.id,
+        event_id=sample_event.id,
         detection_id=sample_detection.id,
-        status="confirmed",
-        push_status="pending",
-        push_attempts=0,
+        status="attended",
+        source="face",
     )
     db_session.add(record)
     await db_session.commit()
     await db_session.refresh(record)
     return record
+
+
+# Backwards-compat alias for tests still referencing sample_attendance
+@pytest_asyncio.fixture
+async def sample_attendance(db_session, sample_member, sample_event, sample_detection):
+    from app.models import Participant
+
+    record = Participant(
+        contact_id=sample_member.id,
+        event_id=sample_event.id,
+        detection_id=sample_detection.id,
+        status="attended",
+        source="face",
+    )
+    db_session.add(record)
+    await db_session.commit()
+    await db_session.refresh(record)
+    return record
+
+
+# ---------------------------------------------------------------------------
+# Custom-field fixtures (S02)
+# ---------------------------------------------------------------------------
 
 
 @pytest_asyncio.fixture
-async def dead_letter_attendance(db_session, sample_member, sample_event):
-    from app.models import Attendance
+async def sample_custom_group(db_session):
+    from app.models import CustomFieldGroup
 
-    record = Attendance(
-        contact_id=sample_member.contact_id,
-        event_id=sample_event.event_id,
-        detection_id=None,
-        status="confirmed",
-        push_status="dead_letter",
-        push_attempts=5,
-        last_push_error="CiviCRM connection timeout",
+    group = CustomFieldGroup(
+        name="test_group",
+        label="Test Group",
+        entity="contact",
+        weight=10,
+        is_active=True,
     )
-    db_session.add(record)
+    db_session.add(group)
     await db_session.commit()
-    await db_session.refresh(record)
-    return record
+    await db_session.refresh(group)
+    return group
+
+
+@pytest_asyncio.fixture
+async def sample_select_field(db_session, sample_custom_group):
+    from app.models import CustomFieldDef
+
+    field = CustomFieldDef(
+        group_id=sample_custom_group.id,
+        name="pepsol",
+        label="PEPSOL Pathway",
+        data_type="select",
+        options=[
+            {"value": "stub_val", "label": "Stub Value"},
+            {"value": "other", "label": "Other"},
+        ],
+        is_required=False,
+        is_multi=False,
+        weight=10,
+        is_active=True,
+    )
+    db_session.add(field)
+    await db_session.commit()
+    await db_session.refresh(field)
+    return field
+
+
+@pytest_asyncio.fixture
+async def sample_multiselect_field(db_session, sample_custom_group):
+    from app.models import CustomFieldDef
+
+    field = CustomFieldDef(
+        group_id=sample_custom_group.id,
+        name="community",
+        label="Community",
+        data_type="multiselect",
+        options=[
+            {"value": "a", "label": "Community A"},
+            {"value": "b", "label": "Community B"},
+        ],
+        is_required=False,
+        is_multi=True,
+        weight=20,
+        is_active=True,
+    )
+    db_session.add(field)
+    await db_session.commit()
+    await db_session.refresh(field)
+    return field
+
+
+@pytest_asyncio.fixture
+async def sample_contact_ref_field(db_session, sample_custom_group):
+    from app.models import CustomFieldDef
+
+    field = CustomFieldDef(
+        group_id=sample_custom_group.id,
+        name="invited_by",
+        label="Invited By",
+        data_type="contact_reference",
+        options=[],
+        is_required=False,
+        is_multi=False,
+        weight=30,
+        is_active=True,
+    )
+    db_session.add(field)
+    await db_session.commit()
+    await db_session.refresh(field)
+    return field
+
+
+@pytest_asyncio.fixture
+async def sample_checkbox_field(db_session, sample_custom_group):
+    from app.models import CustomFieldDef
+
+    field = CustomFieldDef(
+        group_id=sample_custom_group.id,
+        name="water_baptized",
+        label="Water Baptized?",
+        data_type="checkbox",
+        options=[],
+        is_required=False,
+        is_multi=False,
+        weight=40,
+        is_active=True,
+    )
+    db_session.add(field)
+    await db_session.commit()
+    await db_session.refresh(field)
+    return field
+
+
+# ---------------------------------------------------------------------------
+# Contact-CRUD fixtures (F03)
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def sample_deleted_contact(db_session):
+    """A Contact with is_deleted=True and contact_type='individual'."""
+    from app.models import Contact
+
+    contact = Contact(
+        first_name="Deleted",
+        last_name="Person",
+        email="deleted@lightnc.org",
+        contact_type="individual",
+        is_deleted=True,
+    )
+    db_session.add(contact)
+    await db_session.commit()
+    await db_session.refresh(contact)
+    return contact
+
+
+@pytest_asyncio.fixture
+async def sample_contact_with_custom_data(
+    db_session, sample_custom_group, sample_contact_ref_field
+):
+    """A Contact whose custom_data contains an invited_by contact_reference value
+    pointing at another existing contact.  Exercises get_contact_detail batched
+    IN-query resolution of contact_reference chips."""
+    from app.models import Contact
+
+    # Referee contact (the one being pointed at)
+    referee = Contact(
+        first_name="Referrer",
+        last_name="Member",
+        email="referrer@lightnc.org",
+        contact_type="individual",
+        is_deleted=False,
+    )
+    db_session.add(referee)
+    await db_session.flush()
+
+    # Contact whose custom_data stores the reference
+    subject = Contact(
+        first_name="Referred",
+        last_name="Member",
+        email="referred@lightnc.org",
+        contact_type="individual",
+        is_deleted=False,
+        custom_data={"invited_by": referee.id},
+    )
+    db_session.add(subject)
+    await db_session.commit()
+    await db_session.refresh(subject)
+    await db_session.refresh(referee)
+    # Attach the referee so tests can look up its id
+    subject._referee = referee
+    return subject
+
+
+@pytest_asyncio.fixture
+async def sample_participant_history(db_session, sample_contact):
+    """Creates 2 Event rows with explicit, distinct start_at timestamps and 2
+    Participant rows (source='face' and source='name_list') linked to
+    sample_contact.  start_at is set explicitly so desc ordering is assertable."""
+    from app.models import Event, Participant
+
+    earlier = datetime(2025, 1, 1, 9, 0, 0)
+    later = datetime(2025, 3, 15, 10, 0, 0)
+
+    event_a = Event(title="Early Service", start_at=earlier)
+    event_b = Event(title="Later Service", start_at=later)
+    db_session.add(event_a)
+    db_session.add(event_b)
+    await db_session.flush()
+
+    part_a = Participant(
+        contact_id=sample_contact.id,
+        event_id=event_a.id,
+        status="attended",
+        source="face",
+    )
+    part_b = Participant(
+        contact_id=sample_contact.id,
+        event_id=event_b.id,
+        status="attended",
+        source="name_list",
+    )
+    db_session.add(part_a)
+    db_session.add(part_b)
+    await db_session.commit()
+    await db_session.refresh(event_a)
+    await db_session.refresh(event_b)
+    await db_session.refresh(part_a)
+    await db_session.refresh(part_b)
+
+    return {
+        "contact": sample_contact,
+        "events": [event_a, event_b],
+        "participants": [part_a, part_b],
+        "earlier": earlier,
+        "later": later,
+    }

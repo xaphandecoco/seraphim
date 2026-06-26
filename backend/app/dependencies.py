@@ -64,6 +64,18 @@ async def require_volunteer(
     return current_user
 
 
+# S15 shim
+async def require_viewer(
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    if current_user["role"] not in ("admin", "volunteer", "viewer"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Read access required",
+        )
+    return current_user
+
+
 async def check_setup_complete(request: Request):
     """Middleware dependency: return 503 if setup is not complete."""
     from app.config import dynamic_settings

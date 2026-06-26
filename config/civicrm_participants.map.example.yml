@@ -1,0 +1,52 @@
+# CiviCRM -> Seraphim participants column map example
+# Usage:
+#   python scripts/migrate_civicrm.py \
+#     --entity participants \
+#     --file path/to/participants.xlsx \
+#     --map config/civicrm_participants.map.example.yml \
+#     [--dry-run] [--by-user-email admin@example.com]
+#
+# The participants phase requires contacts and events to be imported first
+# so that contact_ref and event_ref can be resolved to internal IDs.
+#
+# column_map keys   = header names as they appear in the source XLSX
+# target            = Seraphim Participant field
+# data_type         = str | int | float | date | bool | list
+# required          = true to treat a blank/missing cell as a row error
+
+column_map:
+  "Contact ID":
+    target: contact_ref
+    data_type: str
+    required: true
+
+  "Event ID":
+    target: event_ref
+    data_type: str
+    required: true
+
+  "Participant Status":
+    target: status
+    data_type: str
+
+  "Participant Role":
+    target: role
+    data_type: str
+
+  "Registration Date":
+    target: registration_date
+    data_type: date
+
+  "Source":
+    target: source
+    data_type: str
+
+  "Notes":
+    target: notes
+    data_type: str
+
+options:
+  date_format: "%Y-%m-%d"
+  default_status: "registered"
+  default_role: "attendee"
+  # mode is derived from --dry-run flag (dry / live); do not set here

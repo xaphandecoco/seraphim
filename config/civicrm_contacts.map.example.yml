@@ -1,0 +1,78 @@
+# CiviCRM -> Seraphim contacts column map example
+# Usage:
+#   python scripts/migrate_civicrm.py \
+#     --entity contacts \
+#     --file path/to/contacts.xlsx \
+#     --map config/civicrm_contacts.map.example.yml \
+#     [--dry-run] [--by-user-email admin@example.com]
+#
+# column_map keys   = header names as they appear in the source XLSX
+# target            = Seraphim Contact field or custom_data.<field_name>
+# data_type         = str | int | float | date | bool | list (for multi-select)
+# required          = true to treat a blank/missing cell as a row error
+
+column_map:
+  "CiviCRM Contact ID":
+    target: external_id
+    data_type: str
+    required: true
+
+  "First Name":
+    target: first_name
+    data_type: str
+    required: true
+
+  "Last Name":
+    target: last_name
+    data_type: str
+    required: true
+
+  "Email":
+    target: email
+    data_type: str
+
+  "Phone":
+    target: phone
+    data_type: str
+
+  "Date of Birth":
+    target: date_of_birth
+    data_type: date
+
+  "Gender":
+    target: gender
+    data_type: str
+
+  "Address Line 1":
+    target: address_line1
+    data_type: str
+
+  "City":
+    target: city
+    data_type: str
+
+  "State":
+    target: state
+    data_type: str
+
+  "Postal Code":
+    target: postal_code
+    data_type: str
+
+  "Country":
+    target: country
+    data_type: str
+
+  "Membership Status":
+    target: custom_data.membership_status
+    data_type: str
+
+  "Dietary Restrictions":
+    target: custom_data.dietary_restrictions
+    data_type: str
+
+options:
+  date_format: "%Y-%m-%d"
+  # mode is derived from --dry-run flag (dry / live); do not set here
+  default_gender: ""
+  skip_blank_email: false

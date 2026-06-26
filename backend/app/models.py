@@ -3,6 +3,7 @@ from typing import Optional
 
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -11,17 +12,18 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    func,
     text,
 )
 from sqlalchemy import JSON
 from sqlalchemy.dialects.postgresql import JSONB as _PG_JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.database import Base
+
 # Use Postgres JSONB in production (matches the columns created by migrations) and
 # fall back to the cross-dialect JSON type on SQLite (used by the test suite).
 JSONB = JSON().with_variant(_PG_JSONB, "postgresql")
-
-from app.database import Base
 
 
 def utc_now() -> datetime:
@@ -63,25 +65,124 @@ class Camera(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
-class CiviCRMMember(Base):
-    __tablename__ = "civicrm_members"
+class Contact(Base):
+    """App-minted contact record (replaces CiviCRMMember).
 
-    contact_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    external_id: nullable CiviCRM contact_id kept for migration traceability (S06).
+    Derived snapshot columns (last_attended_at … is_connected) are populated by
+    the S23 nightly recompute job; all are nullable here.
+    """
+    __tablename__ = "contacts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    external_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # ORM default is lowercase to match Pydantic Literal['individual','household','organization'].
+    # server_default='Individual' in migration g7h8i9j0k1l2 cannot be retro-changed; any pre-prod
+    # rows carrying 'Individual' must be normalized by a one-time UPDATE (data task S06, not this PR).
+    contact_type: Mapped[str] = mapped_column(String(50), nullable=False, default="individual")
+    contact_subtype: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     first_name: Mapped[str] = mapped_column(String(255), nullable=False)
     last_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    nickname: Mapped[Optional[str]] = mapped_column(String(255))
-    email: Mapped[Optional[str]] = mapped_column(String(255))
-    last_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    # CN-01: nickname is a core column created here; S03 does NOT re-add it
+    nickname: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    suffix: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    gender: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    birth_date: Mapped[Optional[datetime]] = mapped_column(Date, nullable=True)
+    phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    street_address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    custom_data: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+    # Derived snapshot fields — populated by S23 nightly job
+    last_attended_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    attendance_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    weeks_absent: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    tier: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # Tier0|Tier1|Tier2|Tier3|Inactive
+    is_active: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    is_regular: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    is_connected: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+
+    __table_args__ = (
+        # Partial unique: multiple NULLs allowed; only non-NULL values are unique
+        Index(
+            "ix_contacts_external_id",
+            "external_id",
+            unique=True,
+            postgresql_where=text("external_id IS NOT NULL"),
+            sqlite_where=text("external_id IS NOT NULL"),
+        ),
+        Index("ix_contacts_email", "email"),
+        Index("ix_contacts_last_name", "last_name"),
+        Index("ix_contacts_is_deleted", "is_deleted"),
+        # S23 snapshot indexes — mirrors the 5 indexes in the S23 migration so
+        # that SQLite create_all (test path) builds the same indexes as Postgres.
+        Index("ix_contacts_tier", "tier"),
+        Index("ix_contacts_is_active", "is_active"),
+        Index("ix_contacts_is_regular", "is_regular"),
+        Index("ix_contacts_is_connected", "is_connected"),
+        Index("ix_contacts_last_attended_at", "last_attended_at"),
+    )
 
 
-class CiviCRMEvent(Base):
-    __tablename__ = "civicrm_events"
+class EventSeries(Base):
+    """Recurring event series (e.g. Sunday Service, Powerhouse).
 
-    event_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    cadence: JSONB dict describing the recurrence pattern (e.g. day-of-week,
+    frequency).  Defaults to an empty dict; the application layer populates it.
+    """
+    __tablename__ = "event_series"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
-    start_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    end_date: Mapped[Optional[datetime]] = mapped_column(DateTime)
-    last_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    event_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    session_time: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    cadence: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    default_location: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class Event(Base):
+    """App-minted event record (replaces CiviCRMEvent).
+
+    Minimal core columns only per CN-16.  S04 adds event_type, session_time,
+    occurrence_date, recurring_series_id, is_active, location, and the
+    event_series table.
+    """
+    __tablename__ = "events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    external_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    start_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    end_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    event_type: Mapped[str] = mapped_column(String(50), nullable=False, default="Event")
+    session_time: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    occurrence_date: Mapped[Optional[datetime]] = mapped_column(Date, nullable=True)
+    recurring_series_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("event_series.id", ondelete="SET NULL"), nullable=True
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    location: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+    __table_args__ = (
+        Index(
+            "ix_events_external_id",
+            "external_id",
+            unique=True,
+            postgresql_where=text("external_id IS NOT NULL"),
+            sqlite_where=text("external_id IS NOT NULL"),
+        ),
+        Index("ix_events_start_at", "start_at"),
+        Index("ix_events_event_type", "event_type"),
+        Index("ix_events_occurrence_date", "occurrence_date"),
+    )
 
 
 class ComprefaceSubject(Base):
@@ -89,15 +190,24 @@ class ComprefaceSubject(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     subject_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    compreface_subject_id: Mapped[str] = mapped_column(String(255), unique=True)
+    compreface_subject_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, unique=True)
     contact_id: Mapped[Optional[int]] = mapped_column(
-        Integer, ForeignKey("civicrm_members.contact_id")
+        Integer, ForeignKey("contacts.id", ondelete="SET NULL")
+    )
+    consent_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("biometric_consent.id", ondelete="SET NULL"), nullable=True
     )
     enrollment_status: Mapped[str] = mapped_column(
         String(20), default="pending"
-    )  # pending | active
+    )  # pending | active | purged
     sample_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_trained_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    # S07: soft-delete/purge support + enrollment provenance + orphan tracking
+    enrollment_source: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    is_orphan: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    purged_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    _legacy_civicrm_contact_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
 
 class Detection(Base):
@@ -121,11 +231,12 @@ class Detection(Base):
         String(255)
     )
     event_id: Mapped[Optional[int]] = mapped_column(
-        Integer, ForeignKey("civicrm_events.event_id", ondelete="SET NULL")
+        Integer, ForeignKey("events.id", ondelete="SET NULL")
     )
     is_enrolled: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    _legacy_civicrm_event_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
 
 class Task(Base):
@@ -184,33 +295,41 @@ class TaskAction(Base):
     )
 
 
-class Attendance(Base):
-    __tablename__ = "attendance"
+class Participant(Base):
+    """Attendance record (replaces Attendance/attendance table).
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source values (CN-07): face | manual | zoom | name_list |
+    community_report | import | bulk | migration
+    """
+    __tablename__ = "participants"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     contact_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("civicrm_members.contact_id", ondelete="CASCADE")
+        Integer, ForeignKey("contacts.id", ondelete="CASCADE"), nullable=False
     )
     event_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("civicrm_events.event_id", ondelete="CASCADE")
-    )
-    detection_id: Mapped[Optional[int]] = mapped_column(
-        Integer, ForeignKey("detections.id", ondelete="SET NULL")
+        Integer, ForeignKey("events.id", ondelete="CASCADE"), nullable=False
     )
     status: Mapped[str] = mapped_column(
-        String(20), default="pending"
-    )  # pending | confirmed
-    push_status: Mapped[str] = mapped_column(
-        String(20), default="pending"
-    )  # pending | queued | pushed | failed | expired | dead_letter
-    push_attempts: Mapped[int] = mapped_column(
-        Integer, default=0, server_default="0"
+        String(20), nullable=False, default="attended"
+    )  # attended | registered | no_show | cancelled
+    role: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    source: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="manual"
+    )  # face | manual | zoom | name_list | community_report | import | bulk | migration
+    detection_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("detections.id", ondelete="SET NULL"), nullable=True
     )
-    last_push_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    registered_by_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
 
     __table_args__ = (
-        UniqueConstraint("contact_id", "event_id", name="uq_attendance_contact_event"),
+        UniqueConstraint("event_id", "contact_id", name="uq_participant_event_contact"),
+        Index("ix_participants_contact_id", "contact_id"),
+        Index("ix_participants_event_id", "event_id"),
+        Index("ix_participants_source", "source"),
     )
 
 
@@ -239,10 +358,37 @@ class Log(Base):
         Integer, ForeignKey("users.id", ondelete="SET NULL")
     )
     event_id: Mapped[Optional[int]] = mapped_column(
-        Integer, ForeignKey("civicrm_events.event_id", ondelete="SET NULL")
+        Integer, ForeignKey("events.id", ondelete="SET NULL")
     )
-    push_status: Mapped[Optional[str]] = mapped_column(String(20))
+    # push_status column removed in S01 migration
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class AuditLog(Base):
+    """Audit trail for all create/update/delete operations.
+
+    Table + model owned by S01 (per CN-03).
+    The app/services/audit.py::record() write helper is S02's responsibility.
+
+    actor_id is NULL for system/API-key actors.
+    """
+    __tablename__ = "audit_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    actor_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    entity: Mapped[str] = mapped_column(String(100), nullable=False)
+    entity_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    before: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    after: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+
+    __table_args__ = (
+        Index("ix_audit_log_entity_entity_id", "entity", "entity_id"),
+        Index("ix_audit_log_created_at", "created_at"),
+    )
 
 
 class PitQueue(Base):
@@ -258,6 +404,121 @@ class PitQueue(Base):
     admin_note: Mapped[Optional[str]] = mapped_column(Text)
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class PhotoIngestBatch(Base):
+    """Tracks progress and per-image results for a bulk-upload job.
+
+    The UI polls GET /uploads/photos/batch/{batch_id} to show live progress.
+    report: list of per-image dicts capped at 500 entries in-process.
+    """
+    __tablename__ = "photo_ingest_batches"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    event_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("events.id", ondelete="SET NULL"), nullable=True
+    )
+    uploaded_by_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="processing"
+    )  # processing | completed | failed
+    total_images: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    processed_images: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    faces_detected: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    auto_logged: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    tasks_created: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    skipped: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    deduplicated: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    errors: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    report: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_photo_ingest_batches_status", "status"),
+    )
+
+
+class FaceSample(Base):
+    """One enrolled face image for a CompreFace subject.
+
+    source values: manual | detection | bulk_ingest | backfill
+    compreface_image_id: UUID returned by CompreFace add_example; NULL if
+        enrollment via the remote API has not yet occurred.
+    """
+    __tablename__ = "face_samples"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    compreface_subject_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("compreface_subjects.compreface_subject_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    contact_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True
+    )
+    image_path: Mapped[str] = mapped_column(Text, nullable=False)
+    thumb_path: Mapped[str] = mapped_column(Text, nullable=False)
+    compreface_image_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    source: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="manual"
+    )  # manual | detection | bulk_ingest | backfill
+    added_by_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    quality_score: Mapped[Optional[float]] = mapped_column(Numeric(5, 3), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+
+    __table_args__ = (
+        Index("ix_face_samples_contact_id", "contact_id"),
+        Index("ix_face_samples_subject_id", "compreface_subject_id"),
+    )
+
+
+# S24 created this table; S08 extends it with RTBF lifecycle columns.
+class BiometricConsent(Base):
+    __tablename__ = "biometric_consent"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    contact_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("contacts.id", ondelete="CASCADE"), nullable=False
+    )
+    consent_given: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    consented_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    basis_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    # S08: RTBF lifecycle columns
+    recorded_by_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    retention_until: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    deletion_requested_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    deletion_requested_by_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    purged_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    purge_detail: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+    __table_args__ = (
+        UniqueConstraint("contact_id", name="uq_biometric_consent_contact"),
+        Index(
+            "ix_biometric_consent_retention",
+            "retention_until",
+            postgresql_where=text("purged_at IS NULL"),
+            sqlite_where=text("purged_at IS NULL"),
+        ),
+        Index(
+            "ix_biometric_consent_deletion_requested",
+            "deletion_requested_at",
+            postgresql_where=text("purged_at IS NULL"),
+            sqlite_where=text("purged_at IS NULL"),
+        ),
+    )
 
 
 class VolunteerStat(Base):
@@ -291,3 +552,657 @@ class AdminSetting(Base):
     updated_by: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL")
     )
+    label: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+
+
+class ExportJob(Base):
+    """Async export job — tracks status and result for CSV/XLSX exports.
+
+    job_type: attendance | contacts | audit_log (extensible)
+    fmt: csv | xlsx
+    params: arbitrary filter params passed by the requester.
+    status: pending | running | done | error
+    """
+
+    __tablename__ = "export_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    job_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    fmt: Mapped[str] = mapped_column(String(10), nullable=False)
+    params: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'"), default=dict
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="pending", default="pending"
+    )
+    requested_by_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    row_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    file_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    file_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now(), default=utc_now
+    )
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_export_jobs_status_created", "status", "created_at"),
+        Index("ix_export_jobs_requested_by", "requested_by_id"),
+    )
+
+
+class CustomFieldGroup(Base):
+    """Admin-defined group of custom fields for an entity type.
+
+    entity: lowercase contact | event | activity (C8).
+    name: machine snake_case name; UNIQUE per (entity, name).
+    """
+    __tablename__ = "custom_field_group"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    label: Mapped[str] = mapped_column(String(255), nullable=False)
+    entity: Mapped[str] = mapped_column(String(20), nullable=False, default="contact")
+    weight: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("entity", "name", name="uq_custom_field_group_entity_name"),
+        Index("ix_cfg_entity_active_weight", "entity", "is_active", "weight"),
+    )
+
+
+class CustomFieldDef(Base):
+    """One field definition within a CustomFieldGroup.
+
+    data_type: text | textarea | select | multiselect | date | number |
+               checkbox | contact_reference
+    options: list of {value: str, label: str} for select/multiselect; [] otherwise.
+    is_multi: true → stored value is a JSON array; auto-forced for multiselect.
+    """
+    __tablename__ = "custom_field_def"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    group_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("custom_field_group.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    label: Mapped[str] = mapped_column(String(255), nullable=False)
+    data_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    options: Mapped[list] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'"), default=list
+    )
+    is_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_multi: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    weight: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    help_text: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("group_id", "name", name="uq_custom_field_def_group_name"),
+        Index("ix_cfd_group_active_weight", "group_id", "is_active", "weight"),
+    )
+
+    def __init__(self, **kwargs: object) -> None:
+        # Ensure options is [] immediately at construction time (before flush/commit).
+        # mapped_column(default=list) only fires at INSERT; the Python-side attribute
+        # stays None until the ORM issues a SQL INSERT.  This __init__ bridges the gap
+        # so that any code that reads .options pre-flush (e.g. routers, seed functions,
+        # service layer) gets [] rather than None.
+        if "options" not in kwargs:
+            kwargs["options"] = []
+        super().__init__(**kwargs)
+
+
+# ---------------------------------------------------------------------------
+# S22 — Name Matching tables (spec §3.1-3.3)
+# ---------------------------------------------------------------------------
+
+class NameAlias(Base):
+    """Canonical alias → contact mapping used by the name-matching pipeline.
+
+    alias_text: normalised lowercase string (e.g. 'liz', 'beth').
+    alias_type: nick | typo | alt_spelling | maiden | preferred
+    source: who created this alias — admin | bulk_import | community_report | inferred
+    meta: arbitrary JSONB bag for future provenance fields.
+    contact_id ondelete CASCADE — alias records are purged when the contact is deleted.
+    created_by_id ondelete SET NULL — user row may be removed without losing the alias.
+    """
+    __tablename__ = "name_alias"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    alias_text: Mapped[str] = mapped_column(String(255), nullable=False)
+    alias_type: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="nick"
+    )  # nick | typo | alt_spelling | maiden | preferred
+    contact_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("contacts.id", ondelete="CASCADE"), nullable=False
+    )
+    created_by_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    source: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="admin"
+    )  # admin | bulk_import | community_report | inferred
+    meta: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+    __table_args__ = (
+        Index("uq_name_alias_text", "alias_text", unique=True),
+        Index("ix_name_alias_contact_id", "contact_id"),
+        Index("ix_name_alias_alias_type", "alias_type"),
+    )
+
+
+class CommunityReport(Base):
+    """Volunteer-submitted community report with name-list and metadata.
+
+    raw_text: the original free-form name string submitted by the volunteer.
+    parsed_names: JSONB list of dicts produced by the name-extraction step;
+        each dict has at minimum {"raw": str, "matched_contact_id": int|null}.
+    status: pending | processing | complete | partial | archived
+    match_status: pending | complete | partial  — tracks name-matching progress
+    date_of_activity: DateTime (not Date) — mirrors the utc_now pattern; the
+        CommunityReportCreate Pydantic schema accepts a `date` field and the
+        handler coerces it to a naive UTC datetime before persisting.
+    All FK references use ondelete SET NULL so that deleting a contact, event,
+    or user does not cascade-delete the report.
+    participants.source value 'community_report' needs no DDL — it is already
+    covered by the String(30) source column on the participants table (CN-07).
+    """
+    __tablename__ = "community_report"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    event_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("events.id", ondelete="SET NULL"), nullable=True
+    )
+    # event_title: free-text fallback when event_id is not supplied
+    event_title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    submitted_by_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    # submitted_by_contact_id: auto-resolved from users.email → contacts.email
+    submitted_by_contact_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True
+    )
+    raw_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    parsed_names: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    # S22-F06 extended fields
+    zone: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    topics: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    prayer_items: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    remarks: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    attendee_names: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    event_leader_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    event_leader_contact_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True
+    )
+    photo_paths: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    # match_status: pending | complete | partial
+    match_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending"
+    )
+    matched_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    review_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending"
+    )  # pending | processing | complete | partial | archived
+    date_of_activity: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+    __table_args__ = (
+        Index("ix_community_report_event_id", "event_id"),
+        Index("ix_community_report_status", "status"),
+        Index("ix_community_report_submitted_by_id", "submitted_by_id"),
+        Index("ix_community_report_match_status", "match_status"),
+        Index("ix_community_report_zone", "zone"),
+    )
+
+
+class NameMatchReviewQueue(Base):
+    """One unresolved name-match candidate requiring human review.
+
+    raw_name: the raw string token being matched.
+    candidate_contact_id: the top-scoring contact suggestion (nullable — may be
+        null when no candidate clears the confidence threshold).
+    score: Jaro-Winkler or composite score in [0, 1].
+    status: pending | accepted | rejected | skipped
+    community_report_id FK → community_report.id ondelete SET NULL; the review
+        queue row becomes orphaned (community_report_id = NULL) if the source
+        report is deleted, preserving the audit trail.
+    resolved_by_id ondelete SET NULL — user may be removed without losing the
+        queue entry.
+    """
+    __tablename__ = "name_match_review_queue"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    community_report_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("community_report.id", ondelete="SET NULL"), nullable=True
+    )
+    event_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("events.id", ondelete="SET NULL"), nullable=True
+    )
+    contact_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True
+    )
+    raw_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    candidate_contact_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True
+    )
+    score: Mapped[Optional[float]] = mapped_column(Numeric(5, 4), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending"
+    )  # pending | accepted | rejected | skipped
+    resolved_by_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+    raw_payload: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    source: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+
+    __table_args__ = (
+        Index("ix_nmrq_community_report_id", "community_report_id"),
+        Index("ix_nmrq_event_id", "event_id"),
+        Index("ix_nmrq_contact_id", "contact_id"),
+        Index("ix_nmrq_status", "status"),
+        Index("ix_nmrq_candidate_contact_id", "candidate_contact_id"),
+        Index("ix_nmrq_source", "source"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# S22-Import — CiviCRM / spreadsheet migration tables
+# ---------------------------------------------------------------------------
+
+class ImportBatch(Base):
+    """Tracks a single spreadsheet/CSV import run end-to-end.
+
+    entity: 'contacts' | 'events' | 'participants' | 'links'
+    mode: 'dry_run' | 'live'  (spec §3.1 — the run kind, NOT a write-op type)
+    status: 'running' | 'completed' | 'failed'
+    column_map: {source_col: app_field} mapping chosen by the user.
+    options: arbitrary loader options (e.g. match_field, date_format).
+    created_by_id ondelete SET NULL — admin user row may be removed without
+        losing the batch audit trail.
+    """
+
+    __tablename__ = "import_batch"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source_filename: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    entity: Mapped[str] = mapped_column(String(20), nullable=False)
+    mode: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="running"
+    )  # running | done | error | partial
+    column_map: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    options: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    total_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    skipped_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    review_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_by_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    staging_file: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_import_batch_entity_status", "entity", "status"),
+        Index("ix_import_batch_started_at", "started_at"),
+    )
+
+
+class ImportRowResult(Base):
+    """Per-row outcome for a single ImportBatch run.
+
+    outcome: 'created' | 'updated' | 'skipped' | 'error' | 'review'
+    external_id: the raw source token string from the input file (String, not
+        Integer — the loader coerces to int when querying Contact/Event).
+    entity_id: the Contact/Event/Participant PK that was created or matched.
+    raw: the full input row dict (capped by caller if too large).
+    """
+
+    __tablename__ = "import_row_result"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    batch_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("import_batch.id", ondelete="CASCADE"), nullable=False
+    )
+    row_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    external_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    outcome: Mapped[str] = mapped_column(
+        String(20), nullable=False
+    )  # created | updated | skipped | error | review
+    entity_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    raw: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+
+    __table_args__ = (
+        Index("ix_import_row_result_batch", "batch_id"),
+        # Composite (batch_id, outcome) per spec §3.2 — matches the migration DDL
+        # and serves the batch-scoped outcome filter on GET /batches/{id}/rows.
+        Index("ix_import_row_result_outcome", "batch_id", "outcome"),
+    )
+
+
+class ImportMappingPreset(Base):
+    """User-saved column-mapping preset for the CSV/XLSX import wizard.
+
+    owner_id ondelete SET NULL — user may be removed without losing presets.
+    entity: 'contacts' | 'events' | 'participants' | 'links'
+    column_map: {source_col: app_field} mapping to pre-populate the wizard.
+    options: arbitrary loader options (e.g. match_field, date_format).
+    is_shared: True visible to all users; False owner-only.
+    """
+
+    __tablename__ = "import_mapping_preset"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    owner_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    entity: Mapped[str] = mapped_column(String(20), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    column_map: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    options: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    is_shared: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("entity", "name", name="uq_import_mapping_preset_entity_name"),
+        Index("ix_import_mapping_preset_owner_id", "owner_id"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# S16 — Scheduler / job-run audit table
+# ---------------------------------------------------------------------------
+
+class JobRun(Base):
+    """Audit record for a single scheduler job execution.
+
+    status values: running | success | completed | failed | skipped | warning
+    No CHECK constraint — additional statuses may be added without a migration.
+    duration_ms: wall-clock milliseconds, populated on finish.
+    """
+
+    __tablename__ = "job_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    job_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="running"
+    )  # running | success | completed | failed | skipped | warning
+    detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now()
+    )
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    duration_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    __table_args__ = (
+        Index("ix_job_runs_job_name", "job_name"),
+        Index("ix_job_runs_started_at", "started_at"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# S09 — Advanced Search, Saved Searches & Smart Groups
+# ---------------------------------------------------------------------------
+
+class SavedSearch(Base):
+    """User-owned saved query preset for a given entity type.
+
+    criteria: arbitrary JSONB filter document interpreted by the search service.
+    entity: the target entity — defaults to 'contact'; extensible to 'event' etc.
+    owner_id ondelete CASCADE — saved searches are purged when the owner is deleted.
+    Unique per (owner_id, name) so each user's namespace is distinct.
+    """
+    __tablename__ = "saved_searches"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    owner_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    entity: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="contact", default="contact"
+    )
+    criteria: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+    __table_args__ = (
+        UniqueConstraint("owner_id", "name", name="uq_saved_searches_owner_name"),
+        Index("ix_saved_searches_owner_id", "owner_id"),
+    )
+
+
+class Group(Base):
+    """Named group of contacts, either static (manually curated) or smart
+    (membership derived at query time from the criteria JSONB document).
+
+    group_type: 'smart' | 'static'  — enforced at the application layer.
+    criteria: populated for smart groups; NULL for static groups.
+    owner_id ondelete SET NULL — group survives its owner being deleted.
+    Unique per (name, entity).
+    """
+    __tablename__ = "groups"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    entity: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="contact", default="contact"
+    )
+    group_type: Mapped[str] = mapped_column(String(20))  # smart | static
+    criteria: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    owner_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+    __table_args__ = (
+        UniqueConstraint("name", "entity", name="uq_groups_name_entity"),
+    )
+
+
+class GroupMember(Base):
+    """Join record binding a contact to a static group.
+
+    Smart-group membership is computed dynamically and is never stored here.
+    group_id ondelete CASCADE — member rows purged when the group is deleted.
+    contact_id ondelete CASCADE — member rows purged when the contact is deleted.
+    added_by_id ondelete SET NULL — preserves the row when the adding user is gone.
+    Unique per (group_id, contact_id) to prevent duplicate membership.
+    """
+    __tablename__ = "group_members"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    group_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("groups.id", ondelete="CASCADE"), nullable=False
+    )
+    contact_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("contacts.id", ondelete="CASCADE"), nullable=False
+    )
+    added_by_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    added_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now
+    )
+
+    __table_args__ = (
+        UniqueConstraint("group_id", "contact_id", name="uq_group_members_group_contact"),
+        Index("ix_group_members_group_id", "group_id"),
+        Index("ix_group_members_contact_id", "contact_id"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# S11 — Find & Merge Duplicates: Dedupe Rule Set
+# ---------------------------------------------------------------------------
+
+class DedupeRuleSet(Base):
+    """Named set of field-weighting rules used by the duplicate-detection engine.
+
+    rules: JSONB list of dicts, e.g.
+        [{"field": "email", "weight": 100}, {"field": "phone", "weight": 50}]
+    threshold: minimum composite score (0-100) to flag a candidate pair.
+    is_default: exactly one row should carry is_default=True; enforced at the
+        application layer (not a DB constraint).
+    """
+
+    __tablename__ = "dedupe_rule_set"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    threshold: Mapped[int] = mapped_column(Integer, nullable=False, default=70)
+    rules: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_dedupe_rule_set_name"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# S12 — Activities (assignable CRM tasks) and Outbox (event delivery)
+# ---------------------------------------------------------------------------
+
+
+class Activity(Base):
+    """CRM assignable activity / task (S12).
+
+    Assigned to a system user, optionally targeting a contact.
+    'Activity' in code; end-user UI label is 'Task'.
+    Do NOT confuse with class Task (face-recognition detection-review queue).
+    assignee_user_id: SET NULL on user deletion — preserves activity history.
+    target_contact_id: CASCADE on contact hard-delete — contact removal purges tasks.
+    created_by_id: SET NULL on user deletion — preserves authorship trail.
+    """
+    __tablename__ = "activities"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    activity_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    activity_date: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    due_date: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="scheduled")
+    priority: Mapped[str] = mapped_column(String(10), nullable=False, default="normal")
+    assignee_user_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    target_contact_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("contacts.id", ondelete="CASCADE"), nullable=True
+    )
+    created_by_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    reminder_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+    __table_args__ = (
+        Index("ix_activities_assignee_status", "assignee_user_id", "status"),
+        Index("ix_activities_target_contact_id", "target_contact_id"),
+        Index("ix_activities_due_date", "due_date"),
+        Index("ix_activities_status", "status"),
+    )
+
+
+class Outbox(Base):
+    """Transactional outbox for async event delivery (S12 producer; S17 consumer).
+
+    S12 inserts rows with event_type='activity.due_reminder', status='pending'.
+    S17 owns the consumer / delivery. Table is created idempotently by the S12
+    migration; define exactly once here so test-suite create_all also builds it.
+    """
+    __tablename__ = "outbox"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    payload: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    run_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+
+    __table_args__ = (
+        Index("ix_outbox_status_run_at", "status", "run_at"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# S13 — Profiles (form templates for templated contact creation)
+# ---------------------------------------------------------------------------
+
+
+class Profile(Base):
+    """Reusable form template driving the ProfileFormRenderer (S13).
+
+    fields: JSON array of ProfileFieldDescriptor objects (spec §3.2).
+    settings: JSON dict controlling renderer behaviour (spec §3.2).
+    owner_id: nullable FK to users.id; SET NULL on user deletion.
+    is_public: exactly one profile may be public at a time (enforced in service layer,
+        not a DB constraint).
+    """
+    __tablename__ = "profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    entity: Mapped[str] = mapped_column(String(30), nullable=False, default="contact")
+    fields: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    settings: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    is_public: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    owner_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)

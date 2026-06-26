@@ -5,7 +5,6 @@ faces to confirm, deny, or correct the match. Actions are logged and feed into
 volunteer accuracy metrics.
 """
 
-import random
 from datetime import datetime, timezone
 from typing import List, Optional
 

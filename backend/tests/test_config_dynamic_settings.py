@@ -150,3 +150,57 @@ def test_get_int_default_is_six_x_margin_for_cloudflare():
         "100s idle timeout"
     )
     assert default_seconds > 0, "a 0s default would busy-loop emitting keepalives"
+
+
+# ---------------------------------------------------------------------------
+# S04-F07 criterion (c) — get_sunday_series_id / get_powerhouse_series_id
+# return None when the key is unset (F06 delivery, verified here)
+# ---------------------------------------------------------------------------
+
+
+def test_get_sunday_series_id_returns_none_when_unset(ds):
+    """get_sunday_series_id() must return None when the key is absent."""
+    ds._settings.pop("sunday_series_id", None)
+    assert ds.get_sunday_series_id() is None
+
+
+def test_get_sunday_series_id_returns_none_when_empty_string(ds):
+    """get_sunday_series_id() must return None for empty string (not int(''))."""
+    ds._settings["sunday_series_id"] = ""
+    assert ds.get_sunday_series_id() is None
+
+
+def test_get_sunday_series_id_returns_none_when_zero(ds):
+    """get_sunday_series_id() must return None for 0 (sentinel 'not configured')."""
+    ds._settings["sunday_series_id"] = 0
+    assert ds.get_sunday_series_id() is None
+
+
+def test_get_sunday_series_id_returns_int_when_set(ds):
+    """get_sunday_series_id() must return the int value when configured."""
+    ds._settings["sunday_series_id"] = "42"
+    assert ds.get_sunday_series_id() == 42
+
+
+def test_get_powerhouse_series_id_returns_none_when_unset(ds):
+    """get_powerhouse_series_id() must return None when the key is absent."""
+    ds._settings.pop("powerhouse_series_id", None)
+    assert ds.get_powerhouse_series_id() is None
+
+
+def test_get_powerhouse_series_id_returns_none_when_empty_string(ds):
+    """get_powerhouse_series_id() must return None for empty string."""
+    ds._settings["powerhouse_series_id"] = ""
+    assert ds.get_powerhouse_series_id() is None
+
+
+def test_get_powerhouse_series_id_returns_none_when_zero(ds):
+    """get_powerhouse_series_id() must return None for 0 (sentinel 'not configured')."""
+    ds._settings["powerhouse_series_id"] = 0
+    assert ds.get_powerhouse_series_id() is None
+
+
+def test_get_powerhouse_series_id_returns_int_when_set(ds):
+    """get_powerhouse_series_id() must return the int value when configured."""
+    ds._settings["powerhouse_series_id"] = "7"
+    assert ds.get_powerhouse_series_id() == 7

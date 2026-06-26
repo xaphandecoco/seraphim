@@ -12,6 +12,48 @@ from app.models import Detection, Task
 logger = logging.getLogger(__name__)
 
 
+def _delete_image_files(
+    storage_base: Path,
+    image_path: Optional[str],
+) -> tuple[int, list[str]]:
+    """Delete a detection's thumb and _full.jpg sibling from disk.
+
+    Parameters
+    ----------
+    storage_base:
+        Absolute Path to the storage root (legacy_settings.STORAGE_PATH).
+    image_path:
+        Relative path (thumb) as stored in Detection.image_path.
+        The full sibling is derived by replacing ``_thumb.jpg`` with
+        ``_full.jpg``.
+
+    Returns
+    -------
+    (count_deleted, errors)
+        count_deleted: number of files successfully deleted (0, 1, or 2).
+        errors: list of error message strings for any failed deletions.
+    """
+    if not image_path:
+        return 0, []
+
+    thumb_path = storage_base / image_path
+    full_path = Path(str(thumb_path).replace("_thumb.jpg", "_full.jpg"))
+
+    count_deleted = 0
+    errors: list[str] = []
+    for path in (thumb_path, full_path):
+        try:
+            if path.exists():
+                path.unlink()
+                count_deleted += 1
+        except OSError as exc:
+            msg = f"Failed to delete {path}: {exc}"
+            logger.error(msg)
+            errors.append(msg)
+
+    return count_deleted, errors
+
+
 @dataclass
 class CleanupResult:
     scanned: int = 0
@@ -77,7 +119,7 @@ class FaceCleanupService:
     ) -> list[Detection]:
         result = await session.execute(
             select(Detection)
-            .where(Detection.is_enrolled == False)
+            .where(Detection.is_enrolled.is_(False))
             .where(Detection.deleted_at.is_(None))
             .where(Detection.created_at < cutoff)
             .limit(limit)
@@ -110,22 +152,13 @@ class FaceCleanupService:
         if not detection.image_path:
             return "missing_file"
 
-        thumb_path = self.storage_base / detection.image_path
-        full_path = Path(str(thumb_path).replace("_thumb.jpg", "_full.jpg"))
-
-        # Delete files
-        deleted_any = False
-        for path in (thumb_path, full_path):
-            try:
-                if path.exists():
-                    path.unlink()
-                    deleted_any = True
-            except OSError as exc:
-                logger.error("Failed to delete %s: %s", path, exc)
-                return "error"
+        # Delete thumb + full sibling via shared helper
+        count_deleted, errs = _delete_image_files(self.storage_base, detection.image_path)
+        if errs:
+            return "error"
 
         # Update detection record
         detection.image_path = None
         detection.deleted_at = datetime.now(timezone.utc)
 
-        return "deleted" if deleted_any else "missing_file"
+        return "deleted" if count_deleted > 0 else "missing_file"

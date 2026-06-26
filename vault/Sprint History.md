@@ -1,0 +1,387 @@
+# Sprint History
+
+Living index of Project Seraphim's autonomous sprint loop. Tracks the **24 planned sprints** (S01–S24), their completion status, and historical progress toward production launch (FR transition complete as of S24).
+
+## What the Sprint Loop Tracks
+
+The **SPRINT-LOOP-LOG.md** (`docs/superpowers/SPRINT-LOOP-LOG.md`) is the master journal for the unattended build loop. It records:
+- **Owner blockers & questions** (pinned at top for waking review)
+- **Autonomous decisions** made during overnight runs (e.g., design choices, model overrides)
+- **Per-sprint procedure**: Check → Definition of Done → Build (senpai agents) → Critique (Opus) → Commit → Checkpoint
+- **Build DAG & execution order** — which sprints run before others (e.g., S01 → S02 → {S03, S07 parallel})
+- **Failure cap & remediation loops** — up to 3 rounds per sprint before escalation
+- **Git workflow** — one commit per passing sprint, no push (branch: `docs/crm-specs-and-cve-remediation`)
+- **Token/cron management** — 15-min watchdog cron for auto-recovery on session limit; 5-hour rolling window
+- **Resume playbook** — how to recover from a build killed on token limit via the journal
+
+## Sprint Numbering & Current Status
+
+**Completed (committed, green gates passed):**
+
+| Sprint | Title | Status | Commit | Date | Notes |
+|--------|-------|--------|--------|------|-------|
+| S01 | Schema inversion & CiviCRM excision | ✅ Committed | `2ee70d7` | 2026-06-25 | Deleted CiviCRM as system-of-record; minted Seraphim PKs; renamed core tables; added audit_log |
+| S02 | Dynamic custom-field engine | ✅ Committed | `14c4329` | 2026-06-25 | 8-field-type engine (contact groups + validation); admin CRUD UI; QA process bug fixed (Postgres-only ACs) |
+| S07 | Face enrollment & bulk photo ingestion | ✅ Committed | `8d87084` | 2026-06-25 | String-keyed CompreFace subjects; batch face enrollment; survived token-limit kill + journal resume |
+| S03 | Contact CRUD & profile | ✅ Committed | `a7839af` | 2026-06-25 | Contact detail page; custom-field resolution; chip rendering; depends on S01+S02 |
+| S04 | Event CRUD & management | ✅ Committed | `37608a9` | 2026-06-25 | Event series + session management; migration/model reconciliation fixed by Opus critic |
+| S05 | Bulk participants & export at scale | ✅ Committed | `c753618` | 2026-06-25 | Streaming CSV exports; async jobs; security audit (path-traversal, formula-injection fixed); Opus found `audience.ids` bug |
+| S22 | Name-matching for duplicate contacts | ✅ Committed | Backend `cc64c57`, Frontend `79fbe77` | 2026-06-25 | Claude-powered entity matching; NameMatchReviewQueue; pending_review workflow; stuck-workflow postmortem + 15-min watchdog |
+| S06 | Data migration / ETL (CiviCRM → Seraphim) | ✅ Committed | `a0951ca` | 2026-06-25 | Dry-run + live import phases; per-row audit trail (ImportBatch/ImportRowResult); Opus found 3 bugs (dry-run audit loss, divergence, FE contract) |
+| S24 | FR transition & cutover bridge | ✅ Committed | (PR created) | 2026-06-25 | BiometricConsent model + migration; remap_subjects service; consent backfill; verification endpoint; orphan relink/retire UI; FR Status Panel in Settings |
+| S23 | Member status & engagement engine | ✅ Committed | `3e52929` | 2026-06-26 | Snapshot recompute (7 derived columns); admin on-demand endpoint + fast summary; 2 APScheduler cron jobs (HAS_SCHEDULER guarded); 3 integration fixes in QA |
+| S16 | Settings, system status & scheduled jobs | ✅ Committed | `d048c2a` | 2026-06-26 | APScheduler host (AsyncIOScheduler, 9 jobs), job_runs table + ORM model; settings endpoints (GET/PUT); system-status + config-checklist; security BLOCK→fix (immutable keys protection); started_at canonicalization |
+| S08 | Biometric consent & right-to-be-forgotten | ✅ Committed | `f69f91a` | 2026-06-26 | BiometricPurgeService (irreversible RTBF erasure); consent lifecycle (record/update/revoke/deletion-request); 7 biometric endpoints (RBAC); scheduler auto-purge job; security BLOCK→fix (2 HIGH RTBF gaps fixed pre-merge) |
+| S09 | Advanced search, saved searches & smart groups | ✅ Committed | `91525ee` | 2026-06-26 | Native replacement for CiviCRM Advanced Search / Search Builder / Smart Groups; migration (3 tables); whitelist field registry (15 core + 7 S23-derived); injection-safe compile_criteria pipeline; security BLOCK→fix (3 bugs: bypassable DoS check, cross-owner IDOR, LIKE escape) |
+| S10 | CSV/XLSX import wizard | ✅ Committed | `ea77663` | 2026-06-26 | Self-service 4-step import wizard (Upload → Map → Preview → Run) for contacts + participants; reuses S06 ETL core; migration adds import_mapping_preset table; 13 API endpoints + frontend wizard UI; security BLOCK→fix (HIGH PII exposure in staging files) |
+| S11 | Find & merge duplicate contacts | ✅ Committed | `<pending>` | 2026-06-26 | Native duplicate detection + merge; dedup-rule-set admin config; FK-complete merge with manifest introspection guard; security PASS + 3 hardening fixes |
+| S12 | Activities (assignable tasks, user-facing "Tasks") | ✅ Committed | `<pending>` | 2026-06-26 | Activities table + ORM models; ActivityService (CRUD, role-aware status matrix); 8 endpoints; full React UI ("My Tasks"/"All", ActivitiesPanel on contact, FormModal); security PASS + reassign authz fix (admin-only); manifest dedupe guard resolved |
+| S13 | Profiles & public newcomer form | ✅ Committed | `<pending>` | 2026-06-26 | Profiles table + ORM; admin CRUD + render; public GET/POST with rate-limit + guards; ProfileFormRenderer/WelcomePage UIs; newcomer intake pipeline (5-min dedupe, Claude prayer-classification, transactional outbox); security BLOCK→fix (HIGH membership oracle, 3 MEDIUM, 3 LOW); M3 rate-limit-proxy ops gate |
+
+**Paused (awaiting owner decision):**
+
+| Sprint | Title | Status | Notes |
+|--------|-------|--------|-------|
+| S15+ | (Remaining leaves) | ⏳ Paused at owner request | Autonomous loop STOPPED after S13; next buildable leaf is S15 when owner resumes |
+| S21 | (Final cutover) | ⏳ Paused | Depends on S24 completion; final artifact-only step |
+
+## Notable Completed Sprints
+
+### S01: Schema Inversion & CiviCRM Excision
+
+**Goal:** Delete CiviCRM as system-of-record; Seraphim owns its own PKs; nullified external_id UNIQUE constraint.
+
+**Outcome:**
+- Renamed `civicrm_members` → `contacts`, `civicrm_events` → `events`, `attendance` → `participants`
+- Added `audit_log` table for compliance
+- FKs repointed: `compreface_subjects.contact_id → contacts.id`
+- Stashed legacy `_legacy_civicrm_contact_id`, `_legacy_civicrm_event_id` columns for S24 face remap
+- Deleted `services/civicrm.py` and all dead CiviCRM client references
+- Backend: 326 passed; Frontend: 39 passed; ruff advisory (not installed locally; CI-gated)
+- Opus critic: 0/13 DoD criteria unmet; confidence PASS
+
+---
+
+### S02: Dynamic Custom-Field Engine
+
+**Goal:** Replace hardcoded CiviCRM custom fields with an admin-configurable schema (8 field types, groups, validation).
+
+**Outcome:**
+- 2 tables: `custom_field_group`, `custom_field_def` with proper indexes + uuniques
+- 6 contact groups seeded (PEPSOL stages, Ministry, Community, Followup-status, Membership-class, Interests); option lists stubbed pending owner UI confirmation
+- `validate_and_coerce` service handles all 8 types (text, number, date, select, multiselect, contact_reference, checkbox, textarea)
+- 9-endpoint admin router with RBAC (admin write / volunteer read / unauth 401)
+- Audit logging for all mutations
+- Backend: 502 passed; Frontend: 82 passed; ruff clean
+- **Incident:** QA loop spun 5 rounds on Postgres-only migration ACs that SQLite couldn't verify. Process bug fixed (all future PLANs warn senpai about Postgres-only gates). Expert-QA found 2 real defects (seed type mismatch, missing round-trip test) + 1 spec nit (`at` → `created_at`); all fixed in single 78K-token round.
+- Opus critic: PASS
+
+---
+
+### S07: Face Enrollment & Bulk Photo Ingestion
+
+**Goal:** Design & implement the face-capture pipeline (RTSP → CompreFace → storage + detection rows).
+
+**Outcome:**
+- **Design decision:** adopted as-built STRING-keyed `compreface_subject_id` FK (deviated from spec's integer design; more natural, compatible with S24 remap)
+- Face enrollment: create `compreface_subject`, enroll photos, store face samples + thumbnails
+- Bulk photo ingestion via ZIP upload; background job queues frames
+- RTSP worker pulls frames from cameras in real-time
+- Green gates: backend 722 passed; frontend (specs indicate 310+ tests)
+- **Resilience:** build died on token limit (6:10 AM); journal resume + runId recovered all completed agents; avoided full rebuild
+- Opus critic: PASS; design choice carried forward
+
+---
+
+### S06: CiviCRM Data Migration / ETL
+
+**Goal:** Implement a dry-run-capable bulk participant import (backfill attendance from CiviCRM).
+
+**Outcome:**
+- 2-phase runner (dry_run → inspect → live)
+- Per-row audit trail: `ImportBatch` → `ImportRowResult` (outcome, error_detail, contact_id)
+- Dry-run batches persist row results but roll back core writes (allows operator to inspect before committing)
+- API endpoints: list batches, preview push, commit import
+- Frontend migration UI (T10 view)
+- **Opus critic found 3 bugs:**
+  1. (BLOCKER) Dry-run dropped all audit rows — `db.add(irr)` was inside the savepoint rollback; fixed by deferring add until after rollback
+  2. (DIVERGENCE) `import_batch.mode` stored invented `'upsert'` instead of spec's `'dry_run' | 'live'`; fixed + test added
+  3. (FE CONTRACT) Frontend built against imagined API (listBatches response shape, field names, missing mode); realigned to actual ImportBatchOut contract
+- Also: **latent S22 bug discovered** — NameMatchReviewQueue missing raw_payload/source columns; S06 T01/T02 fix it (architect override on spec §3.3, spec itself internally inconsistent)
+- Green gates: backend 1102 passed; frontend 323 tests; ruff clean; build clean
+- Opus verdict: PASS after fixes
+
+---
+
+### S22: Name-Matching for Duplicate Contacts
+
+**Goal:** Claude-powered entity matching to find duplicate contacts and suggest merges.
+
+**Outcome:**
+- `NameMatchReviewQueue` model (with S06's added raw_payload + source columns)
+- `match_name()` module-level service (TypedDict return); branches on `outcome == 'SINGLE'`
+- Admin review UI for pending matches
+- `pending_review_count` endpoint
+- Pending participants can be linked via the review workflow
+- **Key tension resolved:** spec §4.3 `match_name` signature vs. master §2.6 frozen contract; architect resolved with keyword-compatible signature
+- **Postmortem:** S22 build hung for 101 minutes (F06/F07 agents in 90-min reasoning loops). Recovery actions:
+  1. Watchdog cron reduced from 60m to 15m (threshold 20m)
+  2. gen_build.py injects `effort: 'medium'` default on engineer agents (bounds reasoning)
+  3. Stuck-workflow detection now tracks both PLAN and IMPLEMENT building markers
+- Green gates: backend 963 passed; frontend 310 tests + build + lint
+- Opus verdict: PASS
+
+---
+
+### S24: FR Transition & Cutover Bridge
+
+**Goal:** Implement the bridge from the legacy face-recognition system to new data model. Enable biometric consent tracking and orphan subject relinking.
+
+**Outcome:**
+- **BiometricConsent** model + migration (tracks subject enrollment + revocation)
+- `remap_subjects` service (compreface_subject_id → contact_id mapping during cutover)
+- Consent backfill (populate consent rows from enrollment history)
+- Verification endpoint for subject/contact alignment
+- Orphan subject relinking UI (in Settings → Face Management)
+- Retire subject UI (archive without deletion)
+- **FR Status Panel** in SettingsPage (shows enrollment status, pending consent, actions)
+- Green gates: 82 S24 tests pass; frontend 323/323; ruff clean; build passes
+- **Carry-forward:** full-suite test ordering issue (test_task_service / test_uploads fail in random-order full run but pass in isolation; pre-existing, not a code bug)
+- Next sprint when loop resumes: S21 (final cutover; depends on S24)
+
+---
+
+### S23: Member Status & Engagement Engine
+
+**Goal:** Implement a member-status recompute engine writing 7 derived snapshot columns tracking attendance, engagement tier, and connection status. Serve via admin on-demand endpoint and fast summary endpoint; schedule background recomputation via APScheduler (guarded by S16 availability).
+
+**Outcome:**
+- **Snapshot columns** on `contacts` table: `last_attended_at`, `attendance_count`, `weeks_absent`, `tier` (tier0/tier1/tier2/tier3/inactive), `is_active`, `is_regular`, `is_connected`
+- `backend/app/services/member_status_service.py` (new): `recompute_all_contacts()` (exported as `recompute_all_contacts` alias per S06 runner contract)
+- Backend APIs: `POST /analytics/recompute-member-status` (admin-only, on-demand); `GET /analytics/member-status-summary` (fast aggregate)
+- `backend/app/scheduler.py` (new): two cron jobs registered (weekly recompute Mon 00:00 UTC, end-of-month recompute 1st at 00:00 UTC) — guarded by `HAS_SCHEDULER=False` flag pending S16 scheduler availability
+- Frontend `StatusBadge.tsx` + `ContactDetailPage.tsx` (updated) — tier label rendering; null-guard for `is_active`
+- Migration `a3b4c5d6e7f8` adds 5 contact indexes + snapshot columns; chains from S24's `s24a1b2c3d4e5`
+- Green gates: backend full suite + frontend green; security PASS
+- **Integration fixes (QA gate):**
+  1. Function name mismatch: S06 runner calls `recompute_all_contacts` but service initially exported `recompute_all` → AttributeError cascade (9 t06 failures). Fixed by adding alias.
+  2. Stale test expectations: `test_migrations.py` `EXPECTED_HEAD` pointed to S06 (`eed28c4ef46a`), tests expected S06 down_revision (`c1d2e3f4a5b6`). Updated to S23 head `a3b4c5d6e7f8` / down_revision `s24a1b2c3d4e5`.
+  3. Missing dependency: `anthropic>=0.40.0` (used by S22 name-match) not installed in test env → 33 collection errors. Installed.
+- **Hardened:** audit/commit ordering — snapshot write FIRST, then best-effort audit (so audit failure can't drop snapshot per DoD B16)
+- **Carry-forward assumptions:** tier timezone (EOW Mon 00:00 UTC default, confirm PHT); connected-field names default `{community_leader, community}` (overridable); `job_runs` schema reconciliation pending S16 (INSERT fails silently if schema diverges); S16 must pass real AsyncIOScheduler to `register_s23_jobs` or boot will fail
+
+---
+
+### S16: Settings, System Status & Scheduled Jobs
+
+**Goal:** Make APScheduler the canonical job host. Add job-run tracking table + audit logging. Implement settings/system-status/scheduled-jobs admin surface with Fernet-encrypted sensitive values. Fix security vulnerability in settings-write endpoint.
+
+**Outcome:**
+- **Canonical job_runs table** (migration `s16a1b2c3d4e5`, down_revision `a3b4c5d6e7f8`): `id, job_name, status, detail, started_at, finished_at, duration_ms` + indexes. `JobRun` ORM model added. `admin_settings.label` column added; `sunday_event_series_id`/`powerhouse_event_series_id` keys seeded (fallback to legacy keys).
+- **backend/app/services/scheduler.py** (new): AsyncIOScheduler singleton, `start_scheduler()`/`stop_scheduler()`, `_run_tracked_job` wrapper writes job_runs start→finish. `JOB_REGISTRY` of 9 jobs (sunday/powerhouse generation, eow/eom recompute, 4 attendance notifiers [skipped/"awaiting S18"], biometric retention). Old `backend/app/scheduler.py` deleted.
+- **backend/app/main.py** lifespan: scheduler start/stop wired in; gated by `ENVIRONMENT != "test"` (never starts under pytest). Removed `HAS_SCHEDULER` + Ellipsis placeholder, passed real AsyncIOScheduler to `register_s23_jobs()`.
+- **Admin endpoints** in `routers/settings.py`: `GET /settings/jobs` (paginated list), `POST /settings/jobs/{job_name}/trigger` (202/404/409/403), `GET /settings/system-status` (service health), `GET /settings/config-checklist` (readiness gates), `PUT /settings/{key}` (audit + Fernet at-rest for sensitive keys). `services/settings_service.py` (new).
+- **Immutable keys protection:** `PUT /settings/{key}` now rejects ANY write (set/blank) on `{jwt_secret, database_url, redis_url}` with 403 Forbidden.
+- **Frontend:** SettingsPage (tabbed), SystemStatusPage, JobRunsPage, 7 settings panel components, settings.ts client, types. Build + lint green; **341 tests pass**.
+- **Canonicalization:** `job_runs` column renamed `ran_at` → `started_at`. Edited 3 S23 call-sites + analytics (call_timestamp logic) + reconciled 3 S23 tests (job_runs now exists in test DB).
+- **Security audit:** Initial BLOCK (immutable-keys bypass) → 3 findings fixed (immutable-keys enforce, encrypt-on-write/decrypt-on-read two-pass, sanitized job_runs.detail DSN leaks). Re-audit: PASS.
+- **Migration-head test:** Updated EXPECTED_HEAD → `s16a1b2c3d4e5`; down_revision test → `a3b4c5d6e7f8`.
+- **Dependencies:** `apscheduler>=3.10.4` added to `backend/requirements.txt`.
+- **Green gates:** backend full suite (test segment 209 + affected files 65 + isolated S16 components) + frontend 341 tests; security PASS. Full-suite pending (15-min runtime).
+- **Carry-forward:** Dual job_runs writes (scheduler wrapper + member_status_service raw-SQL) non-blocking observability nit; Fernet key derived from jwt_secret (single SHA-256 hash unless SETTINGS_FERNET_KEY env set); series-id fallback behavior (legacy keys); notifier jobs skip "awaiting S18"; trigger endpoint TOCTOU (admin-only, LOW).
+
+---
+
+### S09: Advanced Search, Saved Searches & Smart Groups
+
+**Goal:** Native replacement for CiviCRM Advanced Search / Search Builder / Smart Groups — an injection-safe structured-query stack with whitelist-enforced field/operator validation, parameterized SQL generation, and DoS guards.
+
+**Outcome:**
+- **Migration** `s09a1b2c3d4e5` (down_revision `s08a1b2c3d4e5`): 3 tables (`saved_searches`, `groups`, `group_members`) with proper indexes and unique constraints. Models added.
+- **`services/search_fields.py`** (new): whitelist field registry (15 core + 7 S23-derived: tier/is_active/is_regular/is_connected/weeks_absent/attendance_count/last_attended_at) + active custom fields (reuses S02 get_active_schema). Per-data_type operator sets (select, text, date, etc.). Dialect-branched JSONB resolve.
+- **`services/search_service.py`** (new): `compile_criteria` — the injection gate (whitelist → operator-check → type-coerce → PARAMETERIZE pipeline; InvalidCriteria on unknown field/op; depth ≤ 10 / nodes ≤ 100 / list ≤ 200 DoS guards). `run_search`, saved-search CRUD (owner-scoped, cross-owner → 404), group CRUD (smart = live-resolved, static = frozen group_members snapshot). Promote saved→smart endpoint.
+- **`routers/search.py`** (new): two routers `/search` + `/groups`; all require_volunteer. GET /groups bare array; include_deleted admin-gated.
+- **Frontend:** FilterBuilder (recursive AND/OR), FieldPicker, OperatorSelect, AdvancedSearchPage, SavedSearchesPage, GroupsPage, GroupDetailPage; reuses S03 DataTable/Pagination/ContactListItem; adapts ContactPickerModal for contact_reference input.
+- **Security incident (BLOCK → FIXED):** Security audit found HIGH + MEDIUM vulnerabilities the 95 green tests missed:
+  1. **HIGH (DoS-guard bypass):** `_check_bounds` discriminated leaf vs group via `"conditions" in node` while compiler used `"logic" in node`, so a leaf with a huge value list PLUS empty `conditions:[]` skipped length check → unbounded IN clause. **FIX:** unconditional list check + unified `"logic"` discrimination.
+  2. **MEDIUM (cross-owner IDOR):** `populate_static_group` loaded SavedSearch by id without owner_id filter → volunteer could use another user's private criteria. **FIX:** owner-scoped populate → 404 on mismatch.
+  3. **LOW:** `contains_any` LIKE escape missing. **FIX:** escape=`\\`.
+- **All fixed + 3 regression tests added; re-audit PASS** (verified across 6 bypass shapes).
+- Green gates: backend 99 isolated S09 tests + segment + frontend 392 tests; security PASS.
+- **Carry-forward:** 5 items documented in BLOCKERS.md 🟡 (rate-limiting, org-wide group visibility, JSONB optimization, reserved-word caution, S11 FK manifest).
+
+---
+
+### S10: CSV/XLSX Import Wizard
+
+**Goal:** Self-service import wizard for contacts + participants — 4-step flow (Upload → Map → Preview → Run) reusing S06's proven ETL core.
+
+**Outcome:**
+- **Migration** `s10a1b2c3d4e5` (down_revision `s09a1b2c3d4e5`): NEW `import_mapping_preset` table (entity, name, mappings, owner_id, created_at); added `import_batch.staging_file` and `expires_at` columns; widened `import_batch.mode` to VARCHAR(20) for 'wizard_preview'=14 chars.
+- **Import services** (`services/imports/`):
+  - `staging.py`: multi-format reader (CSV encoding-ladder + delimiter sniff via csv.Sniffer; XLSX multi-sheet via openpyxl read_only)
+  - `suggest.py`: fuzzy header→target column suggestion (normalizes headers + fuzzy string match to S06 canonical targets)
+  - `disposition.py`: row classification (new/match/ambiguous/error by match_key: external_id|email|name_concat)
+  - `runner.py`: wizard runner — translates custom:X → custom_data.X; preview=zero core rows via savepoint; run=500-row chunks idempotent; conflict modes (skip|update|fill); participants ON CONFLICT DO NOTHING; name-ambiguous → S22 review queue; recompute_all_contacts on success per CN-24; synthetic event_ref injection for S06 mapper
+  - `presets.py`: mapping preset CRUD (global per entity + owner, 409 on name collision)
+  - Reuses S06 reader/normalize/mapper/loader + bulk_service + name_match + member_status_service + export_service._sanitize_cell (no S06 files modified)
+- **13 API endpoints** (`routers/imports.py`): upload/columns/preview/run/list/detail/rows/preview-rows/report.csv/presets (create/list/detail); all require_volunteer; rate-limited (@limiter.limit explicit decorators).
+- **Queue manager**: `_purge_expired_imports` sweep (24h TTL, transitions to status='expired', sets staging_file=None).
+- **Frontend:** 4-step wizard (UploadStep → MapStep → PreviewStep → RunStep) + import runs list + report viewer; VolunteerRoute (new); authStore.isVolunteer; Import nav entry.
+- **Security incident (BLOCK → FIXED):** Security audit found HIGH PII exposure the 76 green tests missed: staged import files (raw member CSVs) were written to STORAGE_PATH/imports/ which the PUBLIC `GET /storage/{path}` route serves to ANY authenticated token with no ownership check → a viewer/non-owner could read another user's uploaded PII by UUID (security-by-obscurity). **FIX:** serve_storage_file now rejects any path under `imports/` → 404. Plus MEDIUM (no rate-limit on upload/run/preview → added @limiter.limit decorators) + LOWs (match_key external_id collision → _create_contact_direct; entity allowlist → 422; mid-stream decode error → error row not 500; purge path-containment). **RE-AUDIT: PASS.**
+- Green gates: backend **96 isolated S10 tests + segment 123** passed/0 failed; frontend **426 tests** + build + lint; security PASS.
+- **Carry-forward:** 8 assumptions documented in BLOCKERS.md 🟡 (24h TTL, preset uniqueness, participant ON CONFLICT, rate-limiting gap, S06 event_ref requirement, purge audit-only, BOM stripping, mode varchar).
+
+---
+
+### S11: Find & Merge Duplicate Contacts
+
+**Goal:** Native on-demand duplicate detection and human-confirmed contact merge. Admin-tunable dedup rules with pairwise scoring. Atomic, FK-complete merge using manifest introspection to ensure zero orphaned references.
+
+**Outcome:**
+- **Dedup rule engine:** `dedupe_rule_set` table (weights, thresholds, field selectors, seeded with "Default" set); `services/dedupe_service.py` pairwise scoring via difflib against active rule set (NOT S22's match_name).
+- **Merge engine with `_REASSIGNMENT_TARGETS` safety net:** Complete FK manifest (10 contacts.id FKs + 2 non-FK rewrites). Atomic single-transaction merge: loser reassignment (PLAIN UPDATE + COLLISION-AWARE with status/UNIQUE precedence) → soft-delete loser → one audit row → commit. Post-commit recompute_contacts + CompreFace cleanup (non-fatal).
+- **Introspection test (`test_manifest_covers_all_contact_fks`)** walks `Base.metadata` for every contacts.id FK; fails build if missing from manifest — self-maintaining guard (will trip when S12 `activities.target_contact_id` lands until added).
+- **Integration fixture** seeds survivor+loser with rows in EVERY FK table (incl. collision rows); asserts zero residual loser FKs + no UNIQUE violation post-merge.
+- **Endpoints** (`routers/dedupe.py`): candidates/preview/merge/history (volunteer+) + rule-set CRUD (admin write); viewer 403.
+- **Frontend:** DuplicatesPage (Candidates/Rules[admin]/History), MergeModal (preview, survivor-default, per-field chooser, same-person gate), DedupeRuleEditor.
+- **Security incident (BLOCK → FIXED):** 3 cheap hardening fixes: (1) re-check is_deleted UNDER the with_for_update lock (close TOCTOU double-merge window); (2) sanitize rollback 500 detail string (no raw exception to client); (3) post-commit warning strings sanitized. Re-audit: PASS.
+- **Recon findings:** name_match_review_queue has both `contact_id` + `candidate_contact_id` (NOT `resolved_contact_id`); both reassigned. name_alias.alias_text is globally UNIQUE (collision handling the spec missed).
+- **Migration** `s11a1b2c3d4e5` (down_revision `s10a1b2c3d4e5`): new `dedupe_rule_set` table. `test_migrations.py` EXPECTED_HEAD updated to `s11a1b2c3d4e5`.
+- Green gates: backend **32 isolated S11 tests + segment 96** passed/0 failed; frontend **434 tests** + build + lint; security PASS.
+- **Carry-forward:** 5 assumptions documented in BLOCKERS.md 🟡 (S12 FK guard, collision delete, rate-limiting gap, irreversible design, is_default app-layer).
+
+---
+
+### S12: Activities (Assignable Tasks)
+
+**Goal:** Implement a full activity/task engine with CRUD, role-aware status transitions, and a task-management UI for staff to assign, track, and complete activities tied to individual contacts.
+
+**Outcome:**
+- **Activities table & ORM:** `activities` (target_contact_id FK, assignee_user_id, title, description, due_at, status ENUM, priority ENUM, completed_at, created_by_id, created_at, updated_at)
+- **ActivityService** (new): CRUD with role-aware status-transition matrix, due-reminder producer stub (`scan_due_reminders()` + module-level `run_due_reminder_job()`)
+- **Outbox model** (new): queues activity updates for producer expansion in S16/S17
+- **8 API endpoints** in `routers/activities.py`: list (paginated) + create + detail + update + status-transition + reassign (admin-only) + due-reminders + outbox; `require_viewer` reused
+- **Frontend:** "My Tasks" / "All Tasks" page (tabbed, filterable, paginated), ActivitiesPanel on ContactDetail, ActivityFormModal (create/edit), ActivityCard component; TanStack Query + hooks + types
+- **Audit:** all mutations via S02 `record(...)` helper
+- **Security audit:** Initial HIGH (volunteer reassign in PATCH) → removed from schema, now admin-only; MEDIUM (enum validation on status/priority, completed_at stamping); Re-audit: PASS
+- **Notable reconciliations:** `require_viewer` already exists (S15 shim); /activities/assignees uses it (AC10 + test plan require viewer 200); Dedupe FK manifest introspection test **RESOLVED** by adding `('activities', 'target_contact_id')` tuple (no longer fails on S12 landing)
+- Green gates: backend **38 isolated S12 tests + 42 migrations+manifest+dedupe + 42 regression** passed/0 failed; app imports clean; frontend **build + lint clean, 483 tests** (35 files); security **PASS**
+- **UX carry-forwards:** BottomNav 6-slot logic (Ranking → admin More sheet, Tasks tab added); "Tasks" label collision with detection-review tab (rename candidate: "Review"); target-contact ID input unshared (post-S12 contact-picker enhancement)
+
+---
+
+### S13: Profiles & Public Newcomer Form
+
+**Goal:** Implement intake-form templates (profiles) and a public-facing unauthenticated newcomer form. Admin profile builder. Backend newcomer pipeline: deduplication, contact creation, name resolution, prayer-classification, transactional outbox for notifications.
+
+**Outcome:**
+- **`profiles` table & ORM:** name, description, is_public, fields (JSONB form schema), created_at, updated_at
+- **Admin CRUD endpoints:** list, detail, create, update (with duplicate-name guard + custom-field-name validation), delete (with last-public guard)
+- **Public endpoints:** `GET /public/newcomer/profile` (returns chosen is_public profile, 404 if none) + `POST /public/newcomer` (NewcomerSubmission with first_name, last_name, email, phone, invited_by_name, consolidated_by_name, prayer_request, new_friend_add_date, custom fields; rate-limited 30/min)
+- **Newcomer intake pipeline** (`services/profile_service.py`): 5-min duplicate suppression (email + first/last name exact match), contact creation via S03, S22 name resolution (invited_by/consolidated_by), Claude prayer-classification (model claude-sonnet-4-6, fail-open, skipped in tests), transactional outbox enqueue [google_chat.new_friend + gmail.new_friend_report always; gmail.prayer_request only if valid], best-effort drain_outbox_stub
+- **Frontend:** WelcomePage (public, no auth, no BottomNav, tied to is_public profile), ProfilesPage (admin list + inline is_public toggle), ProfileFormPage (admin builder with ProfileFormRenderer + SectionRenderer + ProfileFieldEditor), ContactsPage "New from template" dropdown
+- **Notable reconciliations:** Outbox already existed (S12) — imported not recreated; match_name returns NameMatchResult TypedDict (outcome SINGLE/AMBIGUOUS/UNMATCHED); create_contact auto-writes audit + runs validate_and_coerce (non-seeded fields service_time/prayer_request/season merged post-creation); new_friend_add_date → first_visit_date custom field key; Anthropic via env ANTHROPIC_API_KEY, model claude-sonnet-4-6
+- **Security audit:** BLOCK → FIXED: HIGH (membership oracle via PII leak: invited_by_resolved.id / consolidated_by_resolved.id in public response → now unconditionally None); 3 MEDIUM (unbounded strings → max_length bounds, no off-switch → 404 guard, rate-limit IP spoofing → M3 ops gate documented); 3 LOW (webhook secret leak → redacted error, duplicate bypass → exact match, rate-limit missing → decorator added)
+- Green gates: backend **19 isolated S13 tests** (incl. test_newcomer_no_public_profile_404) + **89 regression** (contacts/custom_fields/name_match) + **31 final consolidated** passed/0 failed; frontend **build + lint + 501 tests** passed; security **PASS**
+- **Key ops requirement (M3 pre-public-launch gate):** Rate-limit (30/min on GET/POST /public/newcomer) keys on per-IP client address via get_remote_address. Behind nginx + Cloudflare Tunnel, uvicorn MUST run with `--proxy-headers --forwarded-allow-ips <nginx>` and nginx must set trusted X-Forwarded-For, else limiting collapses to one global bucket or becomes XFF-spoofable. **MUST document in PRODUCTION_RUNBOOK + validate pre-cutover.**
+
+**Notable:**
+- Public newcomer intake replaces the spec's n8n New Friend V2 orchestration; now native in Seraphim backend with Claude-powered prayer-classification and transactional outbox producer
+- Membership-oracle authz fix (HIGH security): public response was leaking existence/membership info via resolved contact IDs; fixed by unconditionally returning None (resolution kept in internal outbox context)
+- M3 rate-limiter proxy requirement is a pre-public-launch ops gate (documented in BLOCKERS.md 🟡); must be validated before newcomer form is exposed publicly
+- Outbox producer stub (S16/S17 expansion pending): persists google_chat.new_friend + gmail.new_friend_report + gmail.prayer_request rows; full NotificationService + push/email dispatch awaits S17/S18
+
+---
+
+### S08: Biometric Consent & Right-to-be-Forgotten
+
+**Goal:** Implement the full biometric-consent lifecycle (record/update/revoke/deletion-request) and irreversible right-to-be-forgotten (RTBF) purge under Philippine RA 10173 data-protection compliance.
+
+**Outcome:**
+- **BiometricPurgeService** (new): irreversible RTBF erasure (enrolled photos + thumbnails, ALL detection crops [enrolled + recognition], face_samples rows, CompreFace subject via delete_subject 404-as-success); RETAINS contacts + participants + consent row (stamped purged_at + purge_detail); idempotent + fault-tolerant.
+- **Consent lifecycle:** `services/biometric_consent.py` implements record/update/revoke/deletion-request with status synthesis (none|pending|given|revoked|purged) and audit logging.
+- **Endpoints:** 7 in `routers/biometric.py` (GET consent [any role, never 404], POST/PATCH/revoke/deletion-request [volunteer+], purge + retention/report [admin]); RBAC viewer→403 on mutations.
+- **Migration** `s08a1b2c3d4e5` (down_revision `s16a1b2c3d4e5`): extends S24's `biometric_consent` table with RTBF columns (recorded_by_id, retention_until, deletion_requested_at, deletion_requested_by_id, purged_at, purge_detail, updated_at) + 2 partial indexes; adds `consent_id` to `compreface_subjects` + makes `compreface_subject_id` nullable.
+- **Scheduler integration:** `_biometric_retention_job` (cron 0 2 * * *) auto-purges due consents with system actor.
+- **Frontend:** ConsentPanel (replaces S24 inline consent section), RecordConsentDialog, RetentionReport page (/settings/biometric), service + types, BottomNav entry.
+- **Security incident (BLOCK → FIXED):** Security audit found 2 HIGH RTBF gaps the 67 green tests missed:
+  1. **Enrolled-only crop erasure → recognition/attendance face crops survived on disk + DB.** All subject detections now erased (not just enrolled).
+  2. **Partial-failure seal without retry → CompreFace face embedding could persist indefinitely while status='purged'.** Fixed by stamping purged_at only when fully clean; scheduler re-selects + retries; also fixed a retry-logic bug where _retry_partial carried prior-attempt errors.
+- **Also fixed:** MEDIUM (glob-only enrolled erasure → now authoritative FaceSample paths) + 2 LOW findings.
+- **Re-audit: PASS.**
+- Green gates: 67 S08 tests pass + full-suite + frontend; security PASS.
+- **Carry-forward:** 3 MEDIUM/LOW items (detection-crop FILE orphan, partial_failure HTTP 200, CompreFace private attrs) documented in BLOCKERS.md; S08 column constraints + future nullable migration noted.
+
+---
+
+## Build DAG & Dependencies
+
+```
+S01 (schema inversion)
+  ↓
+S02 (custom fields)
+  ├→ [PARALLEL WAVE 1]
+  │   S03 (contacts)  ∥  S07 (faces)
+  │   ↓               ↓
+  │   S04 (events)   [depends only on S01+S02]
+  │   ↓
+  │   S05 (export)
+  │
+  └→ [SEQUENTIAL CONVERGENCE]
+      S22 (name-match)
+      ↓
+      S06 (ETL)
+      ↓
+      S24 (FR transition)
+      ↓
+      S21 (final cutover)
+      ↓
+      S08–S20 (remaining leaves)
+```
+
+**Key insight:** S03+S07 run in parallel (each depends only on S01+S02 being committed). Their builds use isolated git worktrees; outputs are merged with conflict resolution before commit.
+
+---
+
+## Autonomous Loop Operating Contract
+
+- **Mode:** Full autonomy; owner can be asleep
+- **Approval:** I (Claude) auto-approve PLAN phases, run Opus critic, advance the loop
+- **Stopping condition:** Failure cap (3 remediation rounds per sprint) or a real blocker
+- **Per-sprint gates:**
+  - Backend: pytest on SQLite (migration ACs Postgres-only, gated locally with skip decorators)
+  - Frontend: build + lint + vitest
+  - Integration: ruff (advisory; pre-existing debt tolerated; NEW violations noted)
+- **Model policy:**
+  - **senpai agents:** keep their own (Opus on architect/security/qa-expert; Sonnet on engineers)
+  - **Critique:** Opus (slim: green gate + one critic agent)
+  - **Other agents:** Sonnet
+- **Git:** one commit per passing sprint; no push; branch `docs/crm-specs-and-cve-remediation`
+
+---
+
+## Speed Optimizations
+
+1. **2-round QA cap** (instead of 5) — process bug + Opus critic catch real defects faster
+2. **Clear pendingTasks on clean QA pass** — no spurious Expert-QA escalation
+3. **Stub devops agent** — orchestrator's green gate + critic already cover app boot
+4. **Postgres-only migration gating** — tell senpai upfront, QA doesn't re-loop on unverifiable criteria
+
+**Result:** Each sprint now completes ~2–4 hours vs. 6–8 hours in earlier iterations.
+
+---
+
+## Token/Cron Management
+
+**Watchdog cron (15-min):**
+- Fires every `:00`, `:15`, `:30`, `:45`
+- Detects stuck/stale builds (markers older than 20 min)
+- Auto-recovers: runs green gate, commits passing work, resumes from journal
+- Session-only; must be recreated on every new session
+
+**Session limit:** 5-hour rolling window. If a build dies on the limit, use the journal's `resumeFromRunId` to restart from the last completed agent (no rebuild).
+
+---
+
+**Related notes:** [[Deployment]] · [[Architecture]] · [[Home]]

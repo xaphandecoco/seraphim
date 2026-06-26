@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import dynamic_settings, legacy_settings
+from app.config import dynamic_settings
 from app.database import get_db
 from app.models import Task
 from app.schemas import HealthCheck

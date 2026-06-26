@@ -1,23 +1,47 @@
+"""Task resolution service — volunteer workflow and attendance recording.
+
+Scoring weights (applied by _update_volunteer_stats on task resolution):
+  - confirm  : 1 point   (second confirmer closes a pending task)
+  - edit     : 2 points  (reassigning a misidentified face earns a bonus)
+  - add      : 1 point   (linking an unidentified face to a member)
+
+Attendance trigger:
+  When a task reaches the required approval count _log_attendance is called.
+  It writes a Participant(contact_id, event_id, detection_id, status='attended',
+  source='face') row, guarded by a pre-SELECT on (contact_id, event_id) — the
+  UNIQUE constraint uq_participant_event_contact — so that resolving a second
+  task for the same (contact, event) pair does NOT raise IntegrityError and does
+  NOT create a duplicate Participant.  If event_id is None or member_id cannot
+  be parsed from matched_name, the Participant is skipped entirely.
+"""
+
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
+import cv2
 from fastapi import HTTPException, status
-from sqlalchemy import exists, func, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import dynamic_settings
+from app.config import legacy_settings
 from app.models import (
-    Attendance,
-    CiviCRMMember,
+    ComprefaceSubject,
+    Contact,
     Detection,
     Log,
+    Participant,
     PitQueue,
     Task,
     TaskAction,
-    User,
     VolunteerStat,
 )
+from app.services.compreface import ComprefaceClient
+from app.services.enrollment import EnrollmentService
+from app.services.face_storage import FaceStorage
+
+logger = logging.getLogger(__name__)
 
 
 class TaskService:
@@ -117,8 +141,8 @@ class TaskService:
         return task
 
     async def _require_member(self, member_id: int) -> None:
-        """Raise 404 if the given CiviCRM member does not exist (avoids a later FK 500)."""
-        member = await self.session.get(CiviCRMMember, member_id)
+        """Raise 404 if the given contact does not exist (avoids a later FK 500)."""
+        member = await self.session.get(Contact, member_id)
         if member is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -362,22 +386,13 @@ class TaskService:
         return result.scalar() or 0
 
     async def _log_attendance(self, task: Task):
-        """Create attendance record when task is resolved."""
+        """Create participant record when task is resolved."""
         detection = await self.session.get(Detection, task.detection_id)
         if not detection or not detection.event_id:
             return
 
-        # Check for duplicate
-        existing = await self.session.execute(
-            select(Attendance).where(
-                (Attendance.detection_id == task.detection_id)
-                & (Attendance.event_id == detection.event_id)
-            )
-        )
-        if existing.scalar_one_or_none():
-            return
-
-        # Extract member info from detection
+        # Extract member info from detection FIRST — if we can't resolve a member,
+        # there is nothing useful to write for the Participant row.
         member_id = None
         if detection.matched_name and detection.matched_name.startswith("member:"):
             try:
@@ -385,14 +400,39 @@ class TaskService:
             except (ValueError, IndexError):
                 pass
 
-        record = Attendance(
-            contact_id=member_id,
-            event_id=detection.event_id,
-            detection_id=task.detection_id,
-            status="confirmed",
-            push_status="pending",
+        if member_id is None:
+            # No identifiable member — still write the log entry but skip Participant.
+            log = Log(
+                detection_id=task.detection_id,
+                timestamp=detection.timestamp,
+                camera_id=detection.camera_id,
+                matched_name=detection.matched_name,
+                confidence=detection.confidence,
+                tier=detection.tier,
+                action="confirmed",
+                event_id=detection.event_id,
+            )
+            self.session.add(log)
+            return
+
+        # Dedup on (contact_id, event_id) — mirrors the UNIQUE constraint
+        # uq_participant_event_contact so a second resolution for the same
+        # (member, event) pair does NOT create a duplicate Participant.
+        existing = await self.session.execute(
+            select(Participant).where(
+                (Participant.contact_id == member_id)
+                & (Participant.event_id == detection.event_id)
+            )
         )
-        self.session.add(record)
+        if existing.scalar_one_or_none() is None:
+            record = Participant(
+                contact_id=member_id,
+                event_id=detection.event_id,
+                detection_id=task.detection_id,
+                status="attended",
+                source="face",
+            )
+            self.session.add(record)
 
         # Log
         log = Log(
@@ -407,8 +447,86 @@ class TaskService:
         )
         self.session.add(log)
 
+        await self._maybe_auto_enroll(detection, member_id)
+
+    async def _maybe_auto_enroll(
+        self, detection: Detection, contact_id: int
+    ) -> None:
+        """Fire-and-forget auto-enrollment: enroll the detection's face crop for
+        a contact if the subject is not already active with samples.
+
+        Never raises — all exceptions are caught and logged so a CompreFace
+        outage cannot block task resolution.
+        """
+        if detection is None or not detection.image_path:
+            return
+
+        subject_id_str = f"contact_{contact_id}"
+        result = await self.session.execute(
+            select(ComprefaceSubject).where(
+                (ComprefaceSubject.compreface_subject_id == subject_id_str)
+                & (ComprefaceSubject.enrollment_status == "active")
+                & (ComprefaceSubject.sample_count > 0)
+            )
+        )
+        if result.scalar_one_or_none() is not None:
+            # Already enrolled with samples — nothing to do.
+            return
+
+        client: Optional[ComprefaceClient] = None
+        try:
+            full_disk_path = (
+                legacy_settings.STORAGE_PATH.rstrip("/")
+                + "/"
+                + detection.image_path.lstrip("/")
+            )
+            face_crop = cv2.imread(full_disk_path)
+            if face_crop is None:
+                logger.warning(
+                    "_maybe_auto_enroll: could not read image for detection_id=%s path=%s",
+                    detection.id,
+                    full_disk_path,
+                )
+                return
+
+            client = ComprefaceClient()
+            storage = FaceStorage(legacy_settings.STORAGE_PATH)
+            svc = EnrollmentService(client=client, storage=storage)
+            await svc.enroll_contact_face(
+                self.session,
+                contact_id,
+                face_crop,
+                source="detection",
+            )
+        except Exception:
+            logger.exception(
+                "_maybe_auto_enroll failed: detection_id=%s contact_id=%s",
+                detection.id,
+                contact_id,
+            )
+        finally:
+            if client is not None:
+                await client.close()
+
     async def _update_volunteer_stats(self, volunteer_id: int, action_type: str):
-        """Update volunteer gamification stats."""
+        """Update volunteer gamification stats.
+
+        S24 Scoring Weights
+        -------------------
+        Action   | Points
+        ---------|-------
+        confirm  |   1 pt   (volunteer verified an existing attendance row)
+        edit     |   2 pt   (volunteer corrected/updated an existing attendance row)
+        add      |   1 pt   (volunteer created a new attendance row)
+
+        These weights accrue on task resolution regardless of the Participant.status
+        value (e.g. 'registered', 'attended', 'no-show') — the scoring trigger is
+        the volunteer's action on the task, not the participant outcome.
+
+        Historical note: prior to the S24 cutover, points were awarded via the
+        Attendance.status == 'confirmed' trigger.  That trigger is superseded by
+        this method; do not re-introduce Attendance.status-based scoring.
+        """
         now = datetime.now(timezone.utc)
         month_key = now.strftime("%Y-%m")
 

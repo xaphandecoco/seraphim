@@ -1,6 +1,7 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import List, Optional
 
 import cv2
 import numpy as np
@@ -8,13 +9,15 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import legacy_settings
-from app.database import async_session
-from app.dependencies import require_admin
-from app.schemas import FaceUploadResponse
+from app.database import async_session, get_db
+from app.dependencies import require_admin, require_volunteer
+from app.models import PhotoIngestBatch
+from app.schemas import FaceUploadResponse, PhotoIngestBatchResponse
 from app.services.compreface import ComprefaceClient
 from app.services.dedup import DedupCache
 from app.services.face_pipeline import process_face_crop
 from app.services.face_storage import FaceStorage
+from app.services.photo_ingest import PhotoIngestService
 
 logger = logging.getLogger(__name__)
 
@@ -157,3 +160,113 @@ async def upload_faces(
         return FaceUploadResponse(**results)
     finally:
         await ctx.compreface.close()
+
+
+MAX_BATCH_FILES = 50
+MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+@router.post("/photos/batch", response_model=PhotoIngestBatchResponse, status_code=status.HTTP_201_CREATED)
+async def create_photo_batch(
+    files: List[UploadFile] = File(...),
+    event_id: Optional[int] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    user=Depends(require_volunteer),
+):
+    """Upload up to 50 images for async batch processing.
+
+    Creates a PhotoIngestBatch row, launches PhotoIngestService.process_batch as
+    a background task via asyncio.create_task, and immediately returns the batch
+    record with status='processing'. Poll GET /uploads/photos/batch/{id} for results.
+    """
+    if not files:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No files provided",
+        )
+    if len(files) > MAX_BATCH_FILES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Maximum {MAX_BATCH_FILES} files per batch",
+        )
+
+    # Read all file contents before creating the batch row — uploads are gone
+    # after the request ends, so we must materialise them now.
+    file_pairs: list[tuple[str, bytes]] = []
+    for upload in files:
+        contents = await upload.read(MAX_FILE_BYTES + 1)
+        if len(contents) > MAX_FILE_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"File '{upload.filename}' exceeds 10 MB limit",
+            )
+        file_pairs.append((upload.filename or "unknown", contents))
+
+    # Resolve the user ID from the token payload
+    uploaded_by_id: Optional[int] = None
+    if isinstance(user, dict):
+        try:
+            uploaded_by_id = int(user.get("sub", 0)) or None
+        except (ValueError, TypeError):
+            pass
+    elif hasattr(user, "id"):
+        uploaded_by_id = user.id
+
+    # Create the batch record using the request-scoped session
+    batch = PhotoIngestBatch(
+        event_id=event_id,
+        uploaded_by_id=uploaded_by_id,
+        status="processing",
+        total_images=len(file_pairs),
+        processed_images=0,
+        faces_detected=0,
+        auto_logged=0,
+        tasks_created=0,
+        skipped=0,
+        deduplicated=0,
+        errors=0,
+        report=[],
+    )
+    db.add(batch)
+    await db.commit()
+    await db.refresh(batch)
+
+    batch_id = batch.id
+    captured_event_id = event_id
+
+    async def _run_batch() -> None:
+        """Background task: opens its own session and drives process_batch."""
+        service = PhotoIngestService()
+        try:
+            async with async_session() as bg_session:
+                await service.process_batch(
+                    batch_id=batch_id,
+                    files=file_pairs,
+                    event_id=captured_event_id,
+                    session=bg_session,
+                )
+        except Exception as exc:
+            logger.exception(
+                "uploads: background batch %s failed: %s", batch_id, exc
+            )
+        finally:
+            await service.close()
+
+    asyncio.create_task(_run_batch())
+    return batch
+
+
+@router.get("/photos/batch/{batch_id}", response_model=PhotoIngestBatchResponse)
+async def get_photo_batch(
+    batch_id: int,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(require_volunteer),
+):
+    """Poll batch status and per-image report."""
+    batch: Optional[PhotoIngestBatch] = await db.get(PhotoIngestBatch, batch_id)
+    if batch is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Batch {batch_id} not found",
+        )
+    return batch

@@ -1,0 +1,170 @@
+# BLOCKERS & ASSUMPTIONS — senpai-v2 sprint loop
+
+Deferred open questions. Agents never stall: on an open question they pick a documented
+default, record it here as an `**ASSUMPTION:**`, and continue. The human answers these at
+the end of a run. **Hard blockers (could build on bad data) are pinned at the top.**
+
+> Note from v1 retro: S02's stubbed option-lists were *required before the S06 dry-run* —
+> if a hard blocker like that is silently deferred, the loop will happily build on bad data.
+> Pin anything load-bearing here and raise it loudly before the dependent sprint runs.
+
+## 🔴 Hard blockers (resolve before the dependent sprint)
+- **[S21 cutover] Dependencies NOT met — do not autonomously build the full cutover.** Spec assumes S01–S23 built; repo has only S01–S07, S22, S24. Missing & load-bearing: **S16** (`JobRun` model + `/job-runs` router — `/migration/verify` won't import without it), **S15** (viewer role), **S18** (Zoom/Google Chat), **S23** (nightly recompute). Also requires **live prod data, real CiviCRM exports, DNS/Cloudflare flip, operator action** — not autonomously verifiable.
+  - **Owner decision pending:** (a) build S21 *artifacts-only* (settings-cleanup migration, defensive `/migration/verify`, `smoke_test_crm.py`, runbook rewrite, cutover docs) and mark live steps operator-executed [architect's recommendation]; OR (b) build S15/S16/S18/S23 first; OR (c) stay paused. **Currently: PAUSED at owner request (2026-06-26).**
+  - **Sub-blockers when S21 does run:** re-pin migration `down_revision` to live `alembic heads` (not a stale rev); reconcile `Participant.source` literal — S06 writes `'migration'`, spec §6.4 verify expects `'import'` → align verify endpoint + verification.md to the as-built value or the count check silently reads zero.
+
+## 🟡 Assumptions (documented defaults — confirm when convenient)
+
+- [S09] **LOW:** Search/groups endpoints (`POST /search`, `POST /search/validate`, `POST /groups/{id}/populate`) not individually rate-limited. No `@limiter.limit` decorators; codebase-wide gap (same class as S16/S08 trigger endpoint, S16 settings endpoints). **FOLLOW-UP:** add limits to search endpoints or install SlowAPIMiddleware globally.
+
+- [S09] **LOW:** Groups are org-wide visible to all volunteers; any volunteer can rename/delete any group. Only smart-criteria EDIT is admin-gated (populate_static_group). **DESIGN:** by DoD; confirm org-wide visibility is acceptable to owner.
+
+- [S09] **OPTIMIZATION:** `multiselect` field `contains_any` uses LIKE-containment on the JSON text (LIKE `%\"value\"%`). Postgres-native `@>` JSONB containment would be faster at scale (GIN-indexable). **FOLLOW-UP:** migrate to JSONB operator when scale demands; low priority.
+
+- [S09] **DB RESERVED WORD:** `groups` is a SQL reserved word; SQLAlchemy auto-quotes it. Raw SQL must quote `"groups"` or queries fail. No action needed (ORM handles it); note for team.
+
+- [S09] **MERGE DEPENDENCY (S11):** When S11 (merge contacts) runs, it must add `group_members.contact_id` to its loser→survivor FK manifest (Contact Namespace item CN-04). Without it, merging a contact in a group leaves orphaned group_members rows pointing to a purged loser contact.
+
+- [S08] **MEDIUM (non-blocking, security-PASS):** detection-crop FILE can orphan on a rare unlink OSError → `det.image_path` is cleared regardless of unlink success, so a file that failed to delete has no DB retry handle and a later clean retry stamps purged_at while the orphan remains. Bounded: requires a real FS error; orphan has NO queryable DB linkage (path/subject/matched_name cleared → no re-identification); time-based FaceCleanupService is a backstop. **FOLLOW-UP PATCH:** only clear image_path after successful unlink (keep row as retry handle) + keep purged_at NULL until detection-crop files confirmed gone.
+
+- [S08] **LOW:** purge / immediate deletion-request return HTTP 200 even on result.status=='partial_failure'; immediate-purge path doesn't set deletion_requested_at so a not-yet-due partial failure isn't auto-retried unless admin re-invokes. **FOLLOW-UP:** set deletion_requested_at on the immediate path and/or surface a distinct partial_failure signal.
+
+- [S08] Detection.image_path is NOT NULL → purge uses image_path="" sentinel (file IS unlinked); a future migration could make it nullable.
+
+- [S08] CompreFace 404-as-success uses ComprefaceClient private attrs; refactor to a delete_subject_tolerant() method later.
+
+- [S08] biometric_retention endpoints lack @limiter.limit (admin-only, carry-forward; same class as S16 trigger).
+
+- [S08/backend] **ASSUMPTION:** `Detection.image_path` is `NOT NULL` in the ORM model (`models.py`) and the SQLite test schema. The S08 RTBF spec says to set `image_path=None` when anonymizing detection crops during a purge. The Wave 1 migration (`s08a1b2c3d4e5`) did not make this column nullable. The `BiometricPurgeService` uses `""` (empty string) as the cleared-path sentinel to satisfy the SQLite constraint; the actual file is unlinked from disk in either case. **Action needed (DB engineer):** Add an Alembic migration (S09 or as a patch) to `ALTER TABLE detections ALTER COLUMN image_path DROP NOT NULL` and update `Detection.image_path` to `Mapped[Optional[str]]` in `models.py`. Once done, change `biometric_purge.py` line `det.image_path = ""` to `det.image_path = None` and update the test assertion.
+
+- [S08/backend] **ASSUMPTION:** `BiometricPurgeService._delete_cf_subject` accesses `client.base_url` and `client.recognize_api_key` attributes directly (and `client._client` for the raw httpx call) to intercept the HTTP 404 response before `delete_subject()` would return False. This works with the current `ComprefaceClient` internals. If `ComprefaceClient` is refactored, update `_delete_cf_subject` to match. Alternative: add a `delete_subject_with_404_ok()` method to `ComprefaceClient` (compreface.py — DB/ML engineer's file) and call it from the purge service.
+
+- [S08/frontend] **ASSUMPTION:** `User.role` in `frontend/src/types/index.ts` is typed `'volunteer' | 'admin'` only — no `'viewer'` type exists yet (S01 spec mentions viewer role but S15 is pending). For mutation-control gating, "volunteer+" is treated as any non-null `user` object (`!!user`). When S15 lands and adds `viewer` to the role union, `ConsentPanel` needs a second check `user.role !== 'viewer'` to gate the button strip. Affects: `frontend/src/components/contacts/ConsentPanel.tsx`.
+
+- [S08/frontend] **ASSUMPTION:** FacePanel uses query key `['contacts', contactId, 'faces']` (confirmed by reading `FacePanel.tsx:57`). The spec says to invalidate `['contact-faces', contactId]` after a purge — these do not match. The `ConsentPanel` purge handler invalidates the actual FacePanel key `['contacts', contactId, 'faces']` so thumbnails clear correctly. Affects: `frontend/src/components/contacts/ConsentPanel.tsx`.
+
+- [S23] **ASSUMPTION:** tier timezone default is EOW Mon 00:00 UTC (confirm PHT); EOM cadence is `0 0 1 * *`; connected-field names default `{community_leader, community}` (overridable via admin_settings `connected_field_names`); is_active formula is None when never-attended, False when inactive tier. Affects: `backend/app/services/member_status_service.py`, snapshot read/write logic.
+
+- [S23] **ASSUMPTION:** `job_runs` table schema (S16) is unknown at implementation time. The raw-SQL INSERT in `member_status_service._recompute` uses columns `(job_name, status, detail, ran_at)`. If S16's actual schema differs (e.g., no `status` / `detail` columns), the INSERT will fail silently (try/except) and `job_run_id` returns None — no crash, no data loss. Affects: `backend/app/services/member_status_service.py`.
+
+- [S12] **ASSUMPTION:** `GET /activities/assignees` uses `require_viewer` (admits admin|volunteer|viewer) rather than `require_volunteer` as stated in the §4.1 endpoint table. This aligns with AC§10 (§7) and the §8 test plan, both of which explicitly list `/activities/assignees` among read endpoints that must return 200 for viewer tokens. The §4.1 table entry is an internal spec inconsistency; AC§10 is treated as normative since it directly contradicts the table and the test plan enforces it. **Confirm:** if viewers should NOT see the user list (e.g., privacy concern), change the dependency back to `require_volunteer` and update AC§10 accordingly.
+
+- [S23] **ASSUMPTION:** `admin_settings` row with `key="connected_field_names"` stores its value as a JSON list (e.g., `["community_leader", "community"]`) OR as a dict with a `"names"` key. Fallback is `DEFAULT_CONNECTED_FIELD_NAMES`. No such row in test DB; tests use the default. Affects: `backend/app/services/member_status_service.py`.
+
+- [S23] **ASSUMPTION:** `weeks_absent` is computed as calendar-day difference (both `today_midnight` and `last_attended_at` are truncated to start-of-day before dividing by 7). This prevents rounding errors when events have non-midnight `start_at`. Affects: snapshot fields on Contact.
+
+- [S23/S16] **ASSUMPTION:** `main.py` lifespan calls `register_s23_jobs(...)` with an Ellipsis placeholder behind `HAS_SCHEDULER=False`; when S16 lands and flips the flag it MUST pass a real AsyncIOScheduler or boot will TypeError. Affects: `backend/app/main.py`, `backend/app/scheduler.py`. **HARD note for S16 implementation.**
+
+- [S11→S12] **✅ RESOLVED:** S12 added `activities.target_contact_id` to dedupe FK manifest. Introspection test now passes. Affects: `backend/app/services/dedupe_service.py`, `backend/tests/test_dedupe_manifest.py`.
+
+- [S11] **CARRY-FORWARD:** biometric_consent merge collision DELETES the loser's consent row (archived in audit before deletion). A future option ("consent_given TRUE-wins" precedence rule) is a one-liner change. Affects: `backend/app/services/dedupe_service.py`.
+
+- [S11] **LOW:** `/dedupe/merge` + `/dedupe/candidates` endpoints not individually rate-limited (codebase-wide @limiter gap, same class as S09/S10/S16). Affects: `backend/app/routers/dedupe.py`.
+
+- [S11] **ASSUMPTION:** Merge is irreversible-by-design. The `audit_log` row with `operation='contact_merge'` (full before/after state) is the recovery/unmerge seed for future operator-action support. No merged_into_id column, no unmerge UI this sprint. Affects: `backend/app/services/dedupe_service.py`, `backend/tests/test_dedupe_integration.py`.
+
+- [S11] **ASSUMPTION:** `DedupRuleSet.is_default` single-row invariant is app-layer only (default rule-set enforced in service, not DB). No partial unique index on `is_default=true`. Affects: `backend/app/services/dedupe_service.py`.
+
+- [S16] **ASSUMPTION:** `GET /settings/system-status` response shape uses a flat `services: { postgres: boolean, redis: boolean, compreface: boolean }` object (per the locked API contract in the task), NOT the `ServiceStatusItem { ok, detail, latency_ms }` shape in the Pydantic schema (spec §4.2). The frontend `SystemStatus` type and `SystemStatusPanel` component are built against the flat boolean shape. If the backend emits the richer shape, update `SystemStatus.services` in `types/index.ts` and adjust `SystemStatusPanel`. Affects: `frontend/src/types/index.ts`, `frontend/src/components/settings/SystemStatusPanel.tsx`.
+
+- [S16] **ASSUMPTION:** `ScheduledJobsPanel` shares the `['settings', 'system-status']` TanStack Query cache with `SystemStatusPage` to surface last-run status per job. If the backend's `/settings/system-status` jobs array becomes expensive to compute, the panel can be switched to use `/settings/jobs?page=1&page_size=9` instead without changing the public API contract. Affects: `frontend/src/components/settings/ScheduledJobsPanel.tsx`.
+
+- [S16/Wave2] **ASSUMPTION:** `PUT /settings/{key}` returns 404 for unknown keys because requiring keys to pre-exist in the DB prevents phantom-key proliferation. The alternative (auto-creating any key) was not chosen. Callers must ensure the key row exists (e.g., seeded by bootstrap or prior setup) before calling PUT. If the product needs to CREATE new settings dynamically via this endpoint, flip to upsert logic. Affects: `backend/app/routers/settings.py`.
+
+- [S16/Wave2] **ASSUMPTION:** `GET /settings/system-status` `overall` logic: `ok` = pg+redis both up; `degraded` = pg up but redis down (or compreface down with pg+redis ok); `down` = pg down. CompreFace down alone does NOT set overall to 'degraded' (matches spec wording "compreface down/unset, pg ok → degraded"). The settings_service currently maps only pg+redis to overall; compreface is surfaced in `services.compreface` but does not downgrade overall. Revisit if the frontend needs compreface-down to degrade overall. Affects: `backend/app/services/settings_service.py`.
+
+- [S16/Wave2] **ASSUMPTION:** Notifier jobs (notifier_8am, notifier_10am, notifier_3pm, notifier_powerhouse) always record status='skipped' with detail='awaiting S18' until S18 is built. They ARE registered in JOB_REGISTRY and will appear in the trigger endpoint's 202 response. Cron triggers are registered and fire on schedule but immediately skips. Affects: `backend/app/services/scheduler.py`.
+
+- [S16] **ASSUMPTION:** `SettingsPage` tabs use `useSearchParams` for URL-driven state (`?tab=system|tunables|jobs`). Default tab is `system`. The Jobs tab mounts `ScheduledJobsPanel` (TanStack Query) lazily — only when selected — so existing `SettingsPage.test.tsx` tests (which never switch tabs) do not need a `QueryClientProvider` wrapper. Affects: `frontend/src/pages/SettingsPage.tsx`, `frontend/src/pages/SettingsPage.test.tsx`.
+
+- [S16] **ASSUMPTION:** Scheduled recompute jobs write TWO `job_runs` rows — one from the scheduler's `_run_tracked_job` wrapper, one from `member_status_service`'s internal raw-SQL insert. Non-blocking observability nit; `member-status-summary.last_recomputed_at` keys off the `member_status_recompute` row. Consider de-dup when convenient. Affects: `backend/app/services/scheduler.py`, `backend/app/services/member_status_service.py`.
+
+- [S16] **ASSUMPTION:** Fernet key for sensitive settings (`jwt_secret`, `database_url`, `redis_url` at-rest encryption) derived from `jwt_secret` via single SHA-256 hash unless `SETTINGS_FERNET_KEY` env var is set. Rotating `jwt_secret` re-keys sensitive settings. (LOW, prod note.) Affects: `backend/app/services/settings_service.py`, `backend/app/config.py`.
+
+- [S16] **ASSUMPTION:** Series-id keys `sunday_event_series_id`/`powerhouse_event_series_id` in `admin_settings` fall back to legacy `sunday_series_id`/`powerhouse_series_id` if the new keys are unset; both unset → generation jobs skip with "not configured" detail. Affects: `backend/app/services/scheduler.py` job registry.
+
+- [S16] **ASSUMPTION:** Notifier jobs (notifier_8am, notifier_10am, notifier_3pm, notifier_powerhouse) are registered in `JOB_REGISTRY` and appear in the trigger endpoint's 202 response. Cron fires on schedule but immediately skips with status='skipped' detail='awaiting S18' until S18 is built. Affects: `backend/app/services/scheduler.py`.
+
+- [S16] **ASSUMPTION:** `POST /settings/jobs/{job_name}/trigger` concurrency guard is TOCTOU (no atomic-check-and-lock). No rate-limit on trigger calls (admin-only, LOW carry-forward). Affects: `backend/app/routers/settings.py`.
+
+- [S10/frontend] **ASSUMPTION:** `User.role` in `types/index.ts` is `'volunteer' | 'admin'` only (no `'viewer'` — S15 pending). `isVolunteer` is derived as `role === 'admin' || role === 'volunteer'`. When S15 adds `'viewer'` to the type union, authStore already handles it correctly (any role not in `{admin, volunteer}` returns `isVolunteer: false`). No code change needed in authStore on S15 landing. Affects: `frontend/src/store/authStore.ts`.
+
+- [S10/backend Wave 2] **ASSUMPTION:** `normalize.name_key(first, last)` takes TWO arguments (confirmed by reading mapper.py). The suggest.py normalization helper uses a custom `_nk(s)` function (`re.sub(r"[^a-z0-9]", "", s.lower())`) instead of the two-arg `name_key` since we are normalizing individual header/field names (not full person names). This matches the spec intent and passes all tests. Affects: `backend/app/services/imports/suggest.py`.
+
+- [S10/backend Wave 2] **ASSUMPTION:** `map_participant_row` (S06 mapper) requires `event_ref` in the mapped row data, even when the wizard provides `target_event_id` at the API level. When `target_event_id` is present and no column is mapped to `event_ref`, `run_import` injects a synthetic `_wizard_event_ref_` column into both `s06_map` and each raw row so the S06 mapper sees the required field. This avoids modifying the S06 mapper and preserves its contract. Affects: `backend/app/services/imports/runner.py`.
+
+- [S10/backend Wave 2] **ASSUMPTION:** `_purge_expired_imports` transitions staged batches to `status='expired'` and sets `staging_file=None` after deleting the file. It does NOT call `batch.delete()` or remove the ImportBatch row — the row is kept for audit/history. Affects: `backend/app/services/queue_manager.py`.
+
+- [S10/backend Wave 2] **ASSUMPTION:** Header BOM stripping in `staging.py` uses `.strip('﻿')` (defensive) because real-world Windows-exported CSV files sometimes have two BOM sequences (one from the content string, one from the utf-8-sig codec). The staging code strips any leading/trailing BOM characters from header names. Affects: `backend/app/services/imports/staging.py`.
+
+- [S10/frontend] **ASSUMPTION:** The wizard VolunteerRoute uses a NEW `VolunteerRoute.tsx` (does not modify `ProtectedRoute.tsx` per ownership constraints). Admin users get the Import nav entry inside the existing admin "More" sheet; non-admin volunteers get a direct Import tab in the bottom nav. Affects: `frontend/src/components/layout/BottomNav.tsx`, `frontend/src/components/layout/VolunteerRoute.tsx`.
+
+- [S10/frontend] **ASSUMPTION:** `target_event_id` for participants mode uses a simple numeric input (not the full S04 event picker component) since S04's event search/select component interface is not documented in the sprint task. When S04's event picker component is available, swap the `<input type="number">` in `MapStep.tsx` for the S04 component. Affects: `frontend/src/components/imports/MapStep.tsx`.
+
+- [S10/frontend] **ASSUMPTION:** S10 pages are lazy-loaded in `App.tsx` (matching the S16 pattern for TanStack-Query-heavy pages) rather than eagerly imported. This keeps the initial bundle lean and prevents a test-suite timeout in the AC10 dynamic-import check in `BulkPhotoUploadPage.test.tsx`. Affects: `frontend/src/App.tsx`.
+
+- [S10/backend] **ASSUMPTION:** Staged-file TTL is 24h (config constant `IMPORT_STAGING_TTL_HOURS = 24`). Shorten for PII privacy without migration by editing the constant. Affects: `backend/app/config.py`.
+
+- [S10/backend] **ASSUMPTION:** Preset uniqueness is GLOBAL per entity: `uq_import_mapping_preset_entity_name` (entity, name) unique constraint. A preset name colliding with ANY owner's preset for that entity → 409 Conflict. Affects: `backend/app/models.py`, `routers/imports.py` preset endpoints.
+
+- [S10/backend] **ASSUMPTION:** Participant import uses `ON CONFLICT(event_id, contact_id) DO NOTHING` (idempotent re-run; source='import'). Duplicate participant rows in the same import batch are silently deduplicated. Affects: `backend/app/services/imports/runner.py`.
+
+- [S10/backend] **ASSUMPTION:** SlowAPIMiddleware still not registered globally; S10 endpoints use explicit `@limiter.limit` decorators (same codebase-wide gap noted in S09/S16). `POST /imports/upload`, `POST /imports/preview`, `POST /imports/run` all have decorators. **FOLLOW-UP:** install SlowAPIMiddleware globally or add limits to remaining search endpoints. Affects: `backend/app/routers/imports.py`, `main.py`.
+
+- [S10/backend] **ASSUMPTION:** `map_participant_row` (S06 mapper) requires `event_ref` in the mapped row data, even when the wizard provides `target_event_id` at the API level. When `target_event_id` is present and no column is mapped to `event_ref`, `run_import` injects a synthetic `_wizard_event_ref_` column into both `s06_map` and each raw row so the S06 mapper sees the required field. This avoids modifying the S06 mapper and preserves its contract. Affects: `backend/app/services/imports/runner.py`.
+
+- [S10/backend] **ASSUMPTION:** `_purge_expired_imports` transitions staged batches to `status='expired'` and sets `staging_file=None` after deleting the file. It does NOT call `batch.delete()` or remove the ImportBatch row — the row is kept for audit/history. Affects: `backend/app/services/queue_manager.py`.
+
+- [S10/backend] **ASSUMPTION:** Header BOM stripping in `staging.py` uses `.strip('﻿')` (defensive) because real-world Windows-exported CSV files sometimes have two BOM sequences (one from the content string, one from the utf-8-sig codec). The staging code strips any leading/trailing BOM characters from header names. Affects: `backend/app/services/imports/staging.py`.
+
+- [S10/backend] **ASSUMPTION:** import_batch.mode widened to VARCHAR(20) on Postgres (wizard_preview=14 chars); downgrade does NOT narrow it (truncation risk). Affects: `backend/alembic/versions/s10a1b2c3d4e5_s10_csv_xlsx_import_wizard.py`, `backend/app/models.py`.
+
+- [S11/backend] **ASSUMPTION:** `_REASSIGNMENT_TARGETS` is a mixed `frozenset` of `(table, col)` tuples AND plain strings for the two non-FK rewrite paths (`"detections.matched_name"`, `"contacts.custom_data:contact_reference"`). The introspection test checks `contact_fks - _REASSIGNMENT_TARGETS`; strings are excluded from the FK column scan but remain in the set for completeness. Affects: `backend/app/services/dedupe_service.py`, `backend/tests/test_dedupe_manifest.py`.
+
+- [S11/backend] **ASSUMPTION:** `RuleSetOut.rules` is typed `List[Dict[str, Any]]` (not `List[RuleWeightItem]`) to prevent output-side Pydantic validation from rejecting existing DB rows that might have fields outside the current `_DEDUPE_VALID_FIELDS` constant. Affects: `backend/app/schemas.py`.
+
+- [S11/backend] **ASSUMPTION:** Post-commit `recompute_contacts` uses a NEW `async with async_session() as _pc_db:` session (not the already-committed session) because `recompute_contacts` calls `commit()` internally. Affects: `backend/app/services/dedupe_service.py`.
+
+- [S11/backend] **ASSUMPTION:** `NameAlias.alias_text` is globally unique (per `uq_name_alias_text` index). The merge collision check uses `NameAlias.contact_id != lid` (not `== sid`) to catch any alias_text already taken by ANY other contact, not just the survivor. This is stricter than necessary but avoids unique-constraint violations. Affects: `backend/app/services/dedupe_service.py`.
+
+- [S11/backend] **ASSUMPTION:** `logs.matched_name` rewrite is included in `stats` under key `"logs.matched_name"` even though `"logs"` is not an FK in `_REASSIGNMENT_TARGETS`. The manifest frozenset only tracks contacts.id FKs + named non-FK paths; `logs.matched_name` is a companion to `detections.matched_name` handled under the same non-FK path string. The introspection test only checks FK coverage (not log rewrite). Affects: `backend/app/services/dedupe_service.py`.
+
+- [S11/backend] **ASSUMPTION:** S12 guard (`if await has_table(db, "activities"):`) covers only `activities.target_contact_id`. When S12 lands and adds that column, the introspection test (`test_manifest_covers_all_contact_fks`) will fail until `("activities", "target_contact_id")` is added to `_REASSIGNMENT_TARGETS`. This is by design — the test is a sentinel. Affects: `backend/app/services/dedupe_service.py`, `backend/tests/test_dedupe_manifest.py`.
+
+- [S12/frontend] **ASSUMPTION:** BottomNav 5-slot UX default applied (spec §10 Q6, "owner UX decision required"). Ranking removed from the 5 main tabs and moved into the admin "More" sheet. The Activities (CRM) "Tasks" tab (`/activities`, ListTodo icon) replaces Ranking as the 3rd main tab. Non-admin users no longer see Ranking in the main bar; admins find it in the More sheet. Affects: `frontend/src/components/layout/BottomNav.tsx`, `frontend/src/components/layout/BottomNav.test.tsx`. **Owner confirmation requested before merge.**
+
+- [S12/frontend] **ASSUMPTION:** Both the detection-review tab (`/`, label "Tasks") and the new Activities tab (`/activities`, label "Tasks") carry the same visible label. The BottomNav test uses `getAllByRole('link', { name: /^tasks$/i })` to handle two matches. UX may want to differentiate (e.g., rename detect tab to "Review") — tracked here for owner confirmation. Affects: `frontend/src/components/layout/BottomNav.tsx`.
+
+- [S12/backend] **ASSUMPTION:** `GET /activities/assignees` uses `require_viewer` (admits admin|volunteer|viewer) rather than `require_volunteer` as stated in spec §4.1 endpoint table. This aligns with AC§10 (§7) and the §8 test plan, both of which explicitly list `/activities/assignees` among read endpoints that must return 200 for viewer tokens. The §4.1 table entry is an internal spec inconsistency; AC§10 is treated as normative. The endpoint projection is safe (no secrets — names/emails/roles only). **Confirm:** if viewers should NOT see the user list (privacy concern), change to `require_volunteer` and update AC§10 accordingly. Affects: `backend/app/routers/activities.py`.
+
+- [S12/frontend] **ASSUMPTION:** ActivityFormModal target-contact field is a plain numeric ID input when not pre-filled (no S03 contact-picker primitive found as an exported component). When launched from a contact profile, the field is locked/read-only. A full contact-search picker can be substituted post-S12. Affects: `frontend/src/components/activities/ActivityFormModal.tsx`.
+
+- [S12/frontend] **ASSUMPTION:** `User.role` expanded from `'volunteer' | 'admin'` to `'volunteer' | 'admin' | 'viewer'` in `frontend/src/types/index.ts`. The S08 BLOCKERS entry ([S08/frontend]) noted this was needed when S15 landed — S12 does it early since `isViewer` is required for activity-gating now. Affects: `frontend/src/types/index.ts`, `frontend/src/store/authStore.ts`.
+
+- [S13/frontend] **ASSUMPTION:** `getFieldKey()` maps form values by `core_field` name for core fields (e.g., `first_name`) and `custom_field_name` for custom fields (e.g., `invited_by`). The spec does not prescribe the key format; this choice means `WelcomePage.handleSubmit` can spread `values` directly into `NewcomerSubmission` without mapping. Affects: `frontend/src/components/profiles/fieldUtils.ts`, `frontend/src/pages/WelcomePage.tsx`.
+
+- [S13/frontend] **ASSUMPTION:** `ProfileFormRenderer.onSubmit` does NOT catch errors — it delegates error handling (including toasts and the 429 friendly message) to the caller (`WelcomePage.handleSubmit`). `ProfileFormRenderer` only manages `isSubmitting` state and inline validation. Spec §5.4 lists "toast.error on API error" in the context of the overall WelcomePage flow, not as a requirement for the renderer itself to catch. Affects: `frontend/src/components/profiles/ProfileFormRenderer.tsx`, `frontend/src/pages/WelcomePage.tsx`.
+
+- [S13/frontend] **ASSUMPTION:** The ContactsPage profile dropdown uses `enabled: showDropdown` (lazy fetch — only loads profiles when the dropdown is opened for the first time). This avoids adding a `profilesApi` mock to all existing ContactsPage tests and provides acceptable UX (profiles cached for 30s after first open). If eager fetching is preferred, set `enabled: true` and ensure tests mock `profilesApi`. Affects: `frontend/src/pages/ContactsPage.tsx`.
+
+- [S13/frontend] **ASSUMPTION:** `ProfilesPage` is_public inline toggle uses a dynamic `import('@/services/profilesApi')` call rather than `useUpdateProfile(id)` hook at page render time, because the per-row toggle needs a different `id` for each row and React hooks cannot be called conditionally. This pattern avoids creating a wrapper component per row. Affects: `frontend/src/pages/ProfilesPage.tsx`.
+
+- [S13/frontend] **ASSUMPTION:** `BulkPhotoUploadPage.test.tsx > AC10 > route /bulk-upload is wrapped in AdminRoute in App.tsx` is a pre-existing flaky timeout (5 s limit on dynamic `import('../App')`). This test was already failing intermittently before S13 (documented in spec §8.3 as "given the App-module timeout sensitivity"). On second run it passes. S13 lazy-loads its 3 new pages (ProfilesPage, ProfileFormPage, WelcomePage) to minimize App module weight growth. Confirmed stable on second run: 501/501 passed. Affects: `frontend/src/pages/BulkPhotoUploadPage.test.tsx`.
+
+- [S13/backend] **ASSUMPTION (CORS):** Spec §4.6 referenced `dynamic_settings.get_json("newcomer_allowed_origins")` for per-request CORS headers, but `dynamic_settings` has no `.get_json()` method (only `.get()`, `.get_str()`, `.get_bool()`). Decision: do NOT implement per-request CORS in `public.py`. Deployment is same-origin (Cloudflare Tunnel → nginx → same container), so the existing app-level `CORSMiddleware` is sufficient. If the newcomer form is ever served from a separate domain, add `newcomer_allowed_origins` admin-settings key and update `app/routers/public.py`. Affects: `backend/app/routers/public.py`.
+
+- [S13/backend] **ASSUMPTION (unseeded custom fields):** `service_time`, `prayer_request`, and `season` are NOT seeded as `custom_field_def` rows in S02. Passing them through `create_contact → validate_and_coerce` raises 422. Decision: pass only `facebook_name` via `ContactCreate.custom_data` (seeded in S02); merge `service_time`, `prayer_request`, `season`, and `first_visit_date` directly into `contact.custom_data` after creation, bypassing `validate_and_coerce`. These fields will render in contact detail once S02 seeds them (CN-14). Affects: `backend/app/services/profile_service.py`.
+
+- [S13/backend] **ASSUMPTION (new_friend_add_date → first_visit_date):** The newcomer form field `new_friend_add_date` (submission date) maps to the seeded custom-field key `first_visit_date` in `contact.custom_data`. This is consistent with the S02 seed naming convention. Affects: `backend/app/services/profile_service.py`.
+
+- [S13] **🟡 M3 RATE-LIMIT-PROXY REQUIREMENT (pre-public-launch ops gate):** GET/POST `/public/newcomer` are rate-limited (30/min) by per-IP client address via `get_remote_address()` helper. **Behind nginx + Cloudflare Tunnel, this REQUIRES specific configuration or limiting fails:** uvicorn MUST run with `--proxy-headers --forwarded-allow-ips <nginx>` and nginx MUST set a trusted `X-Forwarded-For` header, else per-IP limiting collapses to one global bucket or becomes XFF-spoofable. **Action:** Document this explicitly in `PRODUCTION_RUNBOOK.md` (Docker Compose + proxy section) + add a config-checklist endpoint note. **Validation gate:** before exposing `/welcome` publicly, confirm uvicorn log shows "Using forwarded IPs" + test that separate IPs hit the rate-limit independently. Affects: `backend/app/routers/public.py`, `PRODUCTION_RUNBOOK.md`.
+
+- [S13] **CN-14 FOLLOW-UP:** S02 should seed `custom_field_def` rows for `service_time`, `prayer_request`, and `season` custom fields so they render in contact detail after newcomer submission. Currently they are merged post-creation to bypass validation. Affects: seed task in S02.
+
+- [S13] **ContactFormPage `?profile=` param (deferred):** ProfilesPage "New from template" dropdown currently creates a contact with the profile's fields as empty/unset. The deeper enhancement (pre-fill form from profile template) is post-S13. Affects: `frontend/src/pages/ProfileFormPage.tsx`.
+
+---
+### Format
+```
+- [SPRINT] **ASSUMPTION:** <what was unknown> → chose <default> because <reason>. Affects: <files/sprints>.
+```

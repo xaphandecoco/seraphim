@@ -1,3 +1,22 @@
+"""Face recognition pipeline — frame-level processing and attendance auto-logging.
+
+Scoring weights (applied on task resolution via task_service._update_volunteer_stats):
+  - confirm  : 1 point   (second confirmer closes a pending task)
+  - edit     : 2 points  (reassigning a misidentified face earns a bonus)
+  - add      : 1 point   (linking an unidentified face to a member)
+
+Auto-attendance trigger:
+  Tier-100 detections (similarity == 100%) auto-log a Participant row
+  (contact_id, event_id, detection_id, status='attended', source='face') during
+  process_face_crop, guarded by a pre-SELECT on (contact_id, event_id) so that
+  a returning member does not raise IntegrityError.  When event_id is None the
+  auto-log is skipped and a warning is emitted.
+
+  The same Participant path is triggered on task resolution (task_service
+  _log_attendance) and on pit-queue enroll (pit.enroll_pit_task); all three sites
+  use source='face' and the (contact_id, event_id) dedup key.
+"""
+
 import json
 import logging
 from datetime import datetime, timezone
@@ -8,7 +27,7 @@ import numpy as np
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Attendance, ComprefaceSubject, Detection, Task
+from app.models import ComprefaceSubject, Detection, Participant, Task
 from app.services.quality_gate import FaceQualityGate
 from app.sse import broadcaster
 
@@ -130,20 +149,20 @@ async def process_face_crop(
             # (which would abort the whole detection insert).
             from sqlalchemy import select as _select
             existing_att = await session.execute(
-                _select(Attendance.id).where(
-                    Attendance.contact_id == member_id,
-                    Attendance.event_id == event_id,
+                _select(Participant.id).where(
+                    Participant.contact_id == member_id,
+                    Participant.event_id == event_id,
                 )
             )
             if existing_att.scalar_one_or_none() is None:
-                attendance = Attendance(
+                participant = Participant(
                     contact_id=member_id,
                     event_id=event_id,
                     detection_id=detection.id,
-                    status="confirmed",
-                    push_status="pending",
+                    status="attended",
+                    source="face",
                 )
-                session.add(attendance)
+                session.add(participant)
         elif tier == "100" and not event_id:
             logger.warning(
                 "Tier-100 detection for member=%s skipped attendance — no active event",

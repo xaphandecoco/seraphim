@@ -32,6 +32,7 @@ yarn-error.log*
 dist/
 build/
 *.egg-info/
+.vite/
 
 # IDE
 .vscode/
@@ -53,6 +54,9 @@ coverage/
 htmlcov/
 .pytest_cache/
 *.db
+*.db-journal
+*.db-wal
+*.db-shm
 backend/test*.db
 .test-storage/
 

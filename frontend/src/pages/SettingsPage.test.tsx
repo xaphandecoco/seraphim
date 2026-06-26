@@ -36,6 +36,10 @@ vi.mock('sonner', () => ({
 
 vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
+  useSearchParams: () => [new URLSearchParams(''), vi.fn()],
+  Link: ({ children, to }: { children: any; to: string }) => (
+    <a href={to}>{children}</a>
+  ),
 }));
 
 vi.mock('@/store/authStore', () => ({

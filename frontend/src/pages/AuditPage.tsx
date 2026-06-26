@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { CheckCircle2, XCircle, Pencil, ShieldCheck } from 'lucide-react';
 import { api } from '@/services/api';
-import { MemberSearchModal } from '@/components/tasks/MemberSearchModal';
+import { ContactPickerModal } from '@/components/tasks/ContactPickerModal';
 import type { Member } from '@/types';
 
 interface AuditTask {
@@ -144,7 +144,7 @@ export function AuditPage() {
       </main>
 
       {editingTask && (
-        <MemberSearchModal
+        <ContactPickerModal
           mode="edit"
           onSelect={handleMemberSelect}
           onClose={() => setEditingTask(null)}

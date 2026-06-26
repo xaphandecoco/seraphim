@@ -9,7 +9,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.database import get_db, engine
-from app.dependencies import check_setup_complete
 from app.models import AdminSetting, Camera, User
 from app.schemas import (
     SetupRequest,
@@ -91,8 +90,6 @@ async def test_services(req: ServiceTestRequest):
 
     compreface_ok = False
     compreface_msg = ""
-    civicrm_ok = None
-    civicrm_msg = ""
 
     if req.compreface_url:
         try:
@@ -112,34 +109,9 @@ async def test_services(req: ServiceTestRequest):
     else:
         compreface_msg = "No URL provided"
 
-    if req.civicrm_url:
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                # Use extern/rest.php (System.check) — the same path the runtime
-                # client uses — so the wizard's connectivity result matches actual
-                # runtime behaviour (B-S5: setup parity fix).
-                resp = await client.get(
-                    f"{req.civicrm_url}/extern/rest.php",
-                    params={"entity": "System", "action": "check", "json": "1"},
-                )
-                # 200/401/403 all indicate the endpoint exists and CiviCRM is up.
-                if resp.status_code in (200, 401, 403):
-                    civicrm_ok = True
-                    civicrm_msg = "Endpoint reachable"
-                else:
-                    civicrm_ok = False
-                    civicrm_msg = "Service returned an unexpected status"
-        except Exception:
-            civicrm_ok = False
-            civicrm_msg = "Connection failed. Check URL and network."
-    else:
-        civicrm_msg = "No URL provided"
-
     return ServiceTestResponse(
         compreface_ok=compreface_ok,
         compreface_message=compreface_msg,
-        civicrm_ok=civicrm_ok,
-        civicrm_message=civicrm_msg,
     )
 
 
@@ -189,9 +161,6 @@ async def create_setup(
         # ComprefaceClient falls back to compreface_api_key when either is blank.
         "compreface_detect_api_key": req.compreface_detect_api_key or "",
         "compreface_recognize_api_key": req.compreface_recognize_api_key or "",
-        "civicrm_url": req.civicrm_url or "",
-        "civicrm_api_key": req.civicrm_api_key or "",
-        "civicrm_site_key": req.civicrm_site_key or "",
         "jwt_secret": req.jwt_secret or os.urandom(32).hex(),
         "setup_complete": True,
         "similarity_threshold_high": 0.98,
@@ -219,8 +188,6 @@ async def create_setup(
                 "compreface_api_key",
                 "compreface_detect_api_key",
                 "compreface_recognize_api_key",
-                "civicrm_api_key",
-                "civicrm_site_key",
                 "jwt_secret",
             ),
             requires_restart=key in ("database_url", "redis_url"),

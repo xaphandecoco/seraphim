@@ -1,5 +1,373 @@
 ## [Unreleased]
 
+### S13 — Profiles & Public Newcomer Form (Sprint complete 2026-06-26)
+
+Self-service intake-form templates with public-facing newcomer form. Admin profile builder (CRUD + render preview). Backend intake pipeline: deduplication, contact creation, name resolution, prayer-classification, transactional outbox producer stub.
+
+**Backend**
+- `app/models.py`: new `Profile` ORM model (name, description, is_public, fields JSONB, created_at, updated_at)
+- `services/profile_service.py` (new): newcomer intake pipeline (5-min duplicate suppression via exact email+name match, S03 contact creation, S22 name resolution for invited_by/consolidated_by, Claude prayer-classification [model claude-sonnet-4-6, fail-open], transactional outbox enqueue [google_chat.new_friend + gmail.new_friend_report always; gmail.prayer_request only if valid], best-effort _drain_outbox_stub)
+- `routers/profiles.py` (new): admin CRUD (list, detail, create, update with duplicate-name 409 + custom-field-name 422 validation, delete with last-public 409 guard); all require_admin
+- `routers/public.py` (new): unauthenticated `GET /public/newcomer/profile` (returns chosen is_public profile, 404 if none configured) + rate-limited `POST /public/newcomer` (NewcomerSubmission; 30/min per IP)
+- Migration `s13a1b2c3d4e5` (new, down_revision `s12a1b2c3d4e5`): new `profiles` table; seeds 3 preset profiles (New Friend [is_public=true], Community Member, Volunteer) with `fields=[]`
+- **Key reconciliations:** Outbox already existed (S12) — imported not recreated; `match_name()` returns NameMatchResult TypedDict (outcome SINGLE/AMBIGUOUS/UNMATCHED); `create_contact(db, payload, actor_id)->(contact,warnings)` auto-writes audit + runs validate_and_coerce; non-seeded custom fields (service_time/prayer_request/season) merged post-creation to avoid 422; `new_friend_add_date`→seeded `first_visit_date`; `dynamic_settings.get_str()` only method (no get_json); Anthropic via env ANTHROPIC_API_KEY, model claude-sonnet-4-6, tests skipped (ENVIRONMENT==test)
+
+**Frontend**
+- `pages/WelcomePage.tsx` (new): public form (no auth, no BottomNav), tied to is_public profile, conditional prayer-request field, handles 429 friendly, toast on success
+- `pages/ProfilesPage.tsx` (new): admin list + inline is_public toggle per row, delete with last-public guard
+- `pages/ProfileFormPage.tsx` (new): admin builder; create/edit; ProfileFormRenderer + SectionRenderer + ProfileFieldEditor (custom field CRUD); live preview
+- `components/profiles/ProfileFormRenderer.tsx`, `SectionRenderer.tsx`, `ProfileFieldEditor.tsx` (new): reusable form builder + field editors; validates custom-field names on submit
+- `services/profilesApi.ts`, `hooks/useProfiles.ts`, `types/index.ts` (new): TanStack Query client + types
+- `pages/ContactsPage.tsx`: "New from template" profile dropdown (lazy fetch, enabled on open)
+- `App.tsx`: routes (/welcome public, /profiles* AdminRoute); BottomNav Profiles entry
+
+**Security audit**
+- Initial findings: 1 HIGH (membership oracle via PII leak), 3 MEDIUM, 3 LOW
+- **HIGH FIXED:** public POST `/public/newcomer` response leaked `invited_by_resolved.id`, `consolidated_by_resolved.id` (contact existence oracle for religious-affiliation categories). Response now unconditionally returns `invited_by_resolved=None, consolidated_by_resolved=None`; resolution kept only in internal outbox context.
+- **MEDIUM FIXED:** (1) NewcomerSubmission string fields lacked max_length bounds → first_name/last_name VARCHAR(100), email VARCHAR(255), phone VARCHAR(20), prayer_request VARCHAR(2000). (2) POST /public/newcomer returned 200 even if no is_public profile configured → now returns 404 "No public form is configured" (form has real off-switch). (3) Rate-limit on GET/POST /public/newcomer keys on client IP via get_remote_address; behind nginx + Cloudflare Tunnel requires `--proxy-headers + X-Forwarded-For` or becomes global/spoofable (M3 ops gate: document in PRODUCTION_RUNBOOK pre-public-launch).
+- **LOW FIXED:** (1) _drain_outbox_stub stored raw exception (webhook URL + secret) in error detail → store only redacted error (type + status). (2) Duplicate query used LIKE wildcard → uses `func.lower(email) == func.lower(submission.email)` exact match. (3) GET /public/newcomer/profile undecorated → added `@limiter.limit("30/minute")`.
+- **4 regression tests added:** membership oracle, string bounds, 404 guard, duplicate exact-match.
+- **Re-audit: PASS.**
+
+**Integration**
+- `test_migrations.py` EXPECTED_HEAD updated to `s13a1b2c3d4e5`; down_revision test to `s12a1b2c3d4e5`
+- Outbox model reused (S12); no modifications
+
+**Key assumptions (documented in BLOCKERS.md)**
+- 🟡 **M3 rate-limit-proxy requirement (pre-public-launch ops gate):** GET/POST /public/newcomer rate-limited (30/min) by per-IP client address (get_remote_address). Behind nginx + Cloudflare Tunnel, uvicorn MUST run with `--proxy-headers --forwarded-allow-ips <nginx>` and nginx must set trusted X-Forwarded-For, else per-IP limiting collapses to one global bucket or becomes XFF-spoofable. **MUST document in PRODUCTION_RUNBOOK + validate pre-cutover.**
+- [S13] CORS (same-origin): dynamic_settings has no get_json method; same-origin deployment sufficient; per-request CORS deferred.
+- [S13] Unseeded custom fields (service_time, prayer_request, season): merged directly post-creation; CN-14 follow-up: S02 should seed them.
+- [S13] `new_friend_add_date` → `first_visit_date` custom field key seeded in S02.
+- [S13] ContactFormPage `?profile=` param deferred: deeper template pre-fill integration post-S13.
+- [S13] Outbox producer (S16/S17 expansion): stub persists rows; full NotificationService + push/email awaits S17/S18.
+
+---
+
+### S12 — Activities (Assignable Tasks) (Sprint complete 2026-06-26)
+
+Assignable task/activity engine for contact-tied workflows. Admins + volunteers create, assign, and transition activity status; role-aware mutations with due-reminder producer stub.
+
+**Backend**
+- `app/models.py`: new `Activity` ORM model (target_contact_id FK, assignee_user_id, title, description, due_at, status/priority ENUMs, completed_at, created_by_id, audit fields)
+- `app/models.py`: new `Outbox` ORM model (queues activity updates for S16/S17 producers)
+- `services/activity_service.py` (new): `ActivityService` with CRUD, role-aware status-transition matrix, due-reminder producer stub (`scan_due_reminders()`, module-level `run_due_reminder_job()`)
+- `routers/activities.py` (new): 8 endpoints (GET list, POST create, GET/{id} detail, PATCH update, PATCH/{id}/status [status-transition], POST/{id}/reassign [admin-only], GET due-reminders, GET outbox); all require_volunteer except reassign (require_admin); GET /assignees uses require_viewer (safe projection)
+- Migration `s12a1b2c3d4e5` (new, down_revision `s11a1b2c3d4e5`): new activities + outbox tables; dedupe FK manifest tuple `('activities', 'target_contact_id')` added (resolves S11 carry-forward)
+- **Audit:** all mutations via S02 `record(...)`
+- **Dedupe guard RESOLVED:** S11 introspection test now passes (manifest includes activities FK)
+
+**Frontend**
+- `pages/ActivitiesPage.tsx` (new): "My Tasks" / "All Tasks" tabs, filterable list, pagination
+- `components/activities/ActivitiesPanel.tsx` (new): read-only panel on contact profile
+- `components/activities/ActivityFormModal.tsx` (new): create/edit modal
+- `components/activities/ActivityCard.tsx` (new): individual activity card component
+- `services/activities.ts`, `hooks/useActivities.ts` (new): TanStack Query client + custom hooks
+- `types/index.ts`: Activity, ActivityStatus, ActivityPriority types; User.role expanded to include 'viewer' (S15 prep)
+- `components/layout/BottomNav.tsx`: added "Tasks" tab (`/activities`, ListTodo icon) to main bar; "Ranking" moved to admin More sheet
+
+**Security audit**
+- Initial finding: 1 HIGH (volunteer could reassign via PATCH), 1 MEDIUM (enum validation missing on status/priority).
+- **HIGH FIXED:** removed `assignee_user_id` from `ActivityUpdate` schema; reassignment now admin-only via `POST /activities/{id}/reassign`.
+- **MEDIUM FIXED:** `ActivityCreate` and `ActivityUpdate` now validate status/priority against Literal/Enum; completed_at stamped when status='completed'.
+- **Re-audit: PASS.**
+
+**Integration**
+- `test_migrations.py` EXPECTED_HEAD updated to `s12a1b2c3d4e5`; down_revision test to `s11a1b2c3d4e5`.
+- `require_viewer` (S15 shim) reused for /activities/assignees (AC10 + test plan require viewer 200; safe projection).
+
+**Key assumptions (documented in BLOCKERS.md)**
+- BottomNav 6-slot UX (spec §10 Q6): Ranking moved to admin More; Tasks tab replaces it. Owner UX confirmation requested.
+- Two "Tasks" labels in BottomNav (detection-review `/` tab + activities `/activities`). May rename detection tab to "Review".
+- ActivityFormModal target-contact field is plain numeric ID input when not pre-filled (post-S12 enhancement: shared contact-picker).
+
+---
+
+### S11 — Find & Merge Duplicate Contacts (Sprint complete 2026-06-26)
+
+Native on-demand duplicate detection and atomic, FK-complete contact merge with admin-tunable dedup rules.
+
+**Backend**
+- `services/dedupe_service.py` (new): duplicate detection via pairwise difflib scoring against active dedup rule set; atomic merge engine with `_REASSIGNMENT_TARGETS` manifest (10 FK reassignments + 2 non-FK rewrites); collision-aware status/UNIQUE precedence; safe loser soft-delete + post-commit cleanup.
+- `models.py`: new `DedupeRuleSet` ORM model (name, is_default, rules JSONB, field_weights, threshold).
+- `routers/dedupe.py` (new): candidates (list with scoring), preview (merge diff), merge (execute), history (audit); rule-set CRUD (admin write); viewer 403.
+- Migration `s11a1b2c3d4e5` (new, down_revision `s10a1b2c3d4e5`): new `dedupe_rule_set` table; seeded with Default set.
+- **Safety net:** `test_manifest_covers_all_contact_fks` introspection test walks `Base.metadata` for every contacts.id FK; fails build if missing from manifest — self-maintaining guard (intended to break when S12 lands `activities.target_contact_id` until added).
+- **Integration fixture** covers all FK tables including collision rows; verifies zero residual loser refs + no UNIQUE violations post-merge.
+
+**Frontend**
+- `pages/DuplicatesPage.tsx` (new): three tabs (Candidates, Rules[admin-only], History).
+- `components/duplicates/MergeModal.tsx` (new): side-by-side merge preview, survivor-default, per-field chooser, same-person confirmation gate.
+- `components/duplicates/DedupeRuleEditor.tsx` (new): admin rule management.
+- `services/dedupe.ts`, `hooks/useDedupe.ts` (new): TanStack Query client for dedupe endpoints.
+- `types/index.ts`: DedupeRuleSet, Duplicate, MergePreview, MergeResult types.
+
+**Security audit**
+- Initial findings: 0 BLOCK. 3 hardening fixes applied: (1) re-check is_deleted under with_for_update lock (TOCTOU double-merge guard); (2) sanitize rollback 500 detail + post-commit warning strings (no raw exception to client).
+- Re-audit: PASS.
+
+**Integration**
+- `test_migrations.py` EXPECTED_HEAD updated to `s11a1b2c3d4e5`; down_revision test to `s10a1b2c3d4e5`.
+- Recon caught spec gaps: name_match_review_queue has both `contact_id` + `candidate_contact_id` (both reassigned); name_alias.alias_text is globally UNIQUE (collision handling corrected).
+
+**Key assumptions (documented in BLOCKERS.md)**
+- S12 FK manifest guard: when `activities.target_contact_id` lands, introspection test will fail until added to manifest (intended).
+- biometric_consent merge collision deletes loser row (archived in audit); "consent_given TRUE-wins" is future option.
+- Endpoints not rate-limited (codebase-wide @limiter gap).
+- Merge is irreversible-by-design; audit_log contact_merge row is recovery seed.
+- is_default single-row invariant is app-layer only.
+
+### S10 — CSV/XLSX Import Wizard (Sprint complete 2026-06-26)
+
+Self-service 4-step import wizard for bulk contact and participant onboarding, reusing the proven S06 ETL pipeline.
+
+**Backend**
+- `services/imports/staging.py` (new): multi-format reader — CSV with automatic encoding detection (UTF-8 → UTF-8-SIG → CP1252 fallback), delimiter sniffing via csv.Sniffer; XLSX multi-sheet support via openpyxl read_only mode.
+- `services/imports/suggest.py` (new): fuzzy header-to-column-target matching (header normalization + Levenshtein-distance ranking against S06 canonical targets).
+- `services/imports/disposition.py` (new): row classification engine (new/match/ambiguous/error by match_key: external_id → email → name_concat).
+- `services/imports/runner.py` (new): 4-phase wizard orchestrator — map-phase (custom:X → custom_data.X translation), preview-phase (zero core rows via savepoint, human review), run-phase (500-row chunks, idempotent; conflict modes skip|update|fill), and post-run (participants ON CONFLICT DO NOTHING, name-ambiguous → S22 review queue, recompute_all_contacts per CN-24).
+- `services/imports/presets.py` (new): mapping-preset CRUD (owner-scoped, global-unique per entity+name, 409 on collision).
+- `app/models.py`: new `ImportMappingPreset` ORM; extended `ImportBatch` with `staging_file` + `expires_at`; widened `mode` to VARCHAR(20) for 'wizard_preview'.
+- `routers/imports.py` (new): 13 endpoints (POST upload, GET columns, POST preview, POST run, GET list, GET detail, GET rows, GET preview-rows, GET report.csv, CRUD presets); all require_volunteer; rate-limited (@limiter.limit).
+- `queue_manager.py`: `_purge_expired_imports` job (24h TTL, transitions to status='expired', clears staging_file).
+- Migration `s10a1b2c3d4e5` (new, down_revision `s09a1b2c3d4e5`): adds `import_mapping_preset` table, extends `import_batch`.
+- **Reuses unmodified from S06:** reader, normalize, mapper, loader, bulk_service, name_match, member_status_service, export_service._sanitize_cell.
+
+**Frontend**
+- `pages/ImportsPage.tsx` (new): wizard parent + import runs list.
+- `components/imports/UploadStep.tsx`, `MapStep.tsx`, `PreviewStep.tsx`, `RunStep.tsx` (new): 4-step wizard flow with progress indicator.
+- `components/imports/ReportViewer.tsx` (new): streaming CSV report viewer + download.
+- `components/layout/VolunteerRoute.tsx` (new): route guard for import access (admin + volunteer roles).
+- `store/authStore.ts`: added `isVolunteer` derived state (role === 'admin' || role === 'volunteer').
+- `components/layout/BottomNav.tsx`: added Import nav entry (visible to volunteer+).
+- `services/imports.ts`, `hooks/useImports.ts` (new): TanStack Query client for import endpoints.
+- `types/index.ts`: ImportBatch, ImportMappingPreset, ImportRowResult, ImportReport types.
+
+**Security audit**
+- Initial finding: 1 HIGH (PII exposure via /storage path), 1 MEDIUM (missing rate-limits), 4 LOWs.
+- **HIGH FIXED:** staged import files (raw CSVs) served by GET /storage/{path} without ownership check (security-by-obscurity). serve_storage_file now rejects any path under `imports/` → 404. Blocks any authenticated token from reading another user's uploads.
+- **MEDIUM FIXED:** added `@limiter.limit` decorators on POST /imports/upload, POST /imports/preview, POST /imports/run (explicit; codebase-wide SlowAPIMiddleware gap carried forward).
+- **LOWs FIXED:** (1) external_id collision on create → now _create_contact_direct; (2) invalid entity → 422 vs 400; (3) mid-stream CSV decode error → error row, not 500; (4) purge path-containment hardened.
+- **Re-audit: PASS.**
+
+**Integration**
+- `test_migrations.py` EXPECTED_HEAD updated to `s10a1b2c3d4e5`; down_revision test to `s09a1b2c3d4e5`.
+- Wizard custom-field translation reuses S02 get_active_schema (no N+1).
+- Synthetic event_ref injection (runner.py) preserves S06 mapper contract without modification.
+
+**Key assumptions (documented in BLOCKERS.md)**
+- Staged-file TTL = 24h (config constant, tune without migration).
+- Preset uniqueness is global per (entity, name) — collisions → 409.
+- Participant import idempotent via ON CONFLICT DO NOTHING.
+- Rate-limiting is explicit @limiter.limit (codebase-wide gap).
+- S06 map_participant_row requires event_ref; wizard injects synthetic column.
+- import_batch.mode VARCHAR(20); downgrade does NOT narrow (truncation risk).
+
+### S09 — Advanced Search, Saved Searches & Smart Groups (Sprint complete 2026-06-26)
+
+Native replacement for CiviCRM Advanced Search / Search Builder / Smart Groups with injection-safe query compilation, whitelist-enforced field/operator validation, and DoS guards.
+
+**Backend**
+- `services/search_fields.py` (new): whitelist field registry — 15 core fields + 7 S23-derived snapshot fields (tier, is_active, is_regular, is_connected, weeks_absent, attendance_count, last_attended_at) + active custom fields via S02 get_active_schema reuse. Per-data-type operator sets (select, text, date, number, checkbox, contact_reference, multiselect). Dialect-branched JSONB resolution.
+- `services/search_service.py` (new): compilation pipeline (whitelist → operator-check → type-coerce → parameterize); InvalidCriteria on unknown field/op; DoS guards (depth ≤ 10, node_count ≤ 100, list_length ≤ 200); run_search (non-bypassable soft-delete filtering); saved-search CRUD (owner-scoped, cross-owner → 404); group CRUD (smart = live-resolved, static = frozen group_members snapshot).
+- `routers/search.py` (new): two routers `/search` (POST run_search, POST validate, POST save, GET/DELETE saved searches) + `/groups` (POST create, GET list [bare array], GET/{id} detail, PATCH/DELETE, POST {id}/populate).  All require_volunteer; include_deleted admin-gated.
+- `app/models.py`: SavedSearch, Group, GroupMember ORM models with proper indexes + unique constraints.
+- Migration `s09a1b2c3d4e5_s09_search_and_groups.py` (new): creates `saved_searches`, `groups`, `group_members` tables (with unique constraints, indexes, FK to contacts); down_revision `s08a1b2c3d4e5`.
+
+**Frontend**
+- `pages/AdvancedSearchPage.tsx` (new): structured query builder with FilterBuilder component.
+- `components/search/FilterBuilder.tsx` (new): recursive AND/OR/nested condition builder (handles depth ≤ 10).
+- `components/search/FieldPicker.tsx`, `OperatorSelect.tsx` (new): whitelist-backed field and operator selectors.
+- `pages/SavedSearchesPage.tsx`, `pages/GroupsPage.tsx`, `pages/GroupDetailPage.tsx` (new): management UIs.
+- `services/search.ts`, `hooks/useSearch.ts` (new): TanStack Query client for search endpoints.
+- `types/index.ts`: SavedSearch, Group, SearchCriteria, FilterCondition types.
+- `components/search/ContactPickerModal.tsx` (adapted): used for contact_reference field input in FilterBuilder.
+
+**Security audit**
+- Initial findings: 1 HIGH (DoS-guard bypass), 1 MEDIUM (cross-owner IDOR), 1 LOW (LIKE escape).
+- **HIGH FIXED:** `_check_bounds` discriminated leaf vs group via `"conditions" in node`; compiler used `"logic" in node` → leaf with huge value list + empty conditions skipped check → unbounded IN clause. Fixed: unconditional list check + unified logic discrimination.
+- **MEDIUM FIXED:** `populate_static_group` loaded SavedSearch by id without owner_id filter → volunteer could use private criteria. Fixed: owner-scoped load → 404 on mismatch.
+- **LOW FIXED:** `contains_any` LIKE operator missing escape; added escape=`\\`.
+- **3 regression tests added** (bypass shapes: huge list, mixed conditions, IDOR cross-owner).
+- Re-audit: PASS.
+
+**Integration**
+- Whitelist registry reuses S02 `get_active_schema()` for custom fields (no N+1).
+- Soft-delete enforcement is non-bypassable (hardcoded AND clause, never in user criteria).
+- `test_migrations.py` EXPECTED_HEAD updated to `s09a1b2c3d4e5`; down_revision test to `s08a1b2c3d4e5`.
+
+**Key assumptions (documented in BLOCKERS.md)**
+- Search/groups endpoints lack individual @limiter.limit (codebase-wide gap); carry-forward to consider SlowAPIMiddleware.
+- Groups are org-wide visible to all volunteers; any can rename/delete (only smart-criteria EDIT is admin-gated); by design per DoD.
+- `contains_any` uses LIKE-containment on JSON text (LIKE-fast); Postgres `@>` JSONB would be faster at scale (no GIN index this sprint).
+- `groups` is a SQL reserved word (SQLAlchemy auto-quotes); raw SQL must quote `"groups"`.
+- S11 (merge contacts) must add `group_members.contact_id` to FK manifest to prevent orphans.
+
+### S08 — Biometric Consent & Right-to-be-Forgotten (Sprint complete 2026-06-26)
+
+Full biometric-consent lifecycle (record/update/revoke/deletion-request) and irreversible right-to-be-forgotten purge under Philippine RA 10173 data-protection compliance.
+
+**Backend**
+- `services/biometric_consent.py` (new): consent record/update/revoke/deletion-request (status synthesis none|pending|given|revoked|purged; with_for_update; audited).
+- `services/biometric_purge.py` (new): BiometricPurgeService — irreversible RTBF erasure (enrolled photos + thumbs, ALL detection crops [enrolled + recognition], face_samples rows, CompreFace subject via delete_subject 404-as-success); RETAINS contacts + participants + consent row (stamped purged_at + purge_detail); idempotent + fault-tolerant.
+- `routers/biometric.py` (new): 7 endpoints (GET consent [any role, never 404], POST/PATCH/revoke/deletion-request [volunteer+], purge + retention/report [admin]); RBAC viewer→403 on mutations, retention_until edit admin-only.
+- `services/scheduler.py` (extended): `_biometric_retention_job` (cron 0 2 * * *) auto-purges due consents (retention elapsed OR deletion-requested) with system actor.
+- `services/face_cleanup.py` (refactored): extracted shared `_delete_image_files` helper (behavior-preserving).
+- `config.py`: `get_biometric_retention_years()` (default 7). `enrollment.py`: tolerate purged subjects (re-enroll fresh) + TODO(S08-policy) marker.
+- Migration `s08a1b2c3d4e5` (new): EXTENDS S24 `biometric_consent` table with RTBF columns (recorded_by_id, retention_until, deletion_requested_at, deletion_requested_by_id, purged_at, purge_detail, updated_at) + 2 partial indexes; adds `consent_id` to `compreface_subjects` + makes `compreface_subject_id` nullable; down_revision `s16a1b2c3d4e5`.
+
+**Frontend**
+- `components/contacts/ConsentPanel.tsx` (new): replaces S24 inline consent section on ContactDetail.
+- `components/dialogs/RecordConsentDialog.tsx` (new): capture consent at enrollment.
+- `pages/RetentionReportPage.tsx` (new): view retention status + purge history (/settings/biometric).
+- `services/biometric.ts`, `hooks/useBiometric.ts` (new): TanStack Query client for biometric endpoints.
+- `types/index.ts`: BiometricConsent, BiometricPurgeResult, RetentionReport types.
+- `components/BottomNav.tsx`: added Biometric Settings entry.
+
+**Security audit**
+- Initial findings: 2 HIGH (enrolled-only crop erasure, partial-failure no-retry seal), 1 MEDIUM (glob-only enrolled), 2 LOW.
+- **HIGH #1 FIXED:** purge now erases ALL subject detections (not just enrolled); breaks linkage; marks purged_at only when fully clean.
+- **HIGH #2 FIXED:** partial-failure doesn't seal status='purged'; scheduler re-selects + retries; fixed _retry_partial error-carrying bug.
+- **MEDIUM FIXED:** uses authoritative FaceSample paths, not glob.
+- **2 LOW FIXED:** status transition validation, immutable checks.
+- Re-audit: PASS.
+
+**Integration**
+- `test_migrations.py` EXPECTED_HEAD updated to `s08a1b2c3d4e5`; down_revision test to `s16a1b2c3d4e5`.
+- Biometric consent backfilled (S24 reconciliation pattern reused).
+
+**Key assumptions (documented in BLOCKERS.md)**
+- Detection.image_path is NOT NULL → purge uses `image_path=""` sentinel; future migration can make it nullable.
+- CompreFace 404-as-success uses private attrs; refactor to delete_subject_tolerant() method later.
+- Biometric retention endpoints lack @limiter.limit (admin-only, carry-forward).
+- Carry-forward MEDIUM: detection-crop file can orphan on FS error; LOW: partial_failure returns HTTP 200.
+
+### S16 — Settings, System Status & Scheduled Jobs (Sprint complete 2026-06-26)
+
+Canonical APScheduler host with job-run tracking. Admin surface for settings (Fernet-encrypted sensitive values), system-status, scheduled-job monitoring. Security: immutable-keys protection + encrypt-on-write/decrypt-on-read.
+
+**Backend**
+- `app/services/scheduler.py` (new): AsyncIOScheduler singleton, `_run_tracked_job` wrapper, `JOB_REGISTRY` of 9 jobs (generation, recompute, notifiers [S18-gated], biometric retention).
+- `app/services/settings_service.py` (new): `get_setting`, `set_setting` (with Fernet encryption for sensitive keys), `get_system_status`, `trigger_job`.
+- `app/models.py`: `JobRun` ORM model (job_name, status, detail, started_at, finished_at, duration_ms); `admin_settings.label` column added; series-id keys seeded.
+- `app/routers/settings.py`: `GET /settings/jobs` (paginated), `POST /settings/jobs/{job_name}/trigger` (202/404/409/403), `GET /settings/system-status`, `GET /settings/config-checklist`, `PUT /settings/{key}` (immutable-keys guard).
+- `app/main.py`: scheduler wired into lifespan (gated by `ENVIRONMENT != "test"`); removed `HAS_SCHEDULER` placeholder.
+- Migration `s16a1b2c3d4e5_s16_job_runs_and_settings` (new): adds `job_runs` table + indexes, `admin_settings.label` column; down_revision `a3b4c5d6e7f8`.
+- `app/requirements.txt`: `apscheduler>=3.10.4`.
+
+**Frontend**
+- `pages/SettingsPage.tsx`, `pages/SystemStatusPage.tsx`, `pages/JobRunsPage.tsx` (new): tabbed settings UI, system-status health display, job-run list + trigger.
+- 7 settings panel components: GeneralPanel, NotifiersPanel, SecurityPanel, ScheduledJobsPanel, SystemStatusPanel, etc.
+- `services/settings.ts`, `hooks/useSettings.ts` (new): TanStack Query client for settings endpoints.
+- `types/index.ts`: JobRun, SystemStatus, SettingsValue types.
+
+**Security fixes**
+- `PUT /settings/{key}` HIGH (BLOCK fixed): immutable-keys guard (`jwt_secret`, `database_url`, `redis_url` reject any write with 403).
+- **2 MEDIUM:** encrypt-on-write (Fernet) + two-pass decrypt-on-load (no silent plaintext fallback); sanitized `job_runs.detail` to avoid DSN leaks.
+- **1 LOW:** removed plaintext fallback.
+- Re-audit: PASS.
+
+**Integration**
+- Canonicalized `job_runs` column: `ran_at` → `started_at` (edited 3 S23 call-sites: analytics, queue_manager, member_status_service). Updated 3 S23 tests (job_runs now exists in test DB).
+- Migration-head test: updated EXPECTED_HEAD `s16a1b2c3d4e5`, down_revision test `a3b4c5d6e7f8`.
+
+**Key assumptions (documented in BLOCKERS.md)**
+- Dual `job_runs` writes: scheduler wrapper + member_status_service raw-SQL (non-blocking observability nit).
+- Fernet key derived from `jwt_secret` (single SHA-256) unless `SETTINGS_FERNET_KEY` env set.
+- Series-id keys (`sunday_event_series_id`, `powerhouse_event_series_id`) fall back to legacy keys; both unset → skip with "not configured".
+- Notifier jobs skip "awaiting S18" until S18 lands.
+- Trigger endpoint TOCTOU (no atomic check-and-lock); admin-only, LOW.
+
+### S23 — Member Status & Engagement Engine (Sprint complete 2026-06-26)
+
+Automatic member engagement tracking via derived snapshot columns (attendance count, last attended, weeks absent, engagement tier, active/regular/connected status). Recomputable on-demand by admins and via scheduled background jobs (guarded by S16 scheduler availability).
+
+**Backend**
+- `app/services/member_status_service.py` (new): `recompute_all_contacts()` recomputes all contact snapshots based on attendance history; exported as both function name and alias for S06 runner contract.
+- `app/scheduler.py` (new): APScheduler job registration for weekly (Mon 00:00 UTC) and end-of-month (1st 00:00 UTC) recomputation, guarded by `HAS_SCHEDULER=False` flag.
+- `app/constants.py` (new): `DEFAULT_CONNECTED_FIELD_NAMES`, tier thresholds.
+- `app/utils/db_helpers.py` (new): database utility functions.
+- `app/routers/analytics.py`: added `POST /analytics/recompute-member-status` (admin-only, on-demand trigger) and `GET /analytics/member-status-summary` (fast engagement summary).
+- `app/main.py`: lifespan calls `register_s23_jobs()` with Ellipsis placeholder (awaits S16 real AsyncIOScheduler).
+- `app/models.py`: Contact model adds 7 snapshot columns (`last_attended_at`, `attendance_count`, `weeks_absent`, `tier`, `is_active`, `is_regular`, `is_connected`) + 5 indexes for query perf.
+- Migration `a3b4c5d6e7f8_s23_member_status_snapshot_guard.py` (new): adds snapshot columns and indexes; down_revision `s24a1b2c3d4e5`.
+- Tests: `test_member_status_service.py`, `test_analytics_member_status.py`, `test_db_helpers.py` cover recompute logic, integration with S06 import pipeline, and edge cases.
+
+**Frontend**
+- `types/index.ts`: added tier and snapshot fields to `ContactDetail`.
+- `StatusBadge.tsx`: renders tier label; handles null `is_active`.
+- `ContactDetailPage.tsx`: displays member status snapshot via StatusBadge; null-guarded.
+
+**Integration fixes (full-suite QA gate)**
+- **Function export mismatch:** S06 migration runner calls `recompute_all_contacts()` but service initially exported only `recompute_all()` → 9 t06 test failures on AttributeError. Fixed by adding alias.
+- **Test expectation staleness:** `test_migrations.py` expected S06 alembic head; updated to S23 head `a3b4c5d6e7f8` and down_revision `s24a1b2c3d4e5`.
+- **Missing transitive dependency:** `anthropic>=0.40.0` (used by S22 name-match) not in test env → 33 pytest collection errors. Installed.
+
+**Key assumptions (documented in BLOCKERS.md)**
+- Tier computation uses EOW Mon 00:00 UTC timezone (confirm PHT); EOM recompute cadence `0 0 1 * *`.
+- Connected-field names default to `{community_leader, community}`, overridable via `admin_settings.connected_field_names`.
+- `job_runs` raw-SQL INSERT schema (columns `job_name, status, detail, ran_at`) reconciliation pending S16; silent failure if schema diverges.
+- S16 must supply real AsyncIOScheduler to `register_s23_jobs()` or boot will TypeError.
+
+### S03 — Native Contact CRUD & Profile (Sprint complete 2026-06-25)
+
+Full contact write path: create / edit / soft-delete / restore / paginated list / detail profile / attendance history.
+Replaces the read-only `AttendeesPage` with a real CRM directory and profile hub.
+
+**Backend**
+- `app/services/contact_service.py` (new): `list_contacts`, `get_contact_detail`, `create_contact`, `update_contact`, `soft_delete_contact`, `restore_contact`, `list_contact_attendance` — async, type-hinted, no N+1 (batched contact_reference IN query), `with_for_update()` on PATCH, audit logging on every write.
+- `app/routers/members.py`: replaced bare-list `GET /members` with offset pagination; added `POST /members`, `GET/PATCH/DELETE /members/{id}`, `POST /members/{id}/restore`, `GET /members/{id}/attendance`. Preserved `GET /members/attendees` for S07 compatibility. Correct route declaration order (static `/attendees` before parameterized `/{id}`).
+- `app/schemas.py`: new `ContactCreate`, `ContactUpdate`, `ContactDetailResponse`, `ContactListItem`, `PaginatedContactResponse`, `DerivedBadges`, `FaceSummary`, `ContactAttendanceItem`, `PaginatedAttendanceResponse`, `ContactReferenceChip`.
+- `backend/tests/test_contacts_crud.py` (new): 18 HTTP integration tests covering all acceptance criteria.
+- `backend/tests/conftest.py`: added `sample_deleted_contact`, `sample_contact_with_custom_data` (contact_reference resolution), `sample_participant_history` (2 events + 2 participants, explicit timestamps for desc-order assertion), `sample_participant`, `sample_checkbox_field`.
+
+**Patches applied**
+- P01: `contact_type` ORM default `'Individual'` → `'individual'` (migration `server_default` unchanged — S06 data task).
+- P02: `AttendeesPage.tsx` and its test deleted; `/attendees` redirects to `/contacts`.
+- P03: `FacePanel.tsx` line 320 `thumb_path` → `thumb_url` fallback corrected.
+- P04: `MemberSearchModal` renamed to `ContactPickerModal` (file + export + all import sites).
+- P05: `GET /members` nickname search folded into `list_contacts` `ilike` on `Contact.nickname`.
+
+**Frontend**
+- New pages: `ContactsPage`, `ContactDetailPage`, `ContactFormPage` (create + edit).
+- New reusable primitives in `components/ui/`: `FormField`, `DataTable`, `Pagination`, `StatusBadge`.
+- New: `components/contacts/FacePanel.tsx` (read-only face panel slot for S07).
+- New: `services/contacts.ts`, `hooks/useContacts.ts`.
+- `App.tsx`: `/contacts`, `/contacts/new`, `/contacts/:id`, `/contacts/:id/edit`; `/attendees` → `Navigate to="/contacts"`.
+- `BottomNav.tsx`: "Attendees" tab → "Contacts" tab (`/contacts`).
+- `ContactPickerModal` (was `MemberSearchModal`): reads paginated `items ?? data` for forward compat.
+- `types/index.ts`: `ContactListItem`, `ContactDetail`, `DerivedBadges`, `FaceSummary`, `ContactAttendanceItem`, `Paginated<T>`.
+
+**No new migrations** — snapshot columns (`last_attended_at`, `attendance_count`, `weeks_absent`, `tier`, `is_active`, `is_regular`, `is_connected`) were added by a prior sprint; S03 reads them as nullable (S23 owns writes). No deployment-time data steps required.
+
+### Dependency CVE remediation sweep
+
+Audited all production dependencies (frontend `npm audit`, backend OSV) and upgraded the
+pinned versions that carried known CVEs. The pins in `requirements.txt` had drifted well
+behind the locally-installed (and test-validated) versions; this sprint brings the pins
+current. Full backend suite (355 passed, 1 xfailed) re-run green against the upgraded stack;
+frontend build + lint + tests green.
+
+- **python-multipart 0.0.19 → 0.0.32** — clears 7 CVEs in FastAPI's multipart/form parser:
+  arbitrary file write (GHSA-wp53-j4wj-2cfg), unbounded part-header DoS (GHSA-pp6c-gr5w-3c5g),
+  large-prelude DoS (GHSA-mj87-hwqh-73pj), negative Content-Length buffering (GHSA-v9pg-7xvm-68hf),
+  semicolon/RFC-2231 parameter smuggling and quadratic querystring parsing (GHSA-6jv3, GHSA-5rvq, GHSA-vffw).
+- **cryptography 44.0.0 → 49.0.0** — clears 5 issues: bundled-OpenSSL CVEs (GHSA-537c-gmf6-5ccf,
+  GHSA-79v4-65xg-pq4g), incomplete DNS name-constraint enforcement (GHSA-m959-cc7f-wv43),
+  subgroup attack (GHSA-r6ph-v2qm-q3c2), PYSEC-2026-35.
+- **fastapi 0.115.5 → 0.138.0 + starlette pinned == 1.3.1** — clears 8 starlette CVEs that the
+  old transitive `~0.41.3` carried: form-limit bypass (GHSA-82w8-qh3p-5jfq), Host-header
+  poisoning (GHSA-86qp-5c8j-p5mr, PYSEC-2026-161), StaticFiles SSRF / UNC NTLM theft
+  (GHSA-wqp7-x3pw-xc5r), arbitrary HTTP method dispatch (GHSA-x746-7m8f-x49c), path
+  concatenation into auth (GHSA-jp82-jpqv-5vv3), and two DoS vectors (GHSA-2c2j, GHSA-7f5h).
+  `starlette` is now pinned explicitly so the CVE-clean release is guaranteed regardless of
+  FastAPI's range. pydantic (2.10.3), pydantic-settings (2.6.1), and bcrypt (4.2.1) were
+  verified CVE-clean and left unchanged.
+- **Frontend: form-data 4.0.5 → 4.0.6** (npm `overrides`) — clears CRLF injection
+  GHSA-hmw2-7cc7-3qxx (high), reached transitively via `axios`. `npm audit --omit=dev` now
+  reports 0 vulnerabilities. Remaining dev-only audit findings (esbuild/vite, @babel/core,
+  js-yaml) do not ship in the production bundle and are deferred (esbuild fix requires a
+  breaking vite 5→8 major bump).
+
 ### Backlog hardening sweep
 
 This sprint closes out 10 medium/low-priority items from the production-readiness backlog:

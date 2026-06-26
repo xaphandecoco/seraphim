@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ClipboardList, Trophy, Calendar, Users, Settings, AlertTriangle, FileText, ShieldCheck, MoreHorizontal, X } from 'lucide-react';
+import { ClipboardList, Trophy, Calendar, CalendarRange, Users, Settings, Settings2, AlertTriangle, FileText, ShieldCheck, MoreHorizontal, X, Upload, UserCheck, FileCheck, Database, Fingerprint, Search, FileSpreadsheet, Copy, ListTodo, ClipboardCheck } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { useTaskStore } from '@/store/taskStore';
+import { useOverdueBadgeCount } from '@/hooks/useActivities';
 
 function PendingBadge({ count }: { count: number }) {
   return (
@@ -18,21 +19,41 @@ function PendingBadge({ count }: { count: number }) {
 export function BottomNav() {
   const location = useLocation();
   const isAdmin = useAuthStore((s) => s.isAdmin);
+  const isVolunteer = useAuthStore((s) => s.isVolunteer);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const pendingCount = useTaskStore((s) => s.pendingCount);
   const [showMore, setShowMore] = useState(false);
+
+  // Overdue-activity badge — polls every 60 s; disabled when not yet authenticated.
+  const { data: overdueCount = 0 } = useOverdueBadgeCount({ enabled: !!isAuthenticated });
 
   const mainTabs = [
     { path: '/', label: 'Tasks', icon: ClipboardList },
     { path: '/audit', label: 'Audit', icon: ShieldCheck },
-    { path: '/ranking', label: 'Ranking', icon: Trophy },
+    // S12: "Tasks" (activities / CRM) replaces "Ranking" in the main tab bar.
+    // Ranking moves to the admin More sheet (documented default per spec §10 Q6).
+    { path: '/activities', label: 'Tasks', icon: ListTodo },
     { path: '/events', label: 'Events', icon: Calendar },
-    { path: '/attendees', label: 'Members', icon: Users },
+    { path: '/contacts', label: 'Contacts', icon: Users },
   ];
 
   const adminTabs = [
+    // S12: Ranking moved here so the main bar has room for the Activities tab.
+    { path: '/ranking', label: 'Ranking', icon: Trophy },
+    { path: '/imports', label: 'Import', icon: FileSpreadsheet },
+    { path: '/duplicates', label: 'Duplicates', icon: Copy },
     { path: '/pit', label: 'Pit Queue', icon: AlertTriangle },
+    { path: '/bulk-upload', label: 'Bulk Upload', icon: Upload },
     { path: '/logs', label: 'System Logs', icon: FileText },
     { path: '/settings', label: 'Settings', icon: Settings },
+    { path: '/settings/custom-fields', label: 'Custom Fields', icon: Settings2 },
+    { path: '/settings/event-series', label: 'Event Series', icon: CalendarRange },
+    { path: '/name-match/review', label: 'Name Review', icon: UserCheck },
+    { path: '/community-reports', label: 'Reports', icon: FileCheck },
+    { path: '/settings/migration', label: 'Migration', icon: Database },
+    { path: '/settings/biometric', label: 'Biometric', icon: Fingerprint },
+    { path: '/contacts/search', label: 'Search & Groups', icon: Search },
+    { path: '/profiles', label: 'Profiles', icon: ClipboardCheck },
   ];
 
   return (
@@ -92,6 +113,7 @@ export function BottomNav() {
                 <div className="relative">
                   <Icon size={22} strokeWidth={isActive ? 2.5 : 2} aria-hidden="true" />
                   {tab.path === '/' && pendingCount > 0 && <PendingBadge count={pendingCount} />}
+                  {tab.path === '/activities' && overdueCount > 0 && <PendingBadge count={overdueCount} />}
                 </div>
                 <span className="mt-0.5 text-[10px] font-semibold" aria-hidden="true">{tab.label}</span>
                 {isActive && <span className="absolute top-0 h-0.5 w-8 rounded-full bg-primary" aria-hidden="true" />}
@@ -99,13 +121,54 @@ export function BottomNav() {
             );
           })}
 
+          {/* Import link — visible to volunteer (non-admin) directly in nav bar */}
+          {isVolunteer && !isAdmin && (
+            <Link
+              to="/imports"
+              aria-label="Import"
+              aria-current={location.pathname.startsWith('/imports') ? 'page' : undefined}
+              className={`relative flex flex-1 flex-col items-center justify-center py-2 transition-colors ${
+                location.pathname.startsWith('/imports')
+                  ? 'text-primary'
+                  : 'text-foreground/40 hover:text-foreground/70'
+              }`}
+            >
+              <FileSpreadsheet size={22} strokeWidth={location.pathname.startsWith('/imports') ? 2.5 : 2} aria-hidden="true" />
+              <span className="mt-0.5 text-[10px] font-semibold" aria-hidden="true">Import</span>
+              {location.pathname.startsWith('/imports') && (
+                <span className="absolute top-0 h-0.5 w-8 rounded-full bg-primary" aria-hidden="true" />
+              )}
+            </Link>
+          )}
+
+          {/* Duplicates link — visible to volunteer (non-admin) directly in nav bar */}
+          {isVolunteer && !isAdmin && (
+            <Link
+              to="/duplicates"
+              aria-label="Duplicates"
+              aria-current={location.pathname.startsWith('/duplicates') ? 'page' : undefined}
+              className={`relative flex flex-1 flex-col items-center justify-center py-2 transition-colors ${
+                location.pathname.startsWith('/duplicates')
+                  ? 'text-primary'
+                  : 'text-foreground/40 hover:text-foreground/70'
+              }`}
+            >
+              <Copy size={22} strokeWidth={location.pathname.startsWith('/duplicates') ? 2.5 : 2} aria-hidden="true" />
+              <span className="mt-0.5 text-[10px] font-semibold" aria-hidden="true">Duplicates</span>
+              {location.pathname.startsWith('/duplicates') && (
+                <span className="absolute top-0 h-0.5 w-8 rounded-full bg-primary" aria-hidden="true" />
+              )}
+            </Link>
+          )}
+
+          {/* Admin More menu — includes Import tab for admins */}
           {isAdmin && (
             <button
               onClick={() => setShowMore(!showMore)}
               aria-label="Admin menu"
               aria-expanded={showMore}
               className={`relative flex flex-1 flex-col items-center justify-center py-2 transition-colors ${
-                adminTabs.some((t) => location.pathname === t.path) ? 'text-primary' : 'text-foreground/40 hover:text-foreground/70'
+                adminTabs.some((t) => location.pathname === t.path || location.pathname.startsWith(t.path + '/')) ? 'text-primary' : 'text-foreground/40 hover:text-foreground/70'
               }`}
             >
               <MoreHorizontal size={22} aria-hidden="true" />

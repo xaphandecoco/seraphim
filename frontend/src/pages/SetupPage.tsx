@@ -34,9 +34,6 @@ export function SetupPage() {
     compreface_url: '',
     compreface_detect_api_key: '',
     compreface_recognize_api_key: '',
-    civicrm_url: '',
-    civicrm_api_key: '',
-    civicrm_site_key: '',
     admin_email: '',
     admin_password: '',
     admin_password_confirm: '',
@@ -66,8 +63,6 @@ export function SetupPage() {
   const [serviceTestResult, setServiceTestResult] = useState<{
     compreface_ok?: boolean;
     compreface_message?: string;
-    civicrm_ok?: boolean;
-    civicrm_message?: string;
   } | null>(null);
   const [serviceTesting, setServiceTesting] = useState(false);
 
@@ -124,15 +119,12 @@ export function SetupPage() {
         compreface_url: form.compreface_url || undefined,
         compreface_detect_api_key: form.compreface_detect_api_key || undefined,
         compreface_recognize_api_key: form.compreface_recognize_api_key || undefined,
-        civicrm_url: form.civicrm_url || undefined,
       });
       setServiceTestResult(res.data);
     } catch (err: any) {
       setServiceTestResult({
         compreface_ok: false,
         compreface_message: err.response?.data?.detail || 'Test request failed',
-        civicrm_ok: false,
-        civicrm_message: '',
       });
     } finally {
       setServiceTesting(false);
@@ -170,9 +162,6 @@ export function SetupPage() {
         compreface_url: form.compreface_url,
         compreface_detect_api_key: form.compreface_detect_api_key || undefined,
         compreface_recognize_api_key: form.compreface_recognize_api_key || undefined,
-        civicrm_url: form.civicrm_url || undefined,
-        civicrm_api_key: form.civicrm_api_key || undefined,
-        civicrm_site_key: form.civicrm_site_key || undefined,
         admin_email: form.admin_email,
         admin_password: form.admin_password,
         admin_name: form.admin_name,
@@ -536,44 +525,6 @@ export function SetupPage() {
                 </div>
               </div>
 
-              {/* CiviCRM */}
-              <div className="rounded-2xl border border-border bg-white/90 p-4 shadow-sm backdrop-blur-sm">
-                <p className="mb-3 text-sm font-bold text-foreground">CiviCRM Integration</p>
-                <p className="mb-3 text-xs text-foreground/50">Required if configuring CiviCRM</p>
-                <div className="space-y-3">
-                  <div>
-                    <label className={labelClass}>Service URL</label>
-                    <input
-                      type="text"
-                      value={form.civicrm_url}
-                      onChange={(e) => setForm({ ...form, civicrm_url: e.target.value })}
-                      placeholder="https://crm.example.org"
-                      className={inputClass}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>API Key</label>
-                    <input
-                      type="text"
-                      value={form.civicrm_api_key}
-                      onChange={(e) => setForm({ ...form, civicrm_api_key: e.target.value })}
-                      placeholder="CiviCRM API Key"
-                      className={inputClass}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Site Key</label>
-                    <input
-                      type="text"
-                      value={form.civicrm_site_key}
-                      onChange={(e) => setForm({ ...form, civicrm_site_key: e.target.value })}
-                      placeholder="CiviCRM Site Key"
-                      className={inputClass}
-                    />
-                  </div>
-                </div>
-              </div>
-
               <button
                 onClick={runServiceTest}
                 disabled={serviceTesting}
@@ -594,19 +545,6 @@ export function SetupPage() {
                     <div className="min-w-0">
                       <span className="font-semibold text-foreground">Compreface</span>
                       <p className="text-foreground/60">{serviceTestResult.compreface_message}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {serviceTestResult.civicrm_ok ? (
-                      <CheckCircle2 size={18} className="shrink-0 text-green-600" />
-                    ) : serviceTestResult.civicrm_ok === false ? (
-                      <XCircle size={18} className="shrink-0 text-red-500" />
-                    ) : (
-                      <span className="h-[18px] w-[18px] shrink-0 rounded-full bg-gray-400" />
-                    )}
-                    <div className="min-w-0">
-                      <span className="font-semibold text-foreground">CiviCRM</span>
-                      <p className="text-foreground/60">{serviceTestResult.civicrm_message}</p>
                     </div>
                   </div>
                 </div>

@@ -110,6 +110,40 @@ describe('SetupPage — CompreFace dual key fields (F-S3)', () => {
   });
 });
 
+describe('SetupPage — CiviCRM excision (S01)', () => {
+  it('step 2 (Services) contains no element with text "CiviCRM"', async () => {
+    await gotoServicesStep();
+    // All text on the page after navigating to step 2 must be free of "CiviCRM"
+    expect(screen.queryByText(/civicrm/i)).toBeNull();
+  });
+
+  it('service test result panel renders no CiviCRM row', async () => {
+    mockPost.mockResolvedValue({
+      data: { compreface_ok: true, compreface_message: 'CompreFace reachable' },
+    });
+
+    await gotoServicesStep();
+
+    fireEvent.click(screen.getByRole('button', { name: /test services/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('CompreFace reachable')).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText(/civicrm/i)).toBeNull();
+  });
+
+  it('/setup/test-services payload does not include civicrm_url', async () => {
+    await gotoServicesStep();
+    fireEvent.click(screen.getByRole('button', { name: /test services/i }));
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalled());
+
+    const [, payload] = mockPost.mock.calls[0];
+    expect(payload).not.toHaveProperty('civicrm_url');
+  });
+});
+
 describe('SetupPage — final submit carries both CompreFace keys', () => {
   it('POST /setup includes both detect + recognize keys', async () => {
     render(<SetupPage />);

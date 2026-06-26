@@ -4,6 +4,29 @@ Triage results from the production-readiness scan. Items are ordered by priority
 
 ---
 
+## Dependency CVE Remediation Sweep
+
+**Priority:** High
+**Status:** Done
+
+Audited frontend (`npm audit`) and backend (OSV) production dependencies; pinned versions
+had drifted behind the test-validated local versions and carried known CVEs. Bumped:
+- `python-multipart` 0.0.19 → 0.0.32 (7 CVEs, incl. arbitrary file write)
+- `cryptography` 44.0.0 → 49.0.0 (5 CVEs, incl. bundled OpenSSL)
+- `fastapi` 0.115.5 → 0.138.0 + explicit `starlette==1.3.1` pin (8 starlette CVEs)
+- Frontend `form-data` → 4.0.6 via npm `overrides` (CRLF injection, high)
+
+All seven backend deps verified CVE-clean via OSV; full backend suite (355 passed) + frontend
+build/lint/test green against the upgraded stack. **Final gate: CI on Python 3.11** (local
+validation ran on Windows/3.14, which cannot rebuild numpy for an isolated `pip-audit -r`).
+
+**Deferred — frontend dev-tooling CVEs (Low):** `npm audit` still reports 7 dev-only findings
+(esbuild/vite, @babel/core, js-yaml). None ship in the production bundle. The esbuild fix
+requires a breaking `vite` 5→8 major bump — schedule as its own task with full frontend
+regression.
+
+---
+
 ## Integration Test for Real event_generator
 
 **Priority:** Medium  

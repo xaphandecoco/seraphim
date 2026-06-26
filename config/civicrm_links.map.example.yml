@@ -1,0 +1,51 @@
+# CiviCRM -> Seraphim people-links column map example
+# Usage:
+#   python scripts/migrate_civicrm.py \
+#     --entity links \
+#     --file path/to/links.xlsx \
+#     --map config/civicrm_links.map.example.yml \
+#     [--dry-run] [--by-user-email admin@example.com]
+#
+# The links phase resolves contact_external_id to an internal contact_id, then
+# for each people-link field column, calls match_name() on the raw name value
+# and writes the resolved contact_id into custom_data.<field_name>.
+#
+# SINGLE match  -> writes the link immediately (or dry-run rolls back)
+# AMBIGUOUS /
+# UNMATCHED     -> records a NameMatchReviewQueue entry for manual resolution
+#
+# column_map keys   = header names as they appear in the source XLSX
+# target            = external_id (for the source contact) or custom_data.<field>
+# data_type         = str
+# required          = true to treat a blank/missing cell as a row error
+
+column_map:
+  # --- Source contact identifier (required) ---
+  "CiviCRM Contact ID":
+    target: contact_external_id
+    data_type: str
+    required: true
+
+  # --- People-link fields (custom_data.* targets) ---
+  # Each entry below maps a spreadsheet column containing a person's name
+  # to a custom_data field on the *source* contact.  match_name() is called
+  # for each non-blank value to resolve the name to an internal contact_id.
+
+  "Primary Caregiver Name":
+    target: custom_data.primary_caregiver
+    data_type: str
+
+  "Case Manager Name":
+    target: custom_data.case_manager
+    data_type: str
+
+  "Emergency Contact Name":
+    target: custom_data.emergency_contact
+    data_type: str
+
+options:
+  # mode is derived from --dry-run flag (dry / live); do not set here
+  # match_threshold: minimum score for match_name to accept a SINGLE match
+  match_threshold: 0.85
+  # auto_enqueue: whether AMBIGUOUS/UNMATCHED results are sent to review queue
+  auto_enqueue: true

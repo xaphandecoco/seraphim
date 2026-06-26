@@ -154,12 +154,30 @@ class ComprefaceClient:
         resp = await self._client.post(url, headers=headers, json={"subject": subject_id})
         return resp.status_code in (200, 201)
 
-    async def add_example(self, subject_id: str, image_bytes: bytes) -> bool:
+    async def add_example(self, subject_id: str, image_bytes: bytes) -> Optional[str]:
+        """Upload a face example to CompreFace.
+
+        Returns the CompreFace image UUID on success, or None on failure.
+        """
         url = f"{self.base_url}/api/v1/recognition/faces?subject={subject_id}"
         headers = {"x-api-key": self.recognize_api_key}
         files = {"file": ("image.jpg", image_bytes, "image/jpeg")}
         resp = await self._client.post(url, headers=headers, files=files)
-        return resp.status_code in (200, 201)
+        if resp.status_code not in (200, 201):
+            return None
+        data = resp.json()
+        return data.get("image_id") or data.get("imageId")
+
+    async def delete_example(self, image_id: str) -> bool:
+        """Delete a single face example from CompreFace by image UUID.
+
+        Returns True on success, False otherwise.  Non-fatal — callers should
+        treat a False return as best-effort (sample row already deleted from DB).
+        """
+        url = f"{self.base_url}/api/v1/recognition/faces/{image_id}"
+        headers = {"x-api-key": self.recognize_api_key}
+        resp = await self._client.delete(url, headers=headers)
+        return resp.status_code in (200, 204)
 
     async def list_subjects(self) -> List[Subject]:
         url = f"{self.base_url}/api/v1/recognition/subjects"

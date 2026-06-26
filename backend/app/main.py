@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request
+
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from slowapi import _rate_limit_exceeded_handler
@@ -8,34 +9,51 @@ from slowapi.errors import RateLimitExceeded
 
 from app.config import dynamic_settings, legacy_settings
 from app.database import engine
-from app.dependencies import check_setup_complete, get_current_user
+from app.dependencies import check_setup_complete
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.rate_limit import limiter
 from app.routers import (
+    activities,
     analytics,
     attendance,
     audit,
     auth,
+    biometric as biometric_router,
+    bulk_participants,
     cameras,
+    community_reports as community_reports_router,
+    custom_fields,
+    dedupe as dedupe_router,
+    enrollment,
+    event_series as event_series_router,
     events,
+    export as export_router,
+    fr_transition as fr_transition_router,
     health,
+    imports as imports_router,
     leaderboard,
     logs,
     members,
+    migration,
+    name_aliases,
+    name_match as name_match_router,
     pit,
+    profiles as profiles_router,
+    public as public_router,
     settings as settings_router,
     setup,
     storage as storage_router,
     tasks,
     uploads as uploads_router,
 )
+from app.routers.search import groups_router, search_router
 from app.sse import broadcaster
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
-        async with engine.connect() as conn:
+        async with engine.connect():
             pass
         # Initialize dynamic settings from database
         from app.database import async_session
@@ -61,7 +79,18 @@ async def lifespan(app: FastAPI):
             "Startup settings init failed (continuing — expected only before setup).",
             exc_info=True,
         )
+
+    # Scheduler — started only in non-test environments (apscheduler not loaded in tests).
+    if legacy_settings.ENVIRONMENT != "test":
+        from app.services.scheduler import start_scheduler  # noqa: PLC0415
+        start_scheduler()
+
     yield
+
+    if legacy_settings.ENVIRONMENT != "test":
+        from app.services.scheduler import stop_scheduler  # noqa: PLC0415
+        stop_scheduler()
+
     from app.utils.token_denylist import aclose_redis
     await aclose_redis()
     await engine.dispose()
@@ -101,27 +130,51 @@ app.include_router(setup.router)
 # Auth endpoints (no setup check needed for login)
 app.include_router(auth.router)
 
+# S13 public newcomer form — no auth, no setup check (pre-setup form access allowed)
+app.include_router(public_router.router)
+
+# S13 profile management — admin/volunteer auth; requires setup complete
+app.include_router(
+    profiles_router.router, dependencies=[Depends(check_setup_complete)]
+)
+
 # All other endpoints require setup complete
 app.include_router(health.router)
 app.include_router(tasks.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(activities.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(leaderboard.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(logs.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(settings_router.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(cameras.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(events.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(event_series_router.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(members.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(dedupe_router.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(pit.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(enrollment.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(enrollment.backfill_router, dependencies=[Depends(check_setup_complete)])
 app.include_router(attendance.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(audit.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(uploads_router.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(analytics.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(bulk_participants.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(export_router.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(custom_fields.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(name_match_router.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(name_aliases.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(community_reports_router.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(migration.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(imports_router.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(fr_transition_router.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(biometric_router.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(storage_router.router)
+app.include_router(search_router, dependencies=[Depends(check_setup_complete)])
+app.include_router(groups_router, dependencies=[Depends(check_setup_complete)])
 
 
 @app.get("/tasks/feed")
 async def task_feed(request: Request, _t: str | None = None):
     """SSE endpoint. Authenticates via Bearer token, query param, or HttpOnly refresh cookie."""
-    from app.config import dynamic_settings
     from app.utils.auth import verify_token
 
     secret = dynamic_settings.get_jwt_secret()
