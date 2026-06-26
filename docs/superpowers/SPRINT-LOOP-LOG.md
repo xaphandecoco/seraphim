@@ -140,7 +140,7 @@ After resume completes: Opus-critique → commit → next.
 | S21 | (per master) | ⏳ queued | — | |
 | S16 | Settings, system status & scheduled jobs | ✅ committed | `d048c2a` | APScheduler host; job_runs table; settings endpoints; security BLOCK→fix (immutable-keys) |
 | S08 | Biometric consent & right-to-be-forgotten | ✅ committed | `f69f91a` | BiometricPurgeService; 7 endpoints; scheduler auto-purge; security BLOCK→fix (2 HIGH RTBF gaps) |
-| S09 | Advanced search, saved searches & smart groups | ✅ committed | `<pending>` | Native CiviCRM Advanced Search replacement; injection-safe compile_criteria; whitelist field registry; security BLOCK→fix (3 bugs) |
+| S09 | Advanced search, saved searches & smart groups | ✅ committed | `91525ee` | Native CiviCRM Advanced Search replacement; injection-safe compile_criteria; whitelist field registry; security BLOCK→fix (3 bugs) |
 | … | remaining leaves | ⏳ queued | — | S10–S20 |
 
 Legend: ✅ committed · 🔄 in progress · ⏳ queued · ⛔ blocked (see top)
