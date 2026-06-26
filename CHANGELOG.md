@@ -1,5 +1,41 @@
 ## [Unreleased]
 
+### S16 — Settings, System Status & Scheduled Jobs (Sprint complete 2026-06-26)
+
+Canonical APScheduler host with job-run tracking. Admin surface for settings (Fernet-encrypted sensitive values), system-status, scheduled-job monitoring. Security: immutable-keys protection + encrypt-on-write/decrypt-on-read.
+
+**Backend**
+- `app/services/scheduler.py` (new): AsyncIOScheduler singleton, `_run_tracked_job` wrapper, `JOB_REGISTRY` of 9 jobs (generation, recompute, notifiers [S18-gated], biometric retention).
+- `app/services/settings_service.py` (new): `get_setting`, `set_setting` (with Fernet encryption for sensitive keys), `get_system_status`, `trigger_job`.
+- `app/models.py`: `JobRun` ORM model (job_name, status, detail, started_at, finished_at, duration_ms); `admin_settings.label` column added; series-id keys seeded.
+- `app/routers/settings.py`: `GET /settings/jobs` (paginated), `POST /settings/jobs/{job_name}/trigger` (202/404/409/403), `GET /settings/system-status`, `GET /settings/config-checklist`, `PUT /settings/{key}` (immutable-keys guard).
+- `app/main.py`: scheduler wired into lifespan (gated by `ENVIRONMENT != "test"`); removed `HAS_SCHEDULER` placeholder.
+- Migration `s16a1b2c3d4e5_s16_job_runs_and_settings` (new): adds `job_runs` table + indexes, `admin_settings.label` column; down_revision `a3b4c5d6e7f8`.
+- `app/requirements.txt`: `apscheduler>=3.10.4`.
+
+**Frontend**
+- `pages/SettingsPage.tsx`, `pages/SystemStatusPage.tsx`, `pages/JobRunsPage.tsx` (new): tabbed settings UI, system-status health display, job-run list + trigger.
+- 7 settings panel components: GeneralPanel, NotifiersPanel, SecurityPanel, ScheduledJobsPanel, SystemStatusPanel, etc.
+- `services/settings.ts`, `hooks/useSettings.ts` (new): TanStack Query client for settings endpoints.
+- `types/index.ts`: JobRun, SystemStatus, SettingsValue types.
+
+**Security fixes**
+- `PUT /settings/{key}` HIGH (BLOCK fixed): immutable-keys guard (`jwt_secret`, `database_url`, `redis_url` reject any write with 403).
+- **2 MEDIUM:** encrypt-on-write (Fernet) + two-pass decrypt-on-load (no silent plaintext fallback); sanitized `job_runs.detail` to avoid DSN leaks.
+- **1 LOW:** removed plaintext fallback.
+- Re-audit: PASS.
+
+**Integration**
+- Canonicalized `job_runs` column: `ran_at` → `started_at` (edited 3 S23 call-sites: analytics, queue_manager, member_status_service). Updated 3 S23 tests (job_runs now exists in test DB).
+- Migration-head test: updated EXPECTED_HEAD `s16a1b2c3d4e5`, down_revision test `a3b4c5d6e7f8`.
+
+**Key assumptions (documented in BLOCKERS.md)**
+- Dual `job_runs` writes: scheduler wrapper + member_status_service raw-SQL (non-blocking observability nit).
+- Fernet key derived from `jwt_secret` (single SHA-256) unless `SETTINGS_FERNET_KEY` env set.
+- Series-id keys (`sunday_event_series_id`, `powerhouse_event_series_id`) fall back to legacy keys; both unset → skip with "not configured".
+- Notifier jobs skip "awaiting S18" until S18 lands.
+- Trigger endpoint TOCTOU (no atomic check-and-lock); admin-only, LOW.
+
 ### S23 — Member Status & Engagement Engine (Sprint complete 2026-06-26)
 
 Automatic member engagement tracking via derived snapshot columns (attendance count, last attended, weeks absent, engagement tier, active/regular/connected status). Recomputable on-demand by admins and via scheduled background jobs (guarded by S16 scheduler availability).

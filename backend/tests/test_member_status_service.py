@@ -340,7 +340,7 @@ async def test_partial_recompute_only_named_ids(db_session):
 
     result = await recompute_contacts(db_session, [c1_id], today=datetime(2025, 1, 8, 0, 0))
     assert result.contact_count == 1
-    # job_run_id is None because job_runs table does not exist in test DB
+    # partial recompute (recompute_contacts) never writes a job_runs row — always None
     assert result.job_run_id is None
 
     # refresh() issues a fresh SELECT and updates the in-memory ORM objects
@@ -374,14 +374,18 @@ async def test_one_audit_log_row_per_full_run(db_session, sample_contact):
 
 
 # ---------------------------------------------------------------------------
-# job_run_id is None when job_runs table is absent (always in test DB)
+# job_run_id is a real int after full recompute (job_runs table exists via create_all)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_job_run_id_none_when_table_absent(db_session, sample_contact):
+async def test_job_run_id_is_int_after_full_recompute(db_session, sample_contact):
+    """Full recompute writes a job_runs row; job_run_id must be a non-None integer."""
     result = await recompute_all(db_session)
-    assert result.job_run_id is None
+    assert result.job_run_id is not None, (
+        "recompute_all should write a job_runs row now that the table exists"
+    )
+    assert isinstance(result.job_run_id, int)
 
 
 # ---------------------------------------------------------------------------

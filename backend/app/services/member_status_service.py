@@ -303,14 +303,14 @@ async def _recompute(
         try:
             ins_result = await db.execute(
                 text(
-                    "INSERT INTO job_runs (job_name, status, detail, ran_at)"
-                    " VALUES (:job_name, :status, :detail, :ran_at)"
+                    "INSERT INTO job_runs (job_name, status, detail, started_at)"
+                    " VALUES (:job_name, :status, :detail, :started_at)"
                 ),
                 {
                     "job_name": "member_status_recompute",
                     "status": "success",
                     "detail": str(contact_count),
-                    "ran_at": _utc_now(),
+                    "started_at": _utc_now(),
                 },
             )
             await db.commit()

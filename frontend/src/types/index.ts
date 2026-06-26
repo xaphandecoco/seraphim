@@ -321,3 +321,65 @@ export interface OrphanSubjectPage {
   page: number;
   page_size: number;
 }
+
+// ---------- S16 — Settings, System Status & Scheduled Jobs ------------------
+
+export interface SettingItem {
+  key: string;
+  value: { value: any };
+  category: string;
+  description?: string;
+  label?: string;
+  requires_restart?: boolean;
+  sensitive?: boolean;
+}
+
+export interface JobRun {
+  id: number;
+  job_name: string;
+  status: 'running' | 'success' | 'completed' | 'failed' | 'skipped' | 'warning';
+  detail: string | null;
+  started_at: string;
+  finished_at: string | null;
+  duration_ms: number | null;
+}
+
+export interface JobRunListResponse {
+  items: JobRun[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface JobStatusItem {
+  job_name: string;
+  last_status: string | null;
+  last_run_at: string | null;
+}
+
+export interface SystemStatus {
+  overall: 'ok' | 'degraded' | 'down';
+  services: {
+    postgres: boolean;
+    redis: boolean;
+    compreface: boolean;
+  };
+  queue_depth: number;
+  safe_mode: boolean;
+  active_event_id: number | null;
+  jobs: JobStatusItem[];
+}
+
+export interface ConfigChecklistItem {
+  key: string;
+  label: string;
+  is_set: boolean;
+  required: boolean;
+}
+
+export interface ConfigChecklistResponse {
+  items: ConfigChecklistItem[];
+  required_complete: boolean;
+  recommended_complete: boolean;
+  all_complete: boolean;
+}

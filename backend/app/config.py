@@ -1,6 +1,37 @@
+import base64
+import hashlib
+import logging
+import os
 from typing import Optional
 
 from pydantic_settings import BaseSettings
+
+_config_logger = logging.getLogger(__name__)
+
+
+def _decrypt_setting_value(ciphertext: str, jwt_secret: str) -> Optional[str]:
+    """Decrypt a Fernet-encrypted setting value.
+
+    Uses SETTINGS_FERNET_KEY env var if set; otherwise derives key from jwt_secret.
+    Returns None on any failure (logs a warning).
+    """
+    try:
+        from cryptography.fernet import Fernet
+
+        key_env = os.environ.get("SETTINGS_FERNET_KEY", "")
+        if key_env:
+            fernet_key = key_env.encode()
+        else:
+            if not jwt_secret:
+                return None
+            raw_key = hashlib.sha256(jwt_secret.encode()).digest()
+            fernet_key = base64.urlsafe_b64encode(raw_key)
+
+        f = Fernet(fernet_key)
+        return f.decrypt(ciphertext.encode()).decode()
+    except Exception as exc:
+        _config_logger.warning("DynamicSettings: could not decrypt setting value: %s", exc)
+        return None
 
 
 class BootstrapConfig(BaseSettings):
@@ -25,6 +56,39 @@ class DynamicSettings:
             cls._instance = super().__new__(cls)
         return cls._instance
     
+    async def _load_rows(self, rows) -> dict:
+        """Convert AdminSetting ORM rows → plain dict, decrypting encrypted values.
+
+        Two-pass: first extract jwt_secret (always plaintext) to derive the
+        Fernet key, then decrypt any rows flagged {"encrypted": True}.
+        """
+        raw: dict = {}
+        for s in rows:
+            if isinstance(s.value, dict) and "value" in s.value:
+                raw[s.key] = s.value  # keep full dict for encrypted-flag inspection
+            else:
+                raw[s.key] = s.value
+
+        # Pass 1: jwt_secret is always stored plaintext — extract it for key derivation.
+        jwt_raw = raw.get("jwt_secret", {})
+        if isinstance(jwt_raw, dict):
+            jwt_secret = jwt_raw.get("value", "") or ""
+        else:
+            jwt_secret = str(jwt_raw) if jwt_raw else ""
+
+        # Pass 2: resolve each setting to its final plaintext value.
+        settings: dict = {}
+        for key, val in raw.items():
+            if isinstance(val, dict) and val.get("encrypted") is True:
+                ciphertext = val.get("value", "")
+                settings[key] = _decrypt_setting_value(ciphertext, jwt_secret)
+            elif isinstance(val, dict) and "value" in val:
+                settings[key] = val["value"]
+            else:
+                settings[key] = val
+
+        return settings
+
     async def initialize(self, db_session=None):
         """Load all settings from DB into memory on app startup."""
         if db_session is None:
@@ -32,21 +96,15 @@ class DynamicSettings:
         from sqlalchemy import select
         from app.models import AdminSetting
         result = await db_session.execute(select(AdminSetting))
-        self._settings = {
-            s.key: s.value.get("value") if isinstance(s.value, dict) and "value" in s.value else s.value
-            for s in result.scalars().all()
-        }
+        self._settings = await self._load_rows(result.scalars().all())
         self._initialized = True
-    
+
     async def reload(self, db_session):
         """Reload all settings from DB into memory."""
         from sqlalchemy import select
         from app.models import AdminSetting
         result = await db_session.execute(select(AdminSetting))
-        self._settings = {
-            s.key: s.value.get("value") if isinstance(s.value, dict) and "value" in s.value else s.value
-            for s in result.scalars().all()
-        }
+        self._settings = await self._load_rows(result.scalars().all())
     
     def get(self, key: str, default=None):
         return self._settings.get(key, default)
@@ -162,6 +220,32 @@ class DynamicSettings:
 
     def get_powerhouse_series_id(self) -> int | None:
         val = self._settings.get("powerhouse_series_id")
+        if val is None or val == "" or val == 0:
+            return None
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            return None
+
+    def get_sunday_event_series_id(self) -> int | None:
+        """Return the S16 sunday_event_series_id; fall back to legacy sunday_series_id."""
+        val = self._settings.get("sunday_event_series_id")
+        if val is None or val == "" or val == 0:
+            # Fall back to legacy key
+            val = self._settings.get("sunday_series_id")
+        if val is None or val == "" or val == 0:
+            return None
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            return None
+
+    def get_powerhouse_event_series_id(self) -> int | None:
+        """Return the S16 powerhouse_event_series_id; fall back to legacy powerhouse_series_id."""
+        val = self._settings.get("powerhouse_event_series_id")
+        if val is None or val == "" or val == 0:
+            # Fall back to legacy key
+            val = self._settings.get("powerhouse_series_id")
         if val is None or val == "" or val == 0:
             return None
         try:

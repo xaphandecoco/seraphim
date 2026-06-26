@@ -371,12 +371,13 @@ class QueueManager:
                 # Check table existence without inspecting dialect-specific catalogs
                 await session.execute(
                     text(
-                        "INSERT INTO job_runs (job_name, ran_at) "
-                        "VALUES (:job_name, :ran_at)"
+                        "INSERT INTO job_runs (job_name, status, started_at) "
+                        "VALUES (:job_name, :status, :started_at)"
                     ),
                     {
                         "job_name": job_name,
-                        "ran_at": datetime.now(timezone.utc).replace(tzinfo=None),
+                        "status": "success",
+                        "started_at": datetime.now(timezone.utc).replace(tzinfo=None),
                     },
                 )
                 await session.commit()

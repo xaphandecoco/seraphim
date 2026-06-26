@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
-import { useEffect } from 'react';
+import { useEffect, lazy, Suspense } from 'react';
 import { Toaster } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { ProtectedRoute } from '@/components/layout/ProtectedRoute';
@@ -31,6 +31,25 @@ import { CommunityReportDetailPage } from '@/pages/CommunityReportDetailPage';
 import { MigrationPage } from '@/pages/MigrationPage';
 import { MigrationReportPage } from '@/pages/MigrationReportPage';
 import { FROrphanReviewPage } from '@/pages/FROrphanReviewPage';
+
+// S16 — lazy-load TanStack-Query-heavy pages to keep App.tsx initial bundle light
+const SystemStatusPage = lazy(() =>
+  import('@/pages/SystemStatusPage').then((m) => ({ default: m.SystemStatusPage })),
+);
+const JobRunsPage = lazy(() =>
+  import('@/pages/JobRunsPage').then((m) => ({ default: m.JobRunsPage })),
+);
+
+function PageFallback() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background">
+      <div
+        className="h-8 w-8 animate-spin rounded-full border-4 border-border border-t-primary"
+        aria-label="Loading"
+      />
+    </div>
+  );
+}
 
 function AuthInit() {
   useAuth();
@@ -91,6 +110,8 @@ function App() {
         <Route path="/settings/migration" element={<AdminRoute><MigrationPage /></AdminRoute>} />
         <Route path="/settings/migration/:batchId" element={<AdminRoute><MigrationReportPage /></AdminRoute>} />
         <Route path="/settings/fr-transition/orphans" element={<AdminRoute><FROrphanReviewPage /></AdminRoute>} />
+        <Route path="/settings/system-status" element={<AdminRoute><Suspense fallback={<PageFallback />}><SystemStatusPage /></Suspense></AdminRoute>} />
+        <Route path="/settings/jobs" element={<AdminRoute><Suspense fallback={<PageFallback />}><JobRunsPage /></Suspense></AdminRoute>} />
       </Routes>
     </div>
   );

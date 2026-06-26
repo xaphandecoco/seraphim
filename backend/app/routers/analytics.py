@@ -255,7 +255,7 @@ async def member_status_summary(
         try:
             lr_result = await db.execute(
                 text(
-                    "SELECT MAX(ran_at) AS max_ran_at FROM job_runs"
+                    "SELECT MAX(started_at) AS max_ran_at FROM job_runs"
                     " WHERE job_name = :job_name"
                 ),
                 {"job_name": "member_status_recompute"},

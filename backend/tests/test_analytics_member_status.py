@@ -177,15 +177,32 @@ async def test_summary_tier_counts_sum_after_recompute(client, admin_auth_header
 
 
 @pytest.mark.asyncio
-async def test_summary_last_recomputed_at_null_when_no_job_runs_table(
+async def test_summary_last_recomputed_at_null_before_any_recompute(
     client, admin_auth_headers
 ):
-    """last_recomputed_at is null when job_runs table is absent — no 500."""
+    """last_recomputed_at is null when job_runs table exists but has no rows."""
     resp = await client.get("/analytics/member-status-summary", headers=admin_auth_headers)
     assert resp.status_code == 200, resp.text
     data = resp.json()
-    # job_runs table does not exist in test DB; must be null, not an error
+    # No recompute has been run yet — MAX(started_at) over empty table is NULL
     assert data["last_recomputed_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_summary_last_recomputed_at_non_null_after_recompute(
+    client, admin_auth_headers, db_session
+):
+    """last_recomputed_at is non-null after a full recompute runs."""
+    contact = Contact(first_name="Test", last_name="User", contact_type="individual")
+    db_session.add(contact)
+    await db_session.commit()
+
+    await client.post("/analytics/recompute-member-status", headers=admin_auth_headers)
+
+    resp = await client.get("/analytics/member-status-summary", headers=admin_auth_headers)
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["last_recomputed_at"] is not None
 
 
 @pytest.mark.asyncio

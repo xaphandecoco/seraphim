@@ -523,6 +523,7 @@ class AdminSetting(Base):
     updated_by: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL")
     )
+    label: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
 
 
 class ExportJob(Base):
@@ -876,4 +877,36 @@ class ImportRowResult(Base):
         # Composite (batch_id, outcome) per spec §3.2 — matches the migration DDL
         # and serves the batch-scoped outcome filter on GET /batches/{id}/rows.
         Index("ix_import_row_result_outcome", "batch_id", "outcome"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# S16 — Scheduler / job-run audit table
+# ---------------------------------------------------------------------------
+
+class JobRun(Base):
+    """Audit record for a single scheduler job execution.
+
+    status values: running | success | completed | failed | skipped | warning
+    No CHECK constraint — additional statuses may be added without a migration.
+    duration_ms: wall-clock milliseconds, populated on finish.
+    """
+
+    __tablename__ = "job_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    job_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="running"
+    )  # running | success | completed | failed | skipped | warning
+    detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now()
+    )
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    duration_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    __table_args__ = (
+        Index("ix_job_runs_job_name", "job_name"),
+        Index("ix_job_runs_started_at", "started_at"),
     )

@@ -23,10 +23,11 @@ async def test_has_table_existing(db_session: AsyncSession):
 
 @pytest.mark.asyncio
 async def test_has_table_missing(db_session: AsyncSession):
-    """job_runs is not defined as a model — has_table must return False."""
+    """A table that has never been defined must return False."""
     from app.utils.db_helpers import has_table
 
-    result = await has_table(db_session, "job_runs")
+    result = await has_table(db_session, "definitely_not_a_real_table")
     assert result is False, (
-        "has_table('job_runs') should return False; job_runs is not in the schema"
+        "has_table('definitely_not_a_real_table') should return False; "
+        "that table name does not exist in the schema"
     )

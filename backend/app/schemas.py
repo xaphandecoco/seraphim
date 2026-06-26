@@ -1296,3 +1296,77 @@ class MigrationSummaryResponse(BaseModel):
     participants: Optional[ImportBatchOut] = None
     links: Optional[ImportBatchOut] = None
     pending_reviews: int
+
+
+# ============================================================================
+# S16 — Scheduler / Settings / System Status
+# ============================================================================
+
+
+class JobRunItem(BaseModel):
+    """One job_runs row for the /settings/jobs list."""
+    id: int
+    job_name: str
+    status: str
+    detail: Optional[str] = None
+    started_at: datetime
+    finished_at: Optional[datetime] = None
+    duration_ms: Optional[int] = None
+
+
+class JobRunsResponse(BaseModel):
+    items: List[JobRunItem]
+    total: int
+    page: int
+    page_size: int
+
+
+class SystemStatusServicesDetail(BaseModel):
+    postgres: bool
+    redis: bool
+    compreface: bool
+
+
+class SystemStatusJobItem(BaseModel):
+    job_name: str
+    last_status: Optional[str] = None
+    last_run_at: Optional[datetime] = None
+
+
+class SystemStatusResponse(BaseModel):
+    overall: Literal["ok", "degraded", "down"]
+    services: SystemStatusServicesDetail
+    queue_depth: int
+    safe_mode: bool
+    active_event_id: Optional[int] = None
+    jobs: List[SystemStatusJobItem]
+
+
+class ConfigChecklistItem(BaseModel):
+    key: str
+    label: str
+    is_set: bool
+    required: bool
+
+
+class ConfigChecklistResponse(BaseModel):
+    items: List[ConfigChecklistItem]
+    required_complete: bool
+    recommended_complete: bool
+    all_complete: bool
+
+
+class SettingKeyUpdateRequest(BaseModel):
+    """Payload for PUT /settings/{key}."""
+    value: Optional[str] = None
+
+
+class SettingKeyValueResponse(BaseModel):
+    key: str
+    value: Optional[str] = None
+
+
+class ConnectionTestResult(BaseModel):
+    """Result of a POST /settings/test/{service} probe."""
+    ok: bool
+    detail: str = ""

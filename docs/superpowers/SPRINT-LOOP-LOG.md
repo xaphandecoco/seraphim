@@ -138,7 +138,7 @@ After resume completes: Opus-critique → commit → next.
 | S24 | FR transition & cutover bridge | ✅ committed | (see PR) | BiometricConsent, remap, consent-backfill, orphan UI |
 | S23 | Member status & engagement engine | ✅ committed | `3e52929` | 7 derived snapshot columns; admin endpoint + summary; HAS_SCHEDULER guarded |
 | S21 | (per master) | ⏳ queued | — | |
-| S16 | (next buildable) | ⏳ queued | — | S23 unblocks via HAS_SCHEDULER guard |
+| S16 | Settings, system status & scheduled jobs | ✅ committed | `<pending>` | APScheduler host; job_runs table; settings endpoints; security BLOCK→fix (immutable-keys) |
 | … | remaining leaves | ⏳ queued | — | S08–S20 |
 
 Legend: ✅ committed · 🔄 in progress · ⏳ queued · ⛔ blocked (see top)
@@ -146,6 +146,37 @@ Legend: ✅ committed · 🔄 in progress · ⏳ queued · ⛔ blocked (see top)
 ---
 
 ## 📝 PER-SPRINT LOG (newest first)
+
+### S16 — Settings, System Status & Scheduled Jobs
+- **Goal:** Make APScheduler the canonical job host. Add job-run tracking table with audit logging. Implement admin surface (settings, system-status, scheduled-jobs endpoints) with Fernet-encrypted sensitive keys. Fix security vulnerability in settings-write endpoint.
+- **Definition of Done:**
+  1. `job_runs` table + ORM model (migration `s16a1b2c3d4e5`, down_revision `a3b4c5d6e7f8`)
+  2. `JobRun` columns: `id, job_name, status, detail, started_at, finished_at, duration_ms` + indexes
+  3. `admin_settings.label` column + series-id keys (`sunday_event_series_id`, `powerhouse_event_series_id`) seeded
+  4. `backend/app/services/scheduler.py`: AsyncIOScheduler singleton + `_run_tracked_job` wrapper + `JOB_REGISTRY` (9 jobs)
+  5. Endpoints in `routers/settings.py`: `GET /settings/jobs`, `POST /settings/jobs/{job_name}/trigger`, `GET /settings/system-status`, `GET /settings/config-checklist`, `PUT /settings/{key}` (immutable-keys guard)
+  6. `services/settings_service.py`: get/set with Fernet encryption, system-status, trigger-job
+  7. Frontend: SettingsPage (tabbed), SystemStatusPage, JobRunsPage, 7 panel components, settings.ts client, types
+  8. **Canonicalize** `job_runs.ran_at` → `started_at` (edit 3 S23 call-sites + tests)
+  9. **Security audit PASS:** immutable-keys guard (jwt_secret/database_url/redis_url 403), encrypt-on-write/decrypt-on-read two-pass, sanitized detail
+  10. Green gates: backend full suite + frontend 341 tests; security PASS
+- **Status:** PASS, committed. Green gate: backend full suite **1216 passed / 0 failed** (22 skipped, 1 xfailed; 14m23s) + segment 209 + frontend build + lint + **341 tests**; security PASS (re-audit after BLOCK→fix).
+- **Security incident (BLOCK → FIXED):** `PUT /settings/{key}` only blank-protected `jwt_secret`/`database_url` but allowed OVERWRITING them → admin could brick auth app-wide. **FIX:** `_IMMUTABLE_KEYS = {jwt_secret, database_url, redis_url}` rejects ANY write (set/blank) on both PUT paths (403). **Plus 2 MEDIUM fixes:** (1) encrypt-on-write had no decrypt-on-read → added two-pass decrypt-on-load in config.py; (2) removed silent plaintext fallback → fail-closed. **Plus 1 LOW:** sanitized job_runs.detail to avoid leaking DSNs. **RE-AUDIT: PASS.**
+- **Integration:**
+  - `job_runs` canonicalization: edited 3 S23 call-sites (analytics.call_timestamp, queue_manager._process_queue, member_status_service._recompute) — all changed `ran_at` → `started_at`.
+  - Reconciled 3 S23 tests: `test_migrations.py` EXPECTED_HEAD updated to `s16a1b2c3d4e5`; down_revision test to `a3b4c5d6e7f8`; job_runs now exists in test DB.
+  - Installed `apscheduler>=3.10.4` locally.
+- **Carry-forward assumptions:** (all documented in BLOCKERS.md 🟡)
+  - Dual job_runs writes (scheduler `_run_tracked_job` wrapper row + member_status_service raw-SQL row). Non-blocking observability nit; `member-status-summary.last_recomputed_at` keys off the `member_status_recompute` row. Consider de-dup when convenient.
+  - Fernet key derived from `jwt_secret` (single SHA-256) unless `SETTINGS_FERNET_KEY` env set; rotating jwt_secret re-keys sensitive settings.
+  - Series-id keys fall back to legacy `sunday_series_id`/`powerhouse_series_id`; both unset → generation jobs skip "not configured".
+  - Notifier jobs (notifier_8am, notifier_10am, notifier_3pm, notifier_powerhouse) skip "awaiting S18" until S18 built.
+  - Trigger endpoint TOCTOU (no atomic check-and-lock) + no rate-limit (admin-only, LOW).
+- **Next:** S08 (remaining leaves).
+
+✅ **S16 committed — safe to resume with S08.**
+
+---
 
 ### S23 — Member Status & Engagement Engine
 - **Goal:** Recomputable member engagement snapshot (7 derived columns: `last_attended_at`, `attendance_count`, `weeks_absent`, `tier`, `is_active`, `is_regular`, `is_connected`). Admin on-demand endpoint + fast summary endpoint. Background recomputation via APScheduler (guarded by S16 availability via `HAS_SCHEDULER=False`).

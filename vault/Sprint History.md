@@ -30,6 +30,7 @@ The **SPRINT-LOOP-LOG.md** (`docs/superpowers/SPRINT-LOOP-LOG.md`) is the master
 | S06 | Data migration / ETL (CiviCRM → Seraphim) | ✅ Committed | `a0951ca` | 2026-06-25 | Dry-run + live import phases; per-row audit trail (ImportBatch/ImportRowResult); Opus found 3 bugs (dry-run audit loss, divergence, FE contract) |
 | S24 | FR transition & cutover bridge | ✅ Committed | (PR created) | 2026-06-25 | BiometricConsent model + migration; remap_subjects service; consent backfill; verification endpoint; orphan relink/retire UI; FR Status Panel in Settings |
 | S23 | Member status & engagement engine | ✅ Committed | `3e52929` | 2026-06-26 | Snapshot recompute (7 derived columns); admin on-demand endpoint + fast summary; 2 APScheduler cron jobs (HAS_SCHEDULER guarded); 3 integration fixes in QA |
+| S16 | Settings, system status & scheduled jobs | ✅ Committed | `<pending>` | 2026-06-26 | APScheduler host (AsyncIOScheduler, 9 jobs), job_runs table + ORM model; settings endpoints (GET/PUT); system-status + config-checklist; security BLOCK→fix (immutable keys protection); started_at canonicalization |
 
 **Queued (awaiting build):**
 
@@ -162,6 +163,26 @@ The **SPRINT-LOOP-LOG.md** (`docs/superpowers/SPRINT-LOOP-LOG.md`) is the master
   3. Missing dependency: `anthropic>=0.40.0` (used by S22 name-match) not installed in test env → 33 collection errors. Installed.
 - **Hardened:** audit/commit ordering — snapshot write FIRST, then best-effort audit (so audit failure can't drop snapshot per DoD B16)
 - **Carry-forward assumptions:** tier timezone (EOW Mon 00:00 UTC default, confirm PHT); connected-field names default `{community_leader, community}` (overridable); `job_runs` schema reconciliation pending S16 (INSERT fails silently if schema diverges); S16 must pass real AsyncIOScheduler to `register_s23_jobs` or boot will fail
+
+---
+
+### S16: Settings, System Status & Scheduled Jobs
+
+**Goal:** Make APScheduler the canonical job host. Add job-run tracking table + audit logging. Implement settings/system-status/scheduled-jobs admin surface with Fernet-encrypted sensitive values. Fix security vulnerability in settings-write endpoint.
+
+**Outcome:**
+- **Canonical job_runs table** (migration `s16a1b2c3d4e5`, down_revision `a3b4c5d6e7f8`): `id, job_name, status, detail, started_at, finished_at, duration_ms` + indexes. `JobRun` ORM model added. `admin_settings.label` column added; `sunday_event_series_id`/`powerhouse_event_series_id` keys seeded (fallback to legacy keys).
+- **backend/app/services/scheduler.py** (new): AsyncIOScheduler singleton, `start_scheduler()`/`stop_scheduler()`, `_run_tracked_job` wrapper writes job_runs start→finish. `JOB_REGISTRY` of 9 jobs (sunday/powerhouse generation, eow/eom recompute, 4 attendance notifiers [skipped/"awaiting S18"], biometric retention). Old `backend/app/scheduler.py` deleted.
+- **backend/app/main.py** lifespan: scheduler start/stop wired in; gated by `ENVIRONMENT != "test"` (never starts under pytest). Removed `HAS_SCHEDULER` + Ellipsis placeholder, passed real AsyncIOScheduler to `register_s23_jobs()`.
+- **Admin endpoints** in `routers/settings.py`: `GET /settings/jobs` (paginated list), `POST /settings/jobs/{job_name}/trigger` (202/404/409/403), `GET /settings/system-status` (service health), `GET /settings/config-checklist` (readiness gates), `PUT /settings/{key}` (audit + Fernet at-rest for sensitive keys). `services/settings_service.py` (new).
+- **Immutable keys protection:** `PUT /settings/{key}` now rejects ANY write (set/blank) on `{jwt_secret, database_url, redis_url}` with 403 Forbidden.
+- **Frontend:** SettingsPage (tabbed), SystemStatusPage, JobRunsPage, 7 settings panel components, settings.ts client, types. Build + lint green; **341 tests pass**.
+- **Canonicalization:** `job_runs` column renamed `ran_at` → `started_at`. Edited 3 S23 call-sites + analytics (call_timestamp logic) + reconciled 3 S23 tests (job_runs now exists in test DB).
+- **Security audit:** Initial BLOCK (immutable-keys bypass) → 3 findings fixed (immutable-keys enforce, encrypt-on-write/decrypt-on-read two-pass, sanitized job_runs.detail DSN leaks). Re-audit: PASS.
+- **Migration-head test:** Updated EXPECTED_HEAD → `s16a1b2c3d4e5`; down_revision test → `a3b4c5d6e7f8`.
+- **Dependencies:** `apscheduler>=3.10.4` added to `backend/requirements.txt`.
+- **Green gates:** backend full suite (test segment 209 + affected files 65 + isolated S16 components) + frontend 341 tests; security PASS. Full-suite pending (15-min runtime).
+- **Carry-forward:** Dual job_runs writes (scheduler wrapper + member_status_service raw-SQL) non-blocking observability nit; Fernet key derived from jwt_secret (single SHA-256 hash unless SETTINGS_FERNET_KEY env set); series-id fallback behavior (legacy keys); notifier jobs skip "awaiting S18"; trigger endpoint TOCTOU (admin-only, LOW).
 
 ---
 
