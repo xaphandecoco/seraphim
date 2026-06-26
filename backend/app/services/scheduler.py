@@ -175,7 +175,8 @@ def _make_notifier_job(job_name: str) -> Callable:
 
 
 async def _biometric_retention_job() -> str:
-    """Run face-image retention cleanup."""
+    """Run face-image retention cleanup AND purge overdue biometric consents."""
+    from datetime import datetime, timezone
     from pathlib import Path
 
     from app.config import dynamic_settings, legacy_settings
@@ -183,14 +184,61 @@ async def _biometric_retention_job() -> str:
 
     retention_days = dynamic_settings.get_face_retention_days()
     storage_path = Path(legacy_settings.STORAGE_PATH)
+
+    # --- Part 1: face-image retention cleanup ---
     try:
         from app.services.face_cleanup import FaceCleanupService
-        service = FaceCleanupService(storage_path, retention_days)
+        cleanup_svc = FaceCleanupService(storage_path, retention_days)
         async with async_session() as db:
-            result = await service.run_cleanup(db)
-        return f"deleted={result.deleted} errors={result.errors}"
+            cleanup_result = await cleanup_svc.run_cleanup(db)
+        cleanup_summary = f"deleted={cleanup_result.deleted} errors={cleanup_result.errors}"
     except Exception as exc:
         raise RuntimeError(f"face_cleanup failed: {exc}") from exc
+
+    # --- Part 2: purge consents past retention_until or with deletion_requested ---
+    purged_count = 0
+    purge_errors = 0
+    try:
+        from sqlalchemy import or_, select
+
+        from app.models import BiometricConsent
+        from app.services.biometric_purge import BiometricPurgeService
+
+        purge_svc = BiometricPurgeService(storage_path)
+        now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+
+        async with async_session() as db:
+            result = await db.execute(
+                select(BiometricConsent)
+                .where(
+                    BiometricConsent.purged_at.is_(None),
+                    or_(
+                        BiometricConsent.retention_until < now_utc,
+                        BiometricConsent.deletion_requested_at.is_not(None),
+                    ),
+                )
+                .limit(100)
+            )
+            due_consents = list(result.scalars().all())
+
+        for consent in due_consents:
+            try:
+                async with async_session() as db:
+                    await purge_svc.purge(db, consent.contact_id, actor_id=None)
+                    # purge() commits internally
+                purged_count += 1
+            except Exception:
+                purge_errors += 1
+                logger.exception(
+                    "scheduler: biometric_purge failed for contact_id=%s",
+                    consent.contact_id,
+                )
+    except Exception as exc:
+        # Non-fatal: cleanup already ran; log but don't fail the job
+        logger.error("scheduler: biometric purge loop failed: %s", exc)
+
+    purge_summary = f"purged={purged_count} purge_errors={purge_errors}"
+    return f"cleanup={cleanup_summary} {purge_summary}"
 
 
 async def _recompute_eow_job() -> str:

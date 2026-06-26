@@ -15,6 +15,24 @@ the end of a run. **Hard blockers (could build on bad data) are pinned at the to
 
 ## 🟡 Assumptions (documented defaults — confirm when convenient)
 
+- [S08] **MEDIUM (non-blocking, security-PASS):** detection-crop FILE can orphan on a rare unlink OSError → `det.image_path` is cleared regardless of unlink success, so a file that failed to delete has no DB retry handle and a later clean retry stamps purged_at while the orphan remains. Bounded: requires a real FS error; orphan has NO queryable DB linkage (path/subject/matched_name cleared → no re-identification); time-based FaceCleanupService is a backstop. **FOLLOW-UP PATCH:** only clear image_path after successful unlink (keep row as retry handle) + keep purged_at NULL until detection-crop files confirmed gone.
+
+- [S08] **LOW:** purge / immediate deletion-request return HTTP 200 even on result.status=='partial_failure'; immediate-purge path doesn't set deletion_requested_at so a not-yet-due partial failure isn't auto-retried unless admin re-invokes. **FOLLOW-UP:** set deletion_requested_at on the immediate path and/or surface a distinct partial_failure signal.
+
+- [S08] Detection.image_path is NOT NULL → purge uses image_path="" sentinel (file IS unlinked); a future migration could make it nullable.
+
+- [S08] CompreFace 404-as-success uses ComprefaceClient private attrs; refactor to a delete_subject_tolerant() method later.
+
+- [S08] biometric_retention endpoints lack @limiter.limit (admin-only, carry-forward; same class as S16 trigger).
+
+- [S08/backend] **ASSUMPTION:** `Detection.image_path` is `NOT NULL` in the ORM model (`models.py`) and the SQLite test schema. The S08 RTBF spec says to set `image_path=None` when anonymizing detection crops during a purge. The Wave 1 migration (`s08a1b2c3d4e5`) did not make this column nullable. The `BiometricPurgeService` uses `""` (empty string) as the cleared-path sentinel to satisfy the SQLite constraint; the actual file is unlinked from disk in either case. **Action needed (DB engineer):** Add an Alembic migration (S09 or as a patch) to `ALTER TABLE detections ALTER COLUMN image_path DROP NOT NULL` and update `Detection.image_path` to `Mapped[Optional[str]]` in `models.py`. Once done, change `biometric_purge.py` line `det.image_path = ""` to `det.image_path = None` and update the test assertion.
+
+- [S08/backend] **ASSUMPTION:** `BiometricPurgeService._delete_cf_subject` accesses `client.base_url` and `client.recognize_api_key` attributes directly (and `client._client` for the raw httpx call) to intercept the HTTP 404 response before `delete_subject()` would return False. This works with the current `ComprefaceClient` internals. If `ComprefaceClient` is refactored, update `_delete_cf_subject` to match. Alternative: add a `delete_subject_with_404_ok()` method to `ComprefaceClient` (compreface.py — DB/ML engineer's file) and call it from the purge service.
+
+- [S08/frontend] **ASSUMPTION:** `User.role` in `frontend/src/types/index.ts` is typed `'volunteer' | 'admin'` only — no `'viewer'` type exists yet (S01 spec mentions viewer role but S15 is pending). For mutation-control gating, "volunteer+" is treated as any non-null `user` object (`!!user`). When S15 lands and adds `viewer` to the role union, `ConsentPanel` needs a second check `user.role !== 'viewer'` to gate the button strip. Affects: `frontend/src/components/contacts/ConsentPanel.tsx`.
+
+- [S08/frontend] **ASSUMPTION:** FacePanel uses query key `['contacts', contactId, 'faces']` (confirmed by reading `FacePanel.tsx:57`). The spec says to invalidate `['contact-faces', contactId]` after a purge — these do not match. The `ConsentPanel` purge handler invalidates the actual FacePanel key `['contacts', contactId, 'faces']` so thumbnails clear correctly. Affects: `frontend/src/components/contacts/ConsentPanel.tsx`.
+
 - [S23] **ASSUMPTION:** tier timezone default is EOW Mon 00:00 UTC (confirm PHT); EOM cadence is `0 0 1 * *`; connected-field names default `{community_leader, community}` (overridable via admin_settings `connected_field_names`); is_active formula is None when never-attended, False when inactive tier. Affects: `backend/app/services/member_status_service.py`, snapshot read/write logic.
 
 - [S23] **ASSUMPTION:** `job_runs` table schema (S16) is unknown at implementation time. The raw-SQL INSERT in `member_status_service._recompute` uses columns `(job_name, status, detail, ran_at)`. If S16's actual schema differs (e.g., no `status` / `detail` columns), the INSERT will fail silently (try/except) and `job_run_id` returns None — no crash, no data loss. Affects: `backend/app/services/member_status_service.py`.

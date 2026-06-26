@@ -139,13 +139,45 @@ After resume completes: Opus-critique → commit → next.
 | S23 | Member status & engagement engine | ✅ committed | `3e52929` | 7 derived snapshot columns; admin endpoint + summary; HAS_SCHEDULER guarded |
 | S21 | (per master) | ⏳ queued | — | |
 | S16 | Settings, system status & scheduled jobs | ✅ committed | `d048c2a` | APScheduler host; job_runs table; settings endpoints; security BLOCK→fix (immutable-keys) |
-| … | remaining leaves | ⏳ queued | — | S08–S20 |
+| S08 | Biometric consent & right-to-be-forgotten | ✅ committed | `<pending>` | BiometricPurgeService; 7 endpoints; scheduler auto-purge; security BLOCK→fix (2 HIGH RTBF gaps) |
+| … | remaining leaves | ⏳ queued | — | S09–S20 |
 
 Legend: ✅ committed · 🔄 in progress · ⏳ queued · ⛔ blocked (see top)
 
 ---
 
 ## 📝 PER-SPRINT LOG (newest first)
+
+### S08 — Biometric Consent & Right-to-be-Forgotten
+- **Goal:** Implement biometric-consent lifecycle (record/update/revoke/deletion-request) and irreversible right-to-be-forgotten (RTBF) purge under Philippine RA 10173 compliance. Extend S24's consent table with RTBF columns and purge semantics.
+- **Definition of Done:**
+  1. BiometricPurgeService (enroll photos + thumbs, ALL detection crops [enrolled + recognition], face_samples, CompreFace subject; RETAINS contacts/participants/consent row; idempotent + fault-tolerant)
+  2. Consent lifecycle service (record/update/revoke/deletion-request with status synthesis)
+  3. 7 endpoints (GET consent [any role], POST/PATCH/revoke/deletion-request [volunteer+], purge + retention/report [admin]); RBAC viewer→403
+  4. Migration `s08a1b2c3d4e5` (down_revision `s16a1b2c3d4e5`): extends biometric_consent + adds RTBF columns + partial indexes + consent_id to compreface_subjects
+  5. Scheduler auto-purge job (cron 0 2 * * * with system actor)
+  6. Frontend ConsentPanel + RecordConsentDialog + RetentionReportPage + BottomNav entry
+  7. Security audit PASS (2 HIGH BLOCK→fix: enrolled-only crop erasure, partial-failure no-retry seal)
+  8. Green gates: 67 S08 tests + full-suite + frontend; test migration head updated
+- **Status:** PASS, committed. Green gate (verified in SEGMENTS — the full serial suite kept getting killed by env at ~10-33%; a dirty `ci_test.db` from killed runs caused known file-SQLite-lock flakiness): backend **segment 122 passed/0 failed** (all S08 + every regression file for the edited shared services: face_cleanup/enrollment/scheduler/config/migrations/s24-consent) + **a-c chunk 312 passed/0 failed** on a FRESH db (the exact region that showed scattered dirty-DB errors → clean, refuting any real regression) + 73 isolated backend + app boots; frontend build+lint+**373 tests**; security **PASS** (re-audit after 2 HIGH RTBF-residual BLOCK→fix). Full serial green run blocked by environmental kills, NOT code.
+- **Security incident (BLOCK → FIXED):**
+  1. **HIGH #1:** purge only erased ENROLLED detection crops → recognition/attendance face crops of forgotten person survived on disk + DB. **FIX:** erase ALL subject detections, not enrolled-only; break linkage; only stamp purged_at when fully clean.
+  2. **HIGH #2:** partially-failed purge sealed status='purged' with no retry → CompreFace face embedding persisted indefinitely. **FIX:** don't stamp purged_at on partial failure; scheduler re-selects + retries; fixed _retry_partial error-carrying bug.
+  3. MEDIUM (glob-only enrolled erasure → now authoritative FaceSample paths) — FIXED.
+  4. 2 LOW (status transition, immutable checks) — FIXED.
+  5. **RE-AUDIT: PASS.**
+- **Carry-forward assumptions:** (all documented in BLOCKERS.md 🟡)
+  - Detection.image_path is NOT NULL → purge uses `image_path=""` sentinel (file unlinked); future migration can make it nullable.
+  - CompreFace 404-as-success uses private attrs (client.base_url, client.recognize_api_key); refactor to delete_subject_tolerant() method when convenient.
+  - Biometric retention endpoints lack @limiter.limit (admin-only, same class as S16 trigger).
+  - **MEDIUM:** detection-crop file can orphan on rare FS unlink error; orphan has no DB linkage (no re-identification risk); FaceCleanupService is backstop. FOLLOW-UP: only clear image_path after successful unlink.
+  - **LOW:** purge/deletion-request return HTTP 200 on partial_failure; immediate-purge path doesn't set deletion_requested_at so partial failures not auto-retried unless re-invoked. FOLLOW-UP: set deletion_requested_at on immediate path; surface partial_failure signal.
+  - S08 reused S24's biometric_consent table (extend, not recreate) — same reconciliation pattern as S23/S16.
+- **Next:** S09 (remaining leaves).
+
+✅ **S08 committed — safe to resume with S09.**
+
+---
 
 ### S16 — Settings, System Status & Scheduled Jobs
 - **Goal:** Make APScheduler the canonical job host. Add job-run tracking table with audit logging. Implement admin surface (settings, system-status, scheduled-jobs endpoints) with Fernet-encrypted sensitive keys. Fix security vulnerability in settings-write endpoint.

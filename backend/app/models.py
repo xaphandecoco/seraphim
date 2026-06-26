@@ -190,13 +190,16 @@ class ComprefaceSubject(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     subject_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    compreface_subject_id: Mapped[str] = mapped_column(String(255), unique=True)
+    compreface_subject_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, unique=True)
     contact_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("contacts.id", ondelete="SET NULL")
     )
+    consent_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("biometric_consent.id", ondelete="SET NULL"), nullable=True
+    )
     enrollment_status: Mapped[str] = mapped_column(
         String(20), default="pending"
-    )  # pending | active
+    )  # pending | active | purged
     sample_count: Mapped[int] = mapped_column(Integer, default=0)
     last_trained_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
@@ -474,7 +477,7 @@ class FaceSample(Base):
     )
 
 
-# S24 stub — S08 will extend this table (retention_until, deletion_requested_at, etc.)
+# S24 created this table; S08 extends it with RTBF lifecycle columns.
 class BiometricConsent(Base):
     __tablename__ = "biometric_consent"
 
@@ -486,9 +489,35 @@ class BiometricConsent(Base):
     consented_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     basis_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     recorded_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    # S08: RTBF lifecycle columns
+    recorded_by_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    retention_until: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    deletion_requested_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    deletion_requested_by_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    purged_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    purge_detail: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now, onupdate=utc_now
+    )
 
     __table_args__ = (
         UniqueConstraint("contact_id", name="uq_biometric_consent_contact"),
+        Index(
+            "ix_biometric_consent_retention",
+            "retention_until",
+            postgresql_where=text("purged_at IS NULL"),
+            sqlite_where=text("purged_at IS NULL"),
+        ),
+        Index(
+            "ix_biometric_consent_deletion_requested",
+            "deletion_requested_at",
+            postgresql_where=text("purged_at IS NULL"),
+            sqlite_where=text("purged_at IS NULL"),
+        ),
     )
 
 

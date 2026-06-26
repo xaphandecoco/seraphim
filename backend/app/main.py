@@ -17,6 +17,7 @@ from app.routers import (
     attendance,
     audit,
     auth,
+    biometric as biometric_router,
     bulk_participants,
     cameras,
     community_reports as community_reports_router,
@@ -148,6 +149,7 @@ app.include_router(name_aliases.router, dependencies=[Depends(check_setup_comple
 app.include_router(community_reports_router.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(migration.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(fr_transition_router.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(biometric_router.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(storage_router.router)
 
 

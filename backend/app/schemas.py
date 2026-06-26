@@ -1370,3 +1370,69 @@ class ConnectionTestResult(BaseModel):
     """Result of a POST /settings/test/{service} probe."""
     ok: bool
     detail: str = ""
+
+
+# ============================================================================
+# S08 — Biometric Consent & RTBF
+# ============================================================================
+
+
+class ConsentResponse(BaseModel):
+    """Full consent status response — never 404."""
+    status: str  # none | pending | given | revoked | purged
+    consent_given: bool = False
+    consented_at: Optional[datetime] = None
+    basis_note: Optional[str] = None
+    retention_until: Optional[datetime] = None
+    deletion_requested_at: Optional[datetime] = None
+    purged_at: Optional[datetime] = None
+    recorded_by_id: Optional[int] = None
+    enrolled_photo_count: int = 0
+    subject_active: bool = False
+
+
+class ConsentRecordRequest(BaseModel):
+    """Body for POST /biometric/contacts/{id}/consent."""
+    basis_note: Optional[str] = None
+    retention_years: Optional[int] = None
+
+
+class ConsentUpdateRequest(BaseModel):
+    """Body for PATCH /biometric/contacts/{id}/consent."""
+    basis_note: Optional[str] = None
+    retention_until: Optional[datetime] = None
+
+
+class DeletionRequest(BaseModel):
+    """Body for POST /biometric/contacts/{id}/deletion-request."""
+    immediate: Optional[bool] = False
+
+
+class PurgeDetail(BaseModel):
+    files_deleted: int = 0
+    samples_deleted: int = 0
+    detections_cleared: int = 0
+    compreface_deleted: bool = False
+    errors: List[str] = []
+
+
+class PurgeResultResponse(BaseModel):
+    status: str  # purged | already_purged
+    purge_detail: PurgeDetail
+
+
+class RetentionReportItem(BaseModel):
+    contact_id: int
+    contact_name: str
+    consent_given: bool
+    retention_until: Optional[datetime] = None
+    deletion_requested_at: Optional[datetime] = None
+    purged_at: Optional[datetime] = None
+    status: str
+
+
+class RetentionReportResponse(BaseModel):
+    items: List[RetentionReportItem]
+    total: int
+    page: int
+    page_size: int

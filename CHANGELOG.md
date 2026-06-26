@@ -1,5 +1,44 @@
 ## [Unreleased]
 
+### S08 — Biometric Consent & Right-to-be-Forgotten (Sprint complete 2026-06-26)
+
+Full biometric-consent lifecycle (record/update/revoke/deletion-request) and irreversible right-to-be-forgotten purge under Philippine RA 10173 data-protection compliance.
+
+**Backend**
+- `services/biometric_consent.py` (new): consent record/update/revoke/deletion-request (status synthesis none|pending|given|revoked|purged; with_for_update; audited).
+- `services/biometric_purge.py` (new): BiometricPurgeService — irreversible RTBF erasure (enrolled photos + thumbs, ALL detection crops [enrolled + recognition], face_samples rows, CompreFace subject via delete_subject 404-as-success); RETAINS contacts + participants + consent row (stamped purged_at + purge_detail); idempotent + fault-tolerant.
+- `routers/biometric.py` (new): 7 endpoints (GET consent [any role, never 404], POST/PATCH/revoke/deletion-request [volunteer+], purge + retention/report [admin]); RBAC viewer→403 on mutations, retention_until edit admin-only.
+- `services/scheduler.py` (extended): `_biometric_retention_job` (cron 0 2 * * *) auto-purges due consents (retention elapsed OR deletion-requested) with system actor.
+- `services/face_cleanup.py` (refactored): extracted shared `_delete_image_files` helper (behavior-preserving).
+- `config.py`: `get_biometric_retention_years()` (default 7). `enrollment.py`: tolerate purged subjects (re-enroll fresh) + TODO(S08-policy) marker.
+- Migration `s08a1b2c3d4e5` (new): EXTENDS S24 `biometric_consent` table with RTBF columns (recorded_by_id, retention_until, deletion_requested_at, deletion_requested_by_id, purged_at, purge_detail, updated_at) + 2 partial indexes; adds `consent_id` to `compreface_subjects` + makes `compreface_subject_id` nullable; down_revision `s16a1b2c3d4e5`.
+
+**Frontend**
+- `components/contacts/ConsentPanel.tsx` (new): replaces S24 inline consent section on ContactDetail.
+- `components/dialogs/RecordConsentDialog.tsx` (new): capture consent at enrollment.
+- `pages/RetentionReportPage.tsx` (new): view retention status + purge history (/settings/biometric).
+- `services/biometric.ts`, `hooks/useBiometric.ts` (new): TanStack Query client for biometric endpoints.
+- `types/index.ts`: BiometricConsent, BiometricPurgeResult, RetentionReport types.
+- `components/BottomNav.tsx`: added Biometric Settings entry.
+
+**Security audit**
+- Initial findings: 2 HIGH (enrolled-only crop erasure, partial-failure no-retry seal), 1 MEDIUM (glob-only enrolled), 2 LOW.
+- **HIGH #1 FIXED:** purge now erases ALL subject detections (not just enrolled); breaks linkage; marks purged_at only when fully clean.
+- **HIGH #2 FIXED:** partial-failure doesn't seal status='purged'; scheduler re-selects + retries; fixed _retry_partial error-carrying bug.
+- **MEDIUM FIXED:** uses authoritative FaceSample paths, not glob.
+- **2 LOW FIXED:** status transition validation, immutable checks.
+- Re-audit: PASS.
+
+**Integration**
+- `test_migrations.py` EXPECTED_HEAD updated to `s08a1b2c3d4e5`; down_revision test to `s16a1b2c3d4e5`.
+- Biometric consent backfilled (S24 reconciliation pattern reused).
+
+**Key assumptions (documented in BLOCKERS.md)**
+- Detection.image_path is NOT NULL → purge uses `image_path=""` sentinel; future migration can make it nullable.
+- CompreFace 404-as-success uses private attrs; refactor to delete_subject_tolerant() method later.
+- Biometric retention endpoints lack @limiter.limit (admin-only, carry-forward).
+- Carry-forward MEDIUM: detection-crop file can orphan on FS error; LOW: partial_failure returns HTTP 200.
+
 ### S16 — Settings, System Status & Scheduled Jobs (Sprint complete 2026-06-26)
 
 Canonical APScheduler host with job-run tracking. Admin surface for settings (Fernet-encrypted sensitive values), system-status, scheduled-job monitoring. Security: immutable-keys protection + encrypt-on-write/decrypt-on-read.

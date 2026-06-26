@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ClipboardList, Trophy, Calendar, CalendarRange, Users, Settings, Settings2, AlertTriangle, FileText, ShieldCheck, MoreHorizontal, X, Upload, UserCheck, FileCheck, Database } from 'lucide-react';
+import { ClipboardList, Trophy, Calendar, CalendarRange, Users, Settings, Settings2, AlertTriangle, FileText, ShieldCheck, MoreHorizontal, X, Upload, UserCheck, FileCheck, Database, Fingerprint } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { useTaskStore } from '@/store/taskStore';
 
@@ -39,6 +39,7 @@ export function BottomNav() {
     { path: '/name-match/review', label: 'Name Review', icon: UserCheck },
     { path: '/community-reports', label: 'Reports', icon: FileCheck },
     { path: '/settings/migration', label: 'Migration', icon: Database },
+    { path: '/settings/biometric', label: 'Biometric', icon: Fingerprint },
   ];
 
   return (

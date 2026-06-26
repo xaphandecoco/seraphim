@@ -181,6 +181,9 @@ class DynamicSettings:
     
     def get_face_retention_days(self) -> int:
         return self.get_int("face_retention_days", 60)
+
+    def get_biometric_retention_years(self) -> int:
+        return self.get_int("biometric_retention_years", 7)
     
     def get_allowed_domain(self) -> str:
         return self.get_str("allowed_domain", "lightnc.org")

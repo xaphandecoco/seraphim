@@ -97,13 +97,32 @@ class EnrollmentService:
             )
 
         # ---- 3. Resolve or create ComprefaceSubject ----
+        # TODO(S08-policy): A future hard consent-gate would check
+        # BiometricConsent.consent_given here and raise 403 if absent.
+
         subject_id_str = f"contact_{contact_id}"
+
+        # Exclude purged subjects — a purged contact re-enrolls into a fresh subject.
+        # S08: compreface_subject_id is now nullable (purged subjects have it set to NULL).
+        # Look up by contact_id first; if the only match is purged, create a fresh subject.
         result = await session.execute(
             select(ComprefaceSubject).where(
-                ComprefaceSubject.compreface_subject_id == subject_id_str
+                ComprefaceSubject.contact_id == contact_id,
+                ComprefaceSubject.enrollment_status != "purged",
             )
         )
         subject = result.scalar_one_or_none()
+
+        # Fallback: look up by the canonical subject_id string in case contact_id lookup missed it
+        if subject is None:
+            result2 = await session.execute(
+                select(ComprefaceSubject).where(
+                    ComprefaceSubject.compreface_subject_id == subject_id_str
+                )
+            )
+            candidate = result2.scalar_one_or_none()
+            if candidate is not None and candidate.enrollment_status != "purged":
+                subject = candidate
 
         if subject is None:
             subject = ComprefaceSubject(

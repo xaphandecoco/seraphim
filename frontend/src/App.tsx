@@ -31,6 +31,7 @@ import { CommunityReportDetailPage } from '@/pages/CommunityReportDetailPage';
 import { MigrationPage } from '@/pages/MigrationPage';
 import { MigrationReportPage } from '@/pages/MigrationReportPage';
 import { FROrphanReviewPage } from '@/pages/FROrphanReviewPage';
+import { RetentionReport } from '@/pages/RetentionReport';
 
 // S16 — lazy-load TanStack-Query-heavy pages to keep App.tsx initial bundle light
 const SystemStatusPage = lazy(() =>
@@ -112,6 +113,7 @@ function App() {
         <Route path="/settings/fr-transition/orphans" element={<AdminRoute><FROrphanReviewPage /></AdminRoute>} />
         <Route path="/settings/system-status" element={<AdminRoute><Suspense fallback={<PageFallback />}><SystemStatusPage /></Suspense></AdminRoute>} />
         <Route path="/settings/jobs" element={<AdminRoute><Suspense fallback={<PageFallback />}><JobRunsPage /></Suspense></AdminRoute>} />
+        <Route path="/settings/biometric" element={<AdminRoute><RetentionReport /></AdminRoute>} />
       </Routes>
     </div>
   );
