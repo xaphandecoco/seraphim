@@ -170,9 +170,9 @@ describe('ContactDetailPage — header section', () => {
     expect(await screen.findByText('Juan dela Cruz')).toBeInTheDocument();
   });
 
-  it('renders the tier badge', async () => {
+  it('renders the tier badge with human-readable label', async () => {
     renderDetail();
-    expect(await screen.findByText('tier0')).toBeInTheDocument();
+    expect(await screen.findByText('This Week')).toBeInTheDocument();
   });
 
   it('renders "Unrated" when tier is null', async () => {

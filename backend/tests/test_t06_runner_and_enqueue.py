@@ -317,15 +317,21 @@ async def test_exception_marks_batch_failed(db_session, tmp_path):
 
 @pytest.mark.asyncio
 async def test_cn24_recompute_called_on_live_run(db_session, tmp_path):
-    """After a live (non-dry_run) run, member_status_service.recompute_all_contacts is called."""
+    """After a live (non-dry_run) run, member_status_service.recompute_all_contacts is called.
+
+    Patch the real function directly: now that S23's member_status_service module
+    exists and is imported by earlier live-run tests, ``from app.services import
+    member_status_service`` resolves to the cached real module attribute and a
+    ``sys.modules`` patch is bypassed.
+    """
     from app.services.migration.runner import run_phase
 
     xlsx_path = _make_xlsx([], str(tmp_path))
 
-    fake_member_svc = MagicMock()
-    fake_member_svc.recompute_all_contacts = AsyncMock()
-
-    with patch.dict("sys.modules", {"app.services.member_status_service": fake_member_svc}):
+    with patch(
+        "app.services.member_status_service.recompute_all_contacts",
+        new_callable=AsyncMock,
+    ) as mock_recompute:
         await run_phase(
             phase="contacts",
             xlsx_path=xlsx_path,
@@ -336,7 +342,7 @@ async def test_cn24_recompute_called_on_live_run(db_session, tmp_path):
             db_factory=_db_factory_from_app(),
         )
 
-    fake_member_svc.recompute_all_contacts.assert_called_once()
+    mock_recompute.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -346,10 +352,10 @@ async def test_cn24_recompute_not_called_on_dry_run(db_session, tmp_path):
 
     xlsx_path = _make_xlsx([], str(tmp_path))
 
-    fake_member_svc = MagicMock()
-    fake_member_svc.recompute_all_contacts = AsyncMock()
-
-    with patch.dict("sys.modules", {"app.services.member_status_service": fake_member_svc}):
+    with patch(
+        "app.services.member_status_service.recompute_all_contacts",
+        new_callable=AsyncMock,
+    ) as mock_recompute:
         await run_phase(
             phase="contacts",
             xlsx_path=xlsx_path,
@@ -360,7 +366,7 @@ async def test_cn24_recompute_not_called_on_dry_run(db_session, tmp_path):
             db_factory=_db_factory_from_app(),
         )
 
-    fake_member_svc.recompute_all_contacts.assert_not_called()
+    mock_recompute.assert_not_called()
 
 
 @pytest.mark.asyncio

@@ -13,7 +13,7 @@ import { FacePanel } from '@/components/contacts/FacePanel';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Pagination } from '@/components/ui/Pagination';
-import { StatusBadge, getTierTone } from '@/components/ui/StatusBadge';
+import { StatusBadge, getTierTone, getTierLabel } from '@/components/ui/StatusBadge';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/StateViews';
 
 import type { ContactAttendanceItem, ContactReferenceChip } from '@/types';
@@ -308,13 +308,15 @@ export function ContactDetailPage() {
                   <StatusBadge label={contact.contact_subtype} tone="muted" />
                 )}
                 <StatusBadge
-                  label={contact.tier ?? 'Unrated'}
+                  label={getTierLabel(contact.tier)}
                   tone={getTierTone(contact.tier)}
                 />
-                <StatusBadge
-                  label={contact.is_active !== false ? 'Active' : 'Inactive'}
-                  tone={contact.is_active !== false ? 'active' : 'muted'}
-                />
+                {contact.is_active != null && (
+                  <StatusBadge
+                    label={contact.is_active ? 'Active' : 'Inactive'}
+                    tone={contact.is_active ? 'active' : 'muted'}
+                  />
+                )}
                 {contact.is_regular != null && (
                   <StatusBadge
                     label={contact.is_regular ? 'Regular' : 'Non-regular'}

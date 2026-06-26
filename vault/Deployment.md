@@ -1,0 +1,183 @@
+# Deployment
+
+Project Seraphim's production stack runs on **Docker Compose** with multiple TLS options (Caddy, Cloudflare Tunnel, or plain HTTP/LAN). This note tracks the six core services, reverse-proxy architecture, environment configuration, and operational scripts.
+
+## Services & Stack
+
+**Core six services** (via `docker-compose.unraid.yml`):
+
+1. **postgres:16-alpine**
+   - User: `seraphim`, password: `${DB_PASSWORD}`
+   - Database: `seraphim_attendance`
+   - Volume: `/mnt/user/appdata/seraphim/postgres`
+   - Healthcheck: `pg_isready`
+
+2. **redis:7-alpine**
+   - Cache for slowapi rate-limiting, SSE broadcaster, JWT JTI denylist
+   - Volume: `/mnt/user/appdata/seraphim/redis`
+   - Healthcheck: `redis-cli ping`
+
+3. **seraphim-backend** (FastAPI + SQLAlchemy async)
+   - Image: `seraphim-backend:unstable` (tagged by `deploy.sh` with git SHA)
+   - Port: `3001:8000` (internal container port 8000)
+   - Command: `uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'`
+   - Health: `GET /health` returns 200
+   - Volume: `/app/storage`, `/app/config` (bootstrap.json, admin_settings persisted)
+
+4. **seraphim-frontend** (React + nginx)
+   - Image: `seraphim-frontend:unstable`
+   - Port: `3000:80` (nginx serves SPA + reverse-proxies `/api` to backend)
+   - Nginx strips `/api` prefix: browser `/api/tasks` → backend `/tasks`
+   - Volume: `/app/storage` (authenticated, gated by `/storage/{path}` router)
+   - Health: `wget -qO- http://localhost/`
+
+5. **seraphim-rtsp-worker**
+   - Image: `seraphim-backend:unstable` with `Dockerfile.worker`
+   - Command: `python -m app.workers.rtsp_capture`
+   - Pulls frames from RTSP cameras, uploads to CompreFace for face detection
+   - Loads settings (active event, thresholds) from `admin_settings` table on startup
+   - Healthcheck: process alive check
+
+6. **seraphim-queue-worker**
+   - Image: `seraphim-backend:unstable`
+   - Command: `python -m app.workers.queue_consumer`
+   - Consumes Redis tasks queue, calls CompreFace for face recognition, pushes attendance to CiviCRM
+   - Resources: capped at 2 CPUs, 2 GB memory
+   - Healthcheck: process alive check
+
+**Optional services** (Unraid compose only):
+- **gitea:1.21** — repo mirror on `:3333`/`:222`; optional for webhook-triggered deploys
+- **webhook-listener** — Gitea push webhook handler; runs deploy.sh on valid signature; bound to `127.0.0.1:9000` (loopback only)
+
+**Optional TLS edges** (composable overlays):
+- **caddy:2-alpine** (`docker-compose.caddy.yml`) — auto-renews Let's Encrypt certificates; terminates TLS; forwards `/api/tasks/feed` SSE with `flush_interval=-1` (no buffering)
+- **cloudflared** (`docker-compose.cloudflared.yml`) — Cloudflare named Tunnel; zero inbound ports; token via `CLOUDFLARE_TUNNEL_TOKEN`
+
+## Access Paths
+
+| Method | Command | Pros | Cons |
+|--------|---------|------|------|
+| **Caddy TLS** | `docker-compose -f docker-compose.unraid.yml -f docker-compose.caddy.yml up -d` | Auto-renewing HTTPS; simple; perfect for public domain | Requires open ports 80+443; public DNS A record |
+| **Cloudflare Tunnel** | `docker-compose -f docker-compose.unraid.yml -f docker-compose.cloudflared.yml up -d` | Zero inbound ports; TLS at edge; no ACME setup | Cloudflare account required; tunnel token setup |
+| **Existing Cloudflare connector** | Add Public Hostname to dashboard; no Docker container | Reuses existing Unraid tunnel infra | Manual dashboard config; only works if connector already running |
+| **Plain HTTP (LAN)** | `docker-compose -f docker-compose.unraid.yml up -d` | Simple, direct; FastAPI sees `X-Forwarded-Proto: http` | Auth cookies NOT marked `Secure`; HTTPS users still get hardened cookies per-request |
+
+**Critical:** nginx uses per-request logic (`_cookie_secure()`) to mark the refresh-token `Secure` flag only when the inbound request arrived over HTTPS. This allows plain-HTTP LAN access without the old 401-loop bug, while still protecting users on HTTPS paths.
+
+## Reverse-Proxy Architecture
+
+```
+Browser (HTTPS or HTTP)
+    → [Caddy | Cloudflare | Direct nginx] (TLS edge or none)
+    → seraphim-frontend:80 (nginx)
+        → /api/* → strips /api prefix → seraphim-backend:8000
+        → /storage/* → auth-gated → backend file router
+        → /tasks/feed → SSE endpoint; no buffering via proxy_buffering off + Caddy's flush_interval=-1
+        → / → React SPA (static assets)
+```
+
+**nginx.conf highlights:**
+- Two custom `location` blocks use `log_format scrubbed` (logs path only, not query string) to prevent JWT tokens (`?_t=<token>`) being written to plaintext access logs
+- `/api` location rewrites `/api/tasks` → `http://seraphim-backend:8000/tasks` and strips the prefix
+- SSE endpoint `/api/tasks/feed` sets `proxy_buffering off` so events stream incrementally
+- Authenticated file serving via `/storage/{path}` checks Bearer token or `?_t=` query parameter
+
+## Key Environment Variables
+
+All are in `.env.production` (generated by `scripts/generate-secrets.sh`):
+
+| Variable | Purpose | Example / Constraints |
+|----------|---------|----------------------|
+| `DB_PASSWORD` | PostgreSQL password | ≥ 32 random bytes |
+| `JWT_SECRET` | Backend token signing key | ≥ 32 chars; fail-fast on startup if missing/short |
+| `ENVIRONMENT` | deployment mode | `production` (disables `/docs`, `/redoc`, `/openapi.json`); sets `Secure` cookies |
+| `CIVICRM_URL` | External CiviCRM v3 base URL | No trailing slash; e.g., `http://civicrm.local/civicrm` |
+| `CIVICRM_API_KEY` | Per-user API key | From `api_key` field in CiviCRM contact |
+| `CIVICRM_SITE_KEY` | CiviCRM site key | From `civicrm.settings.php` |
+| `GOOGLE_CLIENT_ID` | OAuth client ID | From Google Cloud Console |
+| `GOOGLE_CLIENT_SECRET` | OAuth client secret | From Google Cloud Console |
+| `ADMIN_EMAILS` | Comma-separated admin seed list | Populated via setup wizard; can be empty |
+| `STORAGE_PATH` | Face image + config volume mount | `/app/storage` (container); `/mnt/user/appdata/seraphim/storage` (host) |
+| `BOOTSTRAP_CONFIG_PATH` | Admin settings bootstrap on startup | `/app/config/bootstrap.json` |
+| `DOMAIN` | Public domain for Caddy | e.g., `seraphim.example.org` (Caddyfile reads `{$DOMAIN}`) |
+| `CLOUDFLARE_TUNNEL_TOKEN` | Cloudflare tunnel secret | Set only if using cloudflared overlay |
+| `WEBHOOK_SECRET` | Gitea webhook HMAC key | ≥ 32 chars; used by webhook_listener.py |
+| `LOG_LEVEL` | Backend/worker logging | `INFO` (default) or `DEBUG` |
+
+**Critical:** After setup, values for JWT secret, CompreFace URL, and CiviCRM creds migrate from `.env.production` to the `admin_settings` table. The `.env` serves as startup fallback only.
+
+## Deployment & Operations
+
+### Deploy
+
+**File:** `scripts/deploy.sh`
+
+- Runs on Unraid via Gitea webhook listener or cron
+- Pulls latest code: `git pull origin main`
+- Builds images: `docker compose -f docker-compose.unraid.yml build`
+- Tags with git short-SHA for rollback: `seraphim-backend:<sha>`, `seraphim-frontend:<sha>`
+- Tags as `:unstable` (the current running version)
+- Brings up stack: `docker compose up -d`
+- Prunes images older than 7 days
+
+```bash
+bash /mnt/user/appdata/seraphim/repo/scripts/deploy.sh
+```
+
+### Backup
+
+**File:** `scripts/backup.sh`
+
+- Dumps PostgreSQL: `db-<timestamp>.sql.gz`
+- Archives storage volume (face images): `storage-<timestamp>.tar.gz`
+- Archives config volume: `config-<timestamp>.tar.gz`
+- Retention: 14 days (pruned automatically)
+- Output directory: `/mnt/user/backups/seraphim/`
+
+```bash
+bash scripts/backup.sh
+```
+
+Backup script prints restore commands for each archive.
+
+### Rollback
+
+**File:** `scripts/rollback.sh`
+
+Rolls back application images to a known-good tag (default: `stable`):
+
+```bash
+bash scripts/rollback.sh stable
+# or specific SHA:
+bash scripts/rollback.sh <short-sha>
+```
+
+Workflow: `docker compose down` → retag target image to `:unstable` → `docker compose up -d`.
+
+**Caution:** if the rollback includes a schema migration in the original deploy, restore the pre-deploy database backup as well (Section 5.2 of PRODUCTION_RUNBOOK).
+
+### Webhook Listener
+
+**File:** `scripts/webhook_listener.py`
+
+- Lightweight Python HTTP server listening on `127.0.0.1:9000` (loopback only)
+- Validates `X-Gitea-Signature` header (HMAC-SHA256 with `WEBHOOK_SECRET`)
+- On valid POST to `/deploy`, spawns `deploy.sh` in background
+- Returns `{"status":"deploying"}` immediately
+
+Runs as a Docker service in production; exposed to nginx only via internal network or firewall rule.
+
+## Runbook Highlights
+
+See [[Architecture]] or `docs/PRODUCTION_RUNBOOK.md` for full runbook. Key sections:
+
+1. **Pre-flight** — Generate secrets, verify CompreFace/CiviCRM reachable, validate RTSP camera URLs, set DNS + TLS domain
+2. **Bring-up** — `docker compose up -d --build`; confirm all services healthy; run `alembic upgrade head`
+3. **First-run** — Complete 5-step setup wizard (database, external services, admin account, camera, confirm)
+4. **Set active event** — **Critical:** unless an event is set as "LIVE", tier-100 detections do NOT auto-log attendance
+5. **E2E smoke checklist** — Detection → task creation → review → attendance row → CiviCRM push → SSE live-update → CSV export → backup/restore
+6. **Troubleshooting** — SSE buffering (set `flush_interval=-1` in Caddy, `proxy_buffering off` in nginx); 401 loops (HTTPS required; `ENVIRONMENT=production`); CompreFace not configured (workers didn't load settings from DB)
+
+---
+
+**Related notes:** [[Architecture]] · [[Home]]

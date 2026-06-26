@@ -170,13 +170,16 @@ export interface ContactListItem {
   nickname?: string | null;
   contact_type?: string | null;
   contact_subtype?: string | null;
-  tier?: string | null;
+  tier?: 'tier0' | 'tier1' | 'tier2' | 'tier3' | 'inactive' | null;
   is_regular?: boolean | null;
   is_connected?: boolean | null;
   email?: string | null;
   phone?: string | null;
   face_thumbnail_path?: string | null;
   is_deleted?: boolean;
+  last_attended_at?: string | null;
+  attendance_count?: number | null;
+  weeks_absent?: number | null;
 }
 
 export interface FaceSummary {
@@ -200,8 +203,8 @@ export interface ContactDetail {
   email?: string | null;
   street_address?: string | null;
   external_id?: string | null;
-  tier?: string | null;
-  is_active?: boolean;
+  tier?: 'tier0' | 'tier1' | 'tier2' | 'tier3' | 'inactive' | null;
+  is_active?: boolean | null;
   is_regular?: boolean | null;
   is_connected?: boolean | null;
   is_deleted?: boolean;
@@ -210,11 +213,14 @@ export interface ContactDetail {
   face?: FaceSummary | null;
   /** Computed from biometric_consent table. Only meaningful when face.enrolled is true. */
   consent_status?: 'none' | 'pending' | 'pre_cutover' | 'given';
+  last_attended_at?: string | null;
+  attendance_count?: number | null;
+  weeks_absent?: number | null;
 }
 
 export interface DerivedBadges {
-  tier: string | null;
-  is_active: boolean;
+  tier: 'tier0' | 'tier1' | 'tier2' | 'tier3' | 'inactive' | null;
+  is_active: boolean | null;
   is_regular: boolean | null;
   is_connected: boolean | null;
 }

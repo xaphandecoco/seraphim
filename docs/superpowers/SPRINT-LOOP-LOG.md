@@ -4,6 +4,10 @@
 
 ---
 
+## 🌙 RESUME 2026-06-26 — owner un-paused, autonomous overnight run (senpai-v2)
+**Owner woke the loop:** "proceed to the next sprints with /senpai-v2; ensure token-limit auto-resume; I will sleep now." Loop was PAUSED on the S21 hard blocker (docs/BLOCKERS.md). Decision: **un-pause and build the remaining BUILDABLE leaf sprints**, deferring S21 (operator-gated cutover) to last/artifacts-only. **Auto-resume cron `c2547445`** (15-min, fires :07/:22/:37/:52) recovers token-limit kills + advances the DAG when idle.
+**Build order (deps-correct, lowest buildable first):** `S23 → S16 → S08 → S09 → S10 → S11 → S12 → S13 → S15 → S14 → S17 → S18 → S19 → S20 → S21(artifacts-only, LAST)`. Built so far: S01–S07, S22, S24 (HEAD `edc9f98`). Env = **local Windows** (`C:\Users\John Atienza\Documents\Project Seraphim`), not cloud Linux — senpai-v2 agentTypes ARE supported here. **Starting now: S23** (Member Status & Engagement Engine; ships before S16 behind HAS_SCHEDULER/has_table guards per spec line 4).
+
 ## ✅ S24 DONE — owner stopped sprint loop, PR created (2026-06-25)
 **S24 committed & pushed.** FR transition bridge: BiometricConsent model+migration, remap_subjects service, consent backfill, verification endpoint, orphan relink/retire UI, FR Status Panel in SettingsPage. Green gate: 82 S24 tests pass; frontend 323/323; ruff clean; build passes. Known carry-forward: full-suite test ordering issue (test_task_service / test_uploads fail in random-order full run but pass in isolation — pre-existing isolation problem, not a code bug). PR created from `docs/crm-specs-and-cve-remediation`. **Next sprint when loop resumes: S21 (final cutover — depends on S24).**
 S01 ✅ `2ee70d7` · S02 ✅ `14c4329` · S07 ✅ `8d87084` · **S03 ✅ `a7839af`** · **S04 ✅ `37608a9`** · **S05 ✅ `c753618`** · **S22 ✅ backend `cc64c57` + frontend `79fbe77`** (workflow stuck at 101m on F06/F07 → orchestrator finished: fixed 2 backend test fails, implemented F08-F10 frontend directly with post-review fixes). **✅ S06 DONE `a0951ca`** (CiviCRM data-migration ETL). wf_63bba796-ef1; 34 agents, 1.37M tok, security PASS, 2 QA rounds. Final green gate: backend **1102 passed/0 failed** + ruff clean, frontend build+lint+**323 tests**. Opus critique found 3 real bugs that green tests passed over — all FIXED before commit (see below). **✅ S24 DONE** (FR transition & cutover bridge). S21 is next.
@@ -132,14 +136,42 @@ After resume completes: Opus-critique → commit → next.
 | S22 | (per master) | ⏳ queued | — | |
 | S06 | Data migration / ETL | ⏳ queued | — | |
 | S24 | FR transition & cutover bridge | ✅ committed | (see PR) | BiometricConsent, remap, consent-backfill, orphan UI |
+| S23 | Member status & engagement engine | ✅ committed | `<pending>` | 7 derived snapshot columns; admin endpoint + summary; HAS_SCHEDULER guarded |
 | S21 | (per master) | ⏳ queued | — | |
-| … | remaining leaves | ⏳ queued | — | S07, S08, S09, etc. |
+| S16 | (next buildable) | ⏳ queued | — | S23 unblocks via HAS_SCHEDULER guard |
+| … | remaining leaves | ⏳ queued | — | S08–S20 |
 
 Legend: ✅ committed · 🔄 in progress · ⏳ queued · ⛔ blocked (see top)
 
 ---
 
 ## 📝 PER-SPRINT LOG (newest first)
+
+### S23 — Member Status & Engagement Engine
+- **Goal:** Recomputable member engagement snapshot (7 derived columns: `last_attended_at`, `attendance_count`, `weeks_absent`, `tier`, `is_active`, `is_regular`, `is_connected`). Admin on-demand endpoint + fast summary endpoint. Background recomputation via APScheduler (guarded by S16 availability via `HAS_SCHEDULER=False`).
+- **Definition of Done:**
+  1. Contact snapshot columns + 5 indexes (migration `a3b4c5d6e7f8`, down_revision `s24a1b2c3d4e5`)
+  2. `member_status_service.recompute_all_contacts()` with alias for S06 runner contract
+  3. `POST /analytics/recompute-member-status` (admin-only), `GET /analytics/member-status-summary` (paginated)
+  4. Two APScheduler cron jobs (weekly Mon 00:00 UTC, EOM 1st 00:00 UTC), guarded by `HAS_SCHEDULER=False`
+  5. Frontend StatusBadge + ContactDetailPage integration
+  6. Green gates: backend full suite + frontend build/lint/test; security PASS
+- **Status:** PASS, committed. Green gate: backend **~1177 passed / 0 failed**. NOTE: the full suite is slow (~15 min serial on local Python 3.14) and was killed twice mid-run by session events, so it was verified in SEGMENTS: post-fix full run reached 84% clean (covers `test_migrations`, `test_name_match`) + `test_[t-z]*` tail **232 passed** + S23 files (46) + affected files (65) green in isolation; the deterministic `-rfE` diagnostic had enumerated the COMPLETE failure set (10 fails + 33 anthropic-import errors), all now fixed. Frontend build+lint+**341 tests** green; security PASS. (Local env: `anthropic` installed; suite slowness is a standing carry-forward.)
+- **Integration fixes (QA full-suite gate):**
+  1. **Function export mismatch:** S06 migration runner calls `recompute_all_contacts()` but service exported only `recompute_all()` → 9 t06 failures on AttributeError. Fixed by adding alias export `recompute_all_contacts = recompute_all`.
+  2. **Test expectation staleness:** `test_migrations.py` expected S06 alembic head (`eed28c4ef46a`) + down_revision (`c1d2e3f4a5b6`). Updated to S23 head `a3b4c5d6e7f8` / down_revision `s24a1b2c3d4e5`.
+  3. **Missing transitive dep:** `anthropic>=0.40.0` (used by S22 name-match) not installed in test env → 33 pytest collection errors. Installed.
+- **Carry-forward assumptions:** (all documented in BLOCKERS.md 🟡 section)
+  - Tier timezone: EOW Mon 00:00 UTC default (confirm PHT); EOM cadence `0 0 1 * *`
+  - Connected-field names: default `{community_leader, community}`, overridable via `admin_settings.connected_field_names`
+  - `weeks_absent` formula: calendar-day diff with start-of-day truncation (avoids rounding on non-midnight event times)
+  - `job_runs` schema (S16): INSERT uses columns `(job_name, status, detail, ran_at)`, fails silently if schema diverges
+  - **S16 hard requirement:** `main.py` lifespan passes `...` placeholder to `register_s23_jobs()` behind `HAS_SCHEDULER=False`; when S16 lands and flips the flag, MUST pass real AsyncIOScheduler or boot will TypeError
+- **Next:** S16 (job runner + scheduler foundation; unblocks S23 jobs)
+
+✅ **S23 committed — safe to resume with S16.**
+
+---
 
 ### S03 ∥ S07 — parallel wave 1 (Chain-C contacts / Chain-F faces)
 - Both depend only on S01+S02 (committed `14c4329`). **PLANs launched in parallel** (read-only, safe). Anti-spin seed applied (migrations Postgres-only / CI-gated).

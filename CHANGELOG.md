@@ -1,5 +1,36 @@
 ## [Unreleased]
 
+### S23 — Member Status & Engagement Engine (Sprint complete 2026-06-26)
+
+Automatic member engagement tracking via derived snapshot columns (attendance count, last attended, weeks absent, engagement tier, active/regular/connected status). Recomputable on-demand by admins and via scheduled background jobs (guarded by S16 scheduler availability).
+
+**Backend**
+- `app/services/member_status_service.py` (new): `recompute_all_contacts()` recomputes all contact snapshots based on attendance history; exported as both function name and alias for S06 runner contract.
+- `app/scheduler.py` (new): APScheduler job registration for weekly (Mon 00:00 UTC) and end-of-month (1st 00:00 UTC) recomputation, guarded by `HAS_SCHEDULER=False` flag.
+- `app/constants.py` (new): `DEFAULT_CONNECTED_FIELD_NAMES`, tier thresholds.
+- `app/utils/db_helpers.py` (new): database utility functions.
+- `app/routers/analytics.py`: added `POST /analytics/recompute-member-status` (admin-only, on-demand trigger) and `GET /analytics/member-status-summary` (fast engagement summary).
+- `app/main.py`: lifespan calls `register_s23_jobs()` with Ellipsis placeholder (awaits S16 real AsyncIOScheduler).
+- `app/models.py`: Contact model adds 7 snapshot columns (`last_attended_at`, `attendance_count`, `weeks_absent`, `tier`, `is_active`, `is_regular`, `is_connected`) + 5 indexes for query perf.
+- Migration `a3b4c5d6e7f8_s23_member_status_snapshot_guard.py` (new): adds snapshot columns and indexes; down_revision `s24a1b2c3d4e5`.
+- Tests: `test_member_status_service.py`, `test_analytics_member_status.py`, `test_db_helpers.py` cover recompute logic, integration with S06 import pipeline, and edge cases.
+
+**Frontend**
+- `types/index.ts`: added tier and snapshot fields to `ContactDetail`.
+- `StatusBadge.tsx`: renders tier label; handles null `is_active`.
+- `ContactDetailPage.tsx`: displays member status snapshot via StatusBadge; null-guarded.
+
+**Integration fixes (full-suite QA gate)**
+- **Function export mismatch:** S06 migration runner calls `recompute_all_contacts()` but service initially exported only `recompute_all()` → 9 t06 test failures on AttributeError. Fixed by adding alias.
+- **Test expectation staleness:** `test_migrations.py` expected S06 alembic head; updated to S23 head `a3b4c5d6e7f8` and down_revision `s24a1b2c3d4e5`.
+- **Missing transitive dependency:** `anthropic>=0.40.0` (used by S22 name-match) not in test env → 33 pytest collection errors. Installed.
+
+**Key assumptions (documented in BLOCKERS.md)**
+- Tier computation uses EOW Mon 00:00 UTC timezone (confirm PHT); EOM recompute cadence `0 0 1 * *`.
+- Connected-field names default to `{community_leader, community}`, overridable via `admin_settings.connected_field_names`.
+- `job_runs` raw-SQL INSERT schema (columns `job_name, status, detail, ran_at`) reconciliation pending S16; silent failure if schema diverges.
+- S16 must supply real AsyncIOScheduler to `register_s23_jobs()` or boot will TypeError.
+
 ### S03 — Native Contact CRUD & Profile (Sprint complete 2026-06-25)
 
 Full contact write path: create / edit / soft-delete / restore / paginated list / detail profile / attendance history.

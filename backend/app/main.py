@@ -1,6 +1,10 @@
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request
+
+# Set to True once S16 lands and apscheduler is in requirements.txt.
+# Keeping it False prevents any apscheduler import at startup.
+HAS_SCHEDULER: bool = False
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from slowapi import _rate_limit_exceeded_handler
@@ -71,6 +75,12 @@ async def lifespan(app: FastAPI):
             "Startup settings init failed (continuing — expected only before setup).",
             exc_info=True,
         )
+
+    # S23 scheduler — only wired when HAS_SCHEDULER is True (requires S16 + apscheduler).
+    if HAS_SCHEDULER:
+        from app.scheduler import register_s23_jobs  # noqa: PLC0415
+        register_s23_jobs(...)  # caller must supply a configured scheduler instance
+
     yield
     from app.utils.token_denylist import aclose_redis
     await aclose_redis()

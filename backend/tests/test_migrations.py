@@ -27,7 +27,7 @@ from alembic.script import ScriptDirectory
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = BACKEND_DIR / "alembic.ini"
 
-EXPECTED_HEAD = "eed28c4ef46a"  # updated by T06 (migration ETL tables: import_batch + import_row_result)
+EXPECTED_HEAD = "a3b4c5d6e7f8"  # updated by S23 (member-status snapshot guard; chains a3b4c5d6e7f8 -> s24a1b2c3d4e5 -> eed28c4ef46a)
 INITIAL_REV = "74e9ab60ea7e"
 
 
@@ -75,10 +75,10 @@ def test_revision_chain_is_connected_back_to_initial(script_dir):
     )
 
 
-def test_head_down_revision_is_task_action_approval(script_dir):
-    """Regression: the T06 head (ETL migration tables) builds on the S22 head migration."""
+def test_head_down_revision_is_s24_bridge(script_dir):
+    """Regression: the S23 head (member-status snapshot guard) builds on the S24 FR-bridge migration."""
     head = script_dir.get_revision(EXPECTED_HEAD)
-    assert head.down_revision == "c1d2e3f4a5b6"
+    assert head.down_revision == "s24a1b2c3d4e5"
 
 
 # ---------------------------------------------------------------------------

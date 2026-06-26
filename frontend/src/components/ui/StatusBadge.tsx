@@ -25,6 +25,34 @@ export function StatusBadge({ label, tone }: StatusBadgeProps) {
 }
 
 /**
+ * Maps a contact tier string (case-insensitive) to a human-readable label.
+ *
+ * tier0    → "This Week"
+ * tier1    → "1–4 Weeks Absent"
+ * tier2    → "5–8 Weeks Absent"
+ * tier3    → "9–12 Weeks Absent"
+ * inactive → "Inactive (12+)"
+ * null / undefined / unknown → "Unrated"
+ */
+export function getTierLabel(tier: string | null | undefined): string {
+  if (!tier) return 'Unrated';
+  switch (tier.toLowerCase()) {
+    case 'tier0':
+      return 'This Week';
+    case 'tier1':
+      return '1–4 Weeks Absent';
+    case 'tier2':
+      return '5–8 Weeks Absent';
+    case 'tier3':
+      return '9–12 Weeks Absent';
+    case 'inactive':
+      return 'Inactive (12+)';
+    default:
+      return 'Unrated';
+  }
+}
+
+/**
  * Maps a contact tier string (case-insensitive) to a display tone.
  *
  * tier0  → active

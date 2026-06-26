@@ -119,6 +119,13 @@ class Contact(Base):
         Index("ix_contacts_email", "email"),
         Index("ix_contacts_last_name", "last_name"),
         Index("ix_contacts_is_deleted", "is_deleted"),
+        # S23 snapshot indexes — mirrors the 5 indexes in the S23 migration so
+        # that SQLite create_all (test path) builds the same indexes as Postgres.
+        Index("ix_contacts_tier", "tier"),
+        Index("ix_contacts_is_active", "is_active"),
+        Index("ix_contacts_is_regular", "is_regular"),
+        Index("ix_contacts_is_connected", "is_connected"),
+        Index("ix_contacts_last_attended_at", "last_attended_at"),
     )
 
 
