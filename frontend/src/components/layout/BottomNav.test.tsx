@@ -1,20 +1,25 @@
 /**
- * Tests for BottomNav — S04-F13 acceptance criteria.
+ * Tests for BottomNav — S04-F13 + S10 acceptance criteria.
  *
  * Covers:
  *   - Admin "More" button is visible for admin users
  *   - Admin "More" button is not rendered for non-admin users
  *   - Admin "More" sheet contains an "Event Series" link to /settings/event-series
- *   - The "Event Series" link renders a Lucide CalendarRange icon (via aria-hidden svg)
+ *   - The "Event Series" link renders a Lucide icon (via aria-hidden svg)
  *   - Main nav tabs are rendered (Tasks, Audit, Ranking, Events, Contacts)
+ *   - S10: Import link is visible for volunteer (non-admin) users
+ *   - S10: Import link is hidden for viewer users (isVolunteer=false)
+ *   - S10: Import link appears in Admin "More" sheet for admin users
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
+type MockStore = { isAdmin: boolean; isVolunteer: boolean };
+
 vi.mock('@/store/authStore', () => ({
-  useAuthStore: vi.fn((selector: (s: { isAdmin: boolean }) => unknown) =>
-    selector({ isAdmin: true }),
+  useAuthStore: vi.fn((selector: (s: MockStore) => unknown) =>
+    selector({ isAdmin: true, isVolunteer: true }),
   ),
 }));
 
@@ -37,11 +42,14 @@ function renderNav(pathname = '/') {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Default: admin user (isAdmin + isVolunteer)
   (useAuthStore as ReturnType<typeof vi.fn>).mockImplementation(
-    (selector: (s: { isAdmin: boolean }) => unknown) =>
-      selector({ isAdmin: true }),
+    (selector: (s: MockStore) => unknown) =>
+      selector({ isAdmin: true, isVolunteer: true }),
   );
 });
+
+// ─── Main tabs ───────────────────────────────────────────────────────────────
 
 describe('BottomNav — main tabs', () => {
   it('renders the five main navigation tabs', () => {
@@ -54,6 +62,8 @@ describe('BottomNav — main tabs', () => {
   });
 });
 
+// ─── Admin More button ────────────────────────────────────────────────────────
+
 describe('BottomNav — admin More button', () => {
   it('renders the "More" admin button for admin users', () => {
     renderNav();
@@ -62,10 +72,21 @@ describe('BottomNav — admin More button', () => {
     ).toBeInTheDocument();
   });
 
-  it('does not render the "More" admin button for non-admin users', () => {
+  it('does not render the "More" admin button for non-admin volunteer users', () => {
     (useAuthStore as ReturnType<typeof vi.fn>).mockImplementation(
-      (selector: (s: { isAdmin: boolean }) => unknown) =>
-        selector({ isAdmin: false }),
+      (selector: (s: MockStore) => unknown) =>
+        selector({ isAdmin: false, isVolunteer: true }),
+    );
+    renderNav();
+    expect(
+      screen.queryByRole('button', { name: /admin menu/i }),
+    ).toBeNull();
+  });
+
+  it('does not render the "More" admin button for viewer users', () => {
+    (useAuthStore as ReturnType<typeof vi.fn>).mockImplementation(
+      (selector: (s: MockStore) => unknown) =>
+        selector({ isAdmin: false, isVolunteer: false }),
     );
     renderNav();
     expect(
@@ -73,6 +94,8 @@ describe('BottomNav — admin More button', () => {
     ).toBeNull();
   });
 });
+
+// ─── Admin More sheet — Event Series ─────────────────────────────────────────
 
 describe('BottomNav — admin More sheet Event Series link', () => {
   it('opens the admin sheet when More is clicked', () => {
@@ -113,5 +136,54 @@ describe('BottomNav — admin More sheet Event Series link', () => {
     const closeBtn = screen.getByRole('button', { name: /close/i });
     fireEvent.click(closeBtn);
     expect(screen.queryByRole('link', { name: /event series/i })).toBeNull();
+  });
+});
+
+// ─── S10: Import nav entry ────────────────────────────────────────────────────
+
+describe('BottomNav — S10 Import nav entry', () => {
+  it('shows Import link directly in nav bar for volunteer (non-admin) users', () => {
+    (useAuthStore as ReturnType<typeof vi.fn>).mockImplementation(
+      (selector: (s: MockStore) => unknown) =>
+        selector({ isAdmin: false, isVolunteer: true }),
+    );
+    renderNav();
+    expect(screen.getByRole('link', { name: /import/i })).toBeInTheDocument();
+  });
+
+  it('Import link points to /imports for volunteer users', () => {
+    (useAuthStore as ReturnType<typeof vi.fn>).mockImplementation(
+      (selector: (s: MockStore) => unknown) =>
+        selector({ isAdmin: false, isVolunteer: true }),
+    );
+    renderNav();
+    const link = screen.getByRole('link', { name: /import/i });
+    expect(link).toHaveAttribute('href', '/imports');
+  });
+
+  it('does NOT show Import link directly in nav bar for viewer (isVolunteer=false)', () => {
+    (useAuthStore as ReturnType<typeof vi.fn>).mockImplementation(
+      (selector: (s: MockStore) => unknown) =>
+        selector({ isAdmin: false, isVolunteer: false }),
+    );
+    renderNav();
+    // No Import link and no More button
+    expect(screen.queryByRole('link', { name: /^import$/i })).toBeNull();
+  });
+
+  it('Import entry appears inside admin More sheet for admin users', () => {
+    // Default mock: admin + volunteer
+    renderNav();
+    fireEvent.click(screen.getByRole('button', { name: /admin menu/i }));
+    const importLink = screen.getByRole('link', { name: /^import$/i });
+    expect(importLink).toBeInTheDocument();
+    expect(importLink).toHaveAttribute('href', '/imports');
+  });
+
+  it('Import link in admin sheet is NOT rendered outside the sheet (sheet is closed)', () => {
+    // admin — Import is inside "More" sheet, not directly in nav
+    renderNav();
+    // Sheet is closed: Import link should not be in the document
+    expect(screen.queryByRole('link', { name: /^import$/i })).toBeNull();
   });
 });

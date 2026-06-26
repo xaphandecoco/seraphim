@@ -21,10 +21,17 @@ function decodeJwtRole(token: string): string | undefined {
   }
 }
 
+/** True for admin and volunteer roles; false for viewer and unauthenticated. */
+function deriveIsVolunteer(role: string | undefined): boolean {
+  return role === 'admin' || role === 'volunteer';
+}
+
 interface AuthState {
   user: User | null;
   token: string | null;
   isAdmin: boolean;
+  /** True for admin and volunteer roles; false for viewer and unauthenticated. */
+  isVolunteer: boolean;
   isAuthenticated: boolean;
   /** false until the initial /auth/refresh attempt completes; route guards wait for this */
   authReady: boolean;
@@ -39,20 +46,40 @@ export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   token: null,
   isAdmin: false,
+  isVolunteer: false,
   isAuthenticated: false,
   authReady: false,
   login: (user, token) => {
-    set({ user, token, isAdmin: user.role === 'admin', isAuthenticated: true, authReady: true });
+    set({
+      user,
+      token,
+      isAdmin: user.role === 'admin',
+      isVolunteer: deriveIsVolunteer(user.role),
+      isAuthenticated: true,
+      authReady: true,
+    });
   },
   logout: () => {
-    set({ user: null, token: null, isAdmin: false, isAuthenticated: false, authReady: true });
+    set({
+      user: null,
+      token: null,
+      isAdmin: false,
+      isVolunteer: false,
+      isAuthenticated: false,
+      authReady: true,
+    });
   },
   setUser: (user) => {
-    set({ user, isAdmin: user?.role === 'admin', isAuthenticated: !!user });
+    set({
+      user,
+      isAdmin: user?.role === 'admin',
+      isVolunteer: deriveIsVolunteer(user?.role),
+      isAuthenticated: !!user,
+    });
   },
   setToken: (token) => {
     const role = decodeJwtRole(token);
-    set({ token, isAuthenticated: true, isAdmin: role === 'admin' });
+    set({ token, isAuthenticated: true, isAdmin: role === 'admin', isVolunteer: deriveIsVolunteer(role) });
   },
   setAuthReady: () => {
     set({ authReady: true });

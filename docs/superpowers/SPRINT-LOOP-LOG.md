@@ -141,13 +141,49 @@ After resume completes: Opus-critique → commit → next.
 | S16 | Settings, system status & scheduled jobs | ✅ committed | `d048c2a` | APScheduler host; job_runs table; settings endpoints; security BLOCK→fix (immutable-keys) |
 | S08 | Biometric consent & right-to-be-forgotten | ✅ committed | `f69f91a` | BiometricPurgeService; 7 endpoints; scheduler auto-purge; security BLOCK→fix (2 HIGH RTBF gaps) |
 | S09 | Advanced search, saved searches & smart groups | ✅ committed | `91525ee` | Native CiviCRM Advanced Search replacement; injection-safe compile_criteria; whitelist field registry; security BLOCK→fix (3 bugs) |
-| … | remaining leaves | ⏳ queued | — | S10–S20 |
+| S10 | CSV/XLSX import wizard | ✅ committed | `<pending>` | Self-service 4-step import wizard; reuses S06 ETL; security BLOCK→fix (HIGH PII exposure in staging files) |
+| … | remaining leaves | ⏳ queued | — | S11–S20 |
 
 Legend: ✅ committed · 🔄 in progress · ⏳ queued · ⛔ blocked (see top)
 
 ---
 
 ## 📝 PER-SPRINT LOG (newest first)
+
+### S10 — CSV/XLSX Import Wizard
+- **Goal:** Self-service 4-step import wizard (Upload → Map → Preview → Run) for bulk contact + participant onboarding, reusing S06's proven ETL pipeline.
+- **Definition of Done:**
+  1. Migration `s10a1b2c3d4e5` (down_revision `s09a1b2c3d4e5`): new `import_mapping_preset` table; extended `import_batch.staging_file`/`expires_at`; widened `mode` to VARCHAR(20)
+  2. Multi-format reader (CSV encoding-ladder + delimiter sniff + XLSX multi-sheet via openpyxl read_only)
+  3. Fuzzy header suggestion (normalize + Levenshtein against S06 targets)
+  4. Row disposition engine (new/match/ambiguous/error by external_id|email|name_concat)
+  5. Wizard runner (custom:X→custom_data.X, preview via savepoint, run 500-row chunks idempotent, conflicts skip|update|fill, participants ON CONFLICT DO NOTHING, name-ambiguous→S22 queue, recompute_all_contacts)
+  6. Mapping preset CRUD (global per entity, 409 on name collision)
+  7. 13 endpoints (upload/columns/preview/run/list/detail/rows/preview-rows/report.csv/presets); rate-limited
+  8. 24h TTL purge job; queue_manager integration
+  9. Frontend 4-step wizard + runs list + report viewer; VolunteerRoute; authStore.isVolunteer
+  10. Security audit PASS (1 HIGH BLOCK→fix: PII exposure; 1 MEDIUM + 4 LOWs fixed); re-audit PASS
+  11. Green gates: backend 96 isolated + segment 123; frontend 426 tests; security PASS
+- **Status:** PASS, committed. Green gate verified in segments: backend **96 isolated S10 tests + segment 123 passed/0 failed**; frontend **426 tests** + build + lint; security **PASS** (re-audit after BLOCK→fix).
+- **Security incident (BLOCK → FIXED):**
+  1. **HIGH (PII exposure):** staged import files (raw member CSVs) served by `GET /storage/{path}` without ownership check → viewer/non-owner could read another user's uploads by UUID (security-by-obscurity). **FIX:** serve_storage_file rejects any path under `imports/` → 404.
+  2. **MEDIUM (missing rate-limits):** POST /imports/upload, POST /imports/preview, POST /imports/run undecorated. **FIX:** added `@limiter.limit` (explicit; codebase-wide SlowAPIMiddleware gap carried forward).
+  3. **LOWs:** external_id collision (→ _create_contact_direct), invalid entity (→ 422), mid-stream decode (→ error row not 500), purge path-containment. All fixed.
+  4. **RE-AUDIT: PASS.**
+- **Carry-forward assumptions:** (all documented in BLOCKERS.md 🟡)
+  - Staged-file TTL = 24h (config constant, tune without migration).
+  - Preset uniqueness global per (entity, name); collisions → 409.
+  - Participant import ON CONFLICT DO NOTHING (idempotent).
+  - Rate-limiting explicit @limiter.limit (codebase-wide gap).
+  - S06 map_participant_row requires event_ref; wizard injects synthetic column.
+  - import_batch.mode VARCHAR(20); downgrade does NOT narrow (truncation risk).
+  - Header BOM stripping defensive (Windows exports).
+  - _purge_expired_imports audit-only (keeps row for history).
+- **Next:** S11 (remaining leaves).
+
+✅ **S10 committed — safe to resume with S11.**
+
+---
 
 ### S09 — Advanced Search, Saved Searches & Smart Groups
 - **Goal:** Native replacement for CiviCRM Advanced Search / Search Builder / Smart Groups — an injection-safe structured-query stack with whitelist-enforced field/operator validation, parameterized SQL generation, and DoS guards.

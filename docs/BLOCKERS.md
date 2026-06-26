@@ -75,6 +75,38 @@ the end of a run. **Hard blockers (could build on bad data) are pinned at the to
 
 - [S16] **ASSUMPTION:** `POST /settings/jobs/{job_name}/trigger` concurrency guard is TOCTOU (no atomic-check-and-lock). No rate-limit on trigger calls (admin-only, LOW carry-forward). Affects: `backend/app/routers/settings.py`.
 
+- [S10/frontend] **ASSUMPTION:** `User.role` in `types/index.ts` is `'volunteer' | 'admin'` only (no `'viewer'` — S15 pending). `isVolunteer` is derived as `role === 'admin' || role === 'volunteer'`. When S15 adds `'viewer'` to the type union, authStore already handles it correctly (any role not in `{admin, volunteer}` returns `isVolunteer: false`). No code change needed in authStore on S15 landing. Affects: `frontend/src/store/authStore.ts`.
+
+- [S10/backend Wave 2] **ASSUMPTION:** `normalize.name_key(first, last)` takes TWO arguments (confirmed by reading mapper.py). The suggest.py normalization helper uses a custom `_nk(s)` function (`re.sub(r"[^a-z0-9]", "", s.lower())`) instead of the two-arg `name_key` since we are normalizing individual header/field names (not full person names). This matches the spec intent and passes all tests. Affects: `backend/app/services/imports/suggest.py`.
+
+- [S10/backend Wave 2] **ASSUMPTION:** `map_participant_row` (S06 mapper) requires `event_ref` in the mapped row data, even when the wizard provides `target_event_id` at the API level. When `target_event_id` is present and no column is mapped to `event_ref`, `run_import` injects a synthetic `_wizard_event_ref_` column into both `s06_map` and each raw row so the S06 mapper sees the required field. This avoids modifying the S06 mapper and preserves its contract. Affects: `backend/app/services/imports/runner.py`.
+
+- [S10/backend Wave 2] **ASSUMPTION:** `_purge_expired_imports` transitions staged batches to `status='expired'` and sets `staging_file=None` after deleting the file. It does NOT call `batch.delete()` or remove the ImportBatch row — the row is kept for audit/history. Affects: `backend/app/services/queue_manager.py`.
+
+- [S10/backend Wave 2] **ASSUMPTION:** Header BOM stripping in `staging.py` uses `.strip('﻿')` (defensive) because real-world Windows-exported CSV files sometimes have two BOM sequences (one from the content string, one from the utf-8-sig codec). The staging code strips any leading/trailing BOM characters from header names. Affects: `backend/app/services/imports/staging.py`.
+
+- [S10/frontend] **ASSUMPTION:** The wizard VolunteerRoute uses a NEW `VolunteerRoute.tsx` (does not modify `ProtectedRoute.tsx` per ownership constraints). Admin users get the Import nav entry inside the existing admin "More" sheet; non-admin volunteers get a direct Import tab in the bottom nav. Affects: `frontend/src/components/layout/BottomNav.tsx`, `frontend/src/components/layout/VolunteerRoute.tsx`.
+
+- [S10/frontend] **ASSUMPTION:** `target_event_id` for participants mode uses a simple numeric input (not the full S04 event picker component) since S04's event search/select component interface is not documented in the sprint task. When S04's event picker component is available, swap the `<input type="number">` in `MapStep.tsx` for the S04 component. Affects: `frontend/src/components/imports/MapStep.tsx`.
+
+- [S10/frontend] **ASSUMPTION:** S10 pages are lazy-loaded in `App.tsx` (matching the S16 pattern for TanStack-Query-heavy pages) rather than eagerly imported. This keeps the initial bundle lean and prevents a test-suite timeout in the AC10 dynamic-import check in `BulkPhotoUploadPage.test.tsx`. Affects: `frontend/src/App.tsx`.
+
+- [S10/backend] **ASSUMPTION:** Staged-file TTL is 24h (config constant `IMPORT_STAGING_TTL_HOURS = 24`). Shorten for PII privacy without migration by editing the constant. Affects: `backend/app/config.py`.
+
+- [S10/backend] **ASSUMPTION:** Preset uniqueness is GLOBAL per entity: `uq_import_mapping_preset_entity_name` (entity, name) unique constraint. A preset name colliding with ANY owner's preset for that entity → 409 Conflict. Affects: `backend/app/models.py`, `routers/imports.py` preset endpoints.
+
+- [S10/backend] **ASSUMPTION:** Participant import uses `ON CONFLICT(event_id, contact_id) DO NOTHING` (idempotent re-run; source='import'). Duplicate participant rows in the same import batch are silently deduplicated. Affects: `backend/app/services/imports/runner.py`.
+
+- [S10/backend] **ASSUMPTION:** SlowAPIMiddleware still not registered globally; S10 endpoints use explicit `@limiter.limit` decorators (same codebase-wide gap noted in S09/S16). `POST /imports/upload`, `POST /imports/preview`, `POST /imports/run` all have decorators. **FOLLOW-UP:** install SlowAPIMiddleware globally or add limits to remaining search endpoints. Affects: `backend/app/routers/imports.py`, `main.py`.
+
+- [S10/backend] **ASSUMPTION:** `map_participant_row` (S06 mapper) requires `event_ref` in the mapped row data, even when the wizard provides `target_event_id` at the API level. When `target_event_id` is present and no column is mapped to `event_ref`, `run_import` injects a synthetic `_wizard_event_ref_` column into both `s06_map` and each raw row so the S06 mapper sees the required field. This avoids modifying the S06 mapper and preserves its contract. Affects: `backend/app/services/imports/runner.py`.
+
+- [S10/backend] **ASSUMPTION:** `_purge_expired_imports` transitions staged batches to `status='expired'` and sets `staging_file=None` after deleting the file. It does NOT call `batch.delete()` or remove the ImportBatch row — the row is kept for audit/history. Affects: `backend/app/services/queue_manager.py`.
+
+- [S10/backend] **ASSUMPTION:** Header BOM stripping in `staging.py` uses `.strip('﻿')` (defensive) because real-world Windows-exported CSV files sometimes have two BOM sequences (one from the content string, one from the utf-8-sig codec). The staging code strips any leading/trailing BOM characters from header names. Affects: `backend/app/services/imports/staging.py`.
+
+- [S10/backend] **ASSUMPTION:** import_batch.mode widened to VARCHAR(20) on Postgres (wizard_preview=14 chars); downgrade does NOT narrow it (truncation risk). Affects: `backend/alembic/versions/s10a1b2c3d4e5_s10_csv_xlsx_import_wizard.py`, `backend/app/models.py`.
+
 ---
 ### Format
 ```

@@ -43,6 +43,7 @@ class QueueManager:
                 worked |= await self._process_face_cleanup()
                 worked |= await self._process_export_jobs()
                 await self._purge_expired_export_jobs()
+                await self._purge_expired_imports()
                 if not worked:
                     await asyncio.sleep(self.poll_interval)
             except asyncio.CancelledError:
@@ -356,6 +357,63 @@ class QueueManager:
 
                 job.status = "expired"
                 logger.info("ExportJob %s expired", job.id)
+
+            await session.commit()
+
+    async def _purge_expired_imports(self) -> None:
+        """Transition staged ImportBatch records past their expires_at.
+
+        Unlinks the staged file and nulls staging_file on each expired batch.
+        Mirrors _purge_expired_export_jobs so the pattern is consistent.
+        """
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+        async with self.db_session_factory() as session:
+            from app.models import ImportBatch  # noqa: PLC0415
+
+            result = await session.execute(
+                select(ImportBatch)
+                .where(ImportBatch.status == "staged")
+                .where(ImportBatch.expires_at <= now)
+                .limit(50)
+            )
+            batches = result.scalars().all()
+            if not batches:
+                return
+
+            from pathlib import Path as _Path  # noqa: PLC0415
+
+            staging_root = _Path(legacy_settings.STORAGE_PATH).resolve()
+
+            for batch in batches:
+                if batch.staging_file:
+                    file_abs = _Path(legacy_settings.STORAGE_PATH) / batch.staging_file
+                    # Defense-in-depth: re-check path containment even though
+                    # staging_file is server-generated.  Mirrors the pattern in
+                    # _process_export_jobs (resolved_dest.relative_to(exports_dir)).
+                    try:
+                        file_abs.resolve().relative_to(staging_root)
+                    except ValueError:
+                        logger.warning(
+                            "ImportBatch %s: staging_file %r escapes STORAGE_PATH; skipping unlink",
+                            batch.id,
+                            batch.staging_file,
+                        )
+                        batch.staging_file = None
+                        batch.status = "expired"
+                        continue
+                    try:
+                        file_abs.unlink(missing_ok=True)
+                    except OSError:
+                        logger.warning(
+                            "ImportBatch %s: could not delete staging file %s",
+                            batch.id,
+                            file_abs,
+                        )
+                    batch.staging_file = None
+
+                batch.status = "expired"
+                logger.info("ImportBatch %s staging expired", batch.id)
 
             await session.commit()
 

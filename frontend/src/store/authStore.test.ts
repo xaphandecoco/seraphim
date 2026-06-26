@@ -37,6 +37,7 @@ const MALFORMED_TOKEN = 'not.a.jwt';
 // Minimal User objects for login/setUser tests (shape matches @/types User).
 const ADMIN_USER = { id: 1, email: 'admin@lightnc.org', name: 'Admin', role: 'admin' } as any;
 const VOLUNTEER_USER = { id: 2, email: 'vol@lightnc.org', name: 'Vol', role: 'volunteer' } as any;
+const VIEWER_USER = { id: 3, email: 'viewer@lightnc.org', name: 'Viewer', role: 'viewer' } as any;
 
 // ---------------------------------------------------------------------------
 // Reset the store state before each test so tests are independent.
@@ -46,6 +47,7 @@ beforeEach(() => {
     user: null,
     token: null,
     isAdmin: false,
+    isVolunteer: false,
     isAuthenticated: false,
     authReady: false,
   });
@@ -183,5 +185,67 @@ describe('authStore — isAdmin via login/logout/setUser', () => {
     useAuthStore.getState().setUser(null);
     expect(useAuthStore.getState().isAdmin).toBe(false);
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// S10 — isVolunteer derivation (role in admin|volunteer → true; viewer → false)
+// ---------------------------------------------------------------------------
+describe('authStore — isVolunteer via setToken / login / logout / setUser', () => {
+  it('setToken with volunteer role → isVolunteer:true', () => {
+    useAuthStore.getState().setToken(VOLUNTEER_TOKEN);
+    expect(useAuthStore.getState().isVolunteer).toBe(true);
+  });
+
+  it('setToken with admin role → isVolunteer:true', () => {
+    useAuthStore.getState().setToken(ADMIN_TOKEN);
+    expect(useAuthStore.getState().isVolunteer).toBe(true);
+  });
+
+  it('setToken with malformed token → isVolunteer:false', () => {
+    useAuthStore.getState().setToken(MALFORMED_TOKEN);
+    expect(useAuthStore.getState().isVolunteer).toBe(false);
+  });
+
+  it('login(volunteer) sets isVolunteer:true', () => {
+    useAuthStore.getState().login(VOLUNTEER_USER, VOLUNTEER_TOKEN);
+    expect(useAuthStore.getState().isVolunteer).toBe(true);
+    expect(useAuthStore.getState().isAdmin).toBe(false);
+  });
+
+  it('login(admin) sets isVolunteer:true and isAdmin:true', () => {
+    useAuthStore.getState().login(ADMIN_USER, ADMIN_TOKEN);
+    expect(useAuthStore.getState().isVolunteer).toBe(true);
+    expect(useAuthStore.getState().isAdmin).toBe(true);
+  });
+
+  it('login(viewer) sets isVolunteer:false', () => {
+    useAuthStore.getState().login(VIEWER_USER, MALFORMED_TOKEN);
+    expect(useAuthStore.getState().isVolunteer).toBe(false);
+    expect(useAuthStore.getState().isAdmin).toBe(false);
+  });
+
+  it('logout() clears isVolunteer', () => {
+    useAuthStore.getState().login(VOLUNTEER_USER, VOLUNTEER_TOKEN);
+    expect(useAuthStore.getState().isVolunteer).toBe(true);
+    useAuthStore.getState().logout();
+    expect(useAuthStore.getState().isVolunteer).toBe(false);
+  });
+
+  it('setUser(volunteer) → isVolunteer:true', () => {
+    useAuthStore.getState().setUser(VOLUNTEER_USER);
+    expect(useAuthStore.getState().isVolunteer).toBe(true);
+    expect(useAuthStore.getState().isAdmin).toBe(false);
+  });
+
+  it('setUser(viewer) → isVolunteer:false', () => {
+    useAuthStore.getState().setUser(VIEWER_USER);
+    expect(useAuthStore.getState().isVolunteer).toBe(false);
+  });
+
+  it('setUser(null) → isVolunteer:false', () => {
+    useAuthStore.getState().setUser(VOLUNTEER_USER);
+    useAuthStore.getState().setUser(null);
+    expect(useAuthStore.getState().isVolunteer).toBe(false);
   });
 });

@@ -73,6 +73,15 @@ async def serve_storage_file(
     except ValueError:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
+    # Security: staged import files (imports/ subtree) are raw member PII and are
+    # NEVER meant to be downloaded by the client — preview/run/columns read them
+    # server-side; the report endpoint serves import_row_result rows instead.
+    # Checked on the RESOLVED path so `x/../imports/...` and case-variant prefixes
+    # cannot bypass the exclusion. Return 404 (not 403) to avoid confirming existence.
+    _imports_root = (_STORAGE_ROOT / "imports").resolve()
+    if requested == _imports_root or requested.is_relative_to(_imports_root):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+
     if not requested.exists() or not requested.is_file():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
 

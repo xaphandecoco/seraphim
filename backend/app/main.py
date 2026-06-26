@@ -28,6 +28,7 @@ from app.routers import (
     export as export_router,
     fr_transition as fr_transition_router,
     health,
+    imports as imports_router,
     leaderboard,
     logs,
     members,
@@ -149,6 +150,7 @@ app.include_router(name_match_router.router, dependencies=[Depends(check_setup_c
 app.include_router(name_aliases.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(community_reports_router.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(migration.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(imports_router.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(fr_transition_router.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(biometric_router.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(storage_router.router)

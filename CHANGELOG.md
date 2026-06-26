@@ -1,5 +1,51 @@
 ## [Unreleased]
 
+### S10 — CSV/XLSX Import Wizard (Sprint complete 2026-06-26)
+
+Self-service 4-step import wizard for bulk contact and participant onboarding, reusing the proven S06 ETL pipeline.
+
+**Backend**
+- `services/imports/staging.py` (new): multi-format reader — CSV with automatic encoding detection (UTF-8 → UTF-8-SIG → CP1252 fallback), delimiter sniffing via csv.Sniffer; XLSX multi-sheet support via openpyxl read_only mode.
+- `services/imports/suggest.py` (new): fuzzy header-to-column-target matching (header normalization + Levenshtein-distance ranking against S06 canonical targets).
+- `services/imports/disposition.py` (new): row classification engine (new/match/ambiguous/error by match_key: external_id → email → name_concat).
+- `services/imports/runner.py` (new): 4-phase wizard orchestrator — map-phase (custom:X → custom_data.X translation), preview-phase (zero core rows via savepoint, human review), run-phase (500-row chunks, idempotent; conflict modes skip|update|fill), and post-run (participants ON CONFLICT DO NOTHING, name-ambiguous → S22 review queue, recompute_all_contacts per CN-24).
+- `services/imports/presets.py` (new): mapping-preset CRUD (owner-scoped, global-unique per entity+name, 409 on collision).
+- `app/models.py`: new `ImportMappingPreset` ORM; extended `ImportBatch` with `staging_file` + `expires_at`; widened `mode` to VARCHAR(20) for 'wizard_preview'.
+- `routers/imports.py` (new): 13 endpoints (POST upload, GET columns, POST preview, POST run, GET list, GET detail, GET rows, GET preview-rows, GET report.csv, CRUD presets); all require_volunteer; rate-limited (@limiter.limit).
+- `queue_manager.py`: `_purge_expired_imports` job (24h TTL, transitions to status='expired', clears staging_file).
+- Migration `s10a1b2c3d4e5` (new, down_revision `s09a1b2c3d4e5`): adds `import_mapping_preset` table, extends `import_batch`.
+- **Reuses unmodified from S06:** reader, normalize, mapper, loader, bulk_service, name_match, member_status_service, export_service._sanitize_cell.
+
+**Frontend**
+- `pages/ImportsPage.tsx` (new): wizard parent + import runs list.
+- `components/imports/UploadStep.tsx`, `MapStep.tsx`, `PreviewStep.tsx`, `RunStep.tsx` (new): 4-step wizard flow with progress indicator.
+- `components/imports/ReportViewer.tsx` (new): streaming CSV report viewer + download.
+- `components/layout/VolunteerRoute.tsx` (new): route guard for import access (admin + volunteer roles).
+- `store/authStore.ts`: added `isVolunteer` derived state (role === 'admin' || role === 'volunteer').
+- `components/layout/BottomNav.tsx`: added Import nav entry (visible to volunteer+).
+- `services/imports.ts`, `hooks/useImports.ts` (new): TanStack Query client for import endpoints.
+- `types/index.ts`: ImportBatch, ImportMappingPreset, ImportRowResult, ImportReport types.
+
+**Security audit**
+- Initial finding: 1 HIGH (PII exposure via /storage path), 1 MEDIUM (missing rate-limits), 4 LOWs.
+- **HIGH FIXED:** staged import files (raw CSVs) served by GET /storage/{path} without ownership check (security-by-obscurity). serve_storage_file now rejects any path under `imports/` → 404. Blocks any authenticated token from reading another user's uploads.
+- **MEDIUM FIXED:** added `@limiter.limit` decorators on POST /imports/upload, POST /imports/preview, POST /imports/run (explicit; codebase-wide SlowAPIMiddleware gap carried forward).
+- **LOWs FIXED:** (1) external_id collision on create → now _create_contact_direct; (2) invalid entity → 422 vs 400; (3) mid-stream CSV decode error → error row, not 500; (4) purge path-containment hardened.
+- **Re-audit: PASS.**
+
+**Integration**
+- `test_migrations.py` EXPECTED_HEAD updated to `s10a1b2c3d4e5`; down_revision test to `s09a1b2c3d4e5`.
+- Wizard custom-field translation reuses S02 get_active_schema (no N+1).
+- Synthetic event_ref injection (runner.py) preserves S06 mapper contract without modification.
+
+**Key assumptions (documented in BLOCKERS.md)**
+- Staged-file TTL = 24h (config constant, tune without migration).
+- Preset uniqueness is global per (entity, name) — collisions → 409.
+- Participant import idempotent via ON CONFLICT DO NOTHING.
+- Rate-limiting is explicit @limiter.limit (codebase-wide gap).
+- S06 map_participant_row requires event_ref; wizard injects synthetic column.
+- import_batch.mode VARCHAR(20); downgrade does NOT narrow (truncation risk).
+
 ### S09 — Advanced Search, Saved Searches & Smart Groups (Sprint complete 2026-06-26)
 
 Native replacement for CiviCRM Advanced Search / Search Builder / Smart Groups with injection-safe query compilation, whitelist-enforced field/operator validation, and DoS guards.

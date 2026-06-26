@@ -33,6 +33,7 @@ The **SPRINT-LOOP-LOG.md** (`docs/superpowers/SPRINT-LOOP-LOG.md`) is the master
 | S16 | Settings, system status & scheduled jobs | ✅ Committed | `d048c2a` | 2026-06-26 | APScheduler host (AsyncIOScheduler, 9 jobs), job_runs table + ORM model; settings endpoints (GET/PUT); system-status + config-checklist; security BLOCK→fix (immutable keys protection); started_at canonicalization |
 | S08 | Biometric consent & right-to-be-forgotten | ✅ Committed | `f69f91a` | 2026-06-26 | BiometricPurgeService (irreversible RTBF erasure); consent lifecycle (record/update/revoke/deletion-request); 7 biometric endpoints (RBAC); scheduler auto-purge job; security BLOCK→fix (2 HIGH RTBF gaps fixed pre-merge) |
 | S09 | Advanced search, saved searches & smart groups | ✅ Committed | `91525ee` | 2026-06-26 | Native replacement for CiviCRM Advanced Search / Search Builder / Smart Groups; migration (3 tables); whitelist field registry (15 core + 7 S23-derived); injection-safe compile_criteria pipeline; security BLOCK→fix (3 bugs: bypassable DoS check, cross-owner IDOR, LIKE escape) |
+| S10 | CSV/XLSX import wizard | ✅ Committed | `<pending>` | 2026-06-26 | Self-service 4-step import wizard (Upload → Map → Preview → Run) for contacts + participants; reuses S06 ETL core; migration adds import_mapping_preset table; 13 API endpoints + frontend wizard UI; security BLOCK→fix (HIGH PII exposure in staging files) |
 
 **Queued (awaiting build):**
 
@@ -205,6 +206,28 @@ The **SPRINT-LOOP-LOG.md** (`docs/superpowers/SPRINT-LOOP-LOG.md`) is the master
 - **All fixed + 3 regression tests added; re-audit PASS** (verified across 6 bypass shapes).
 - Green gates: backend 99 isolated S09 tests + segment + frontend 392 tests; security PASS.
 - **Carry-forward:** 5 items documented in BLOCKERS.md 🟡 (rate-limiting, org-wide group visibility, JSONB optimization, reserved-word caution, S11 FK manifest).
+
+---
+
+### S10: CSV/XLSX Import Wizard
+
+**Goal:** Self-service import wizard for contacts + participants — 4-step flow (Upload → Map → Preview → Run) reusing S06's proven ETL core.
+
+**Outcome:**
+- **Migration** `s10a1b2c3d4e5` (down_revision `s09a1b2c3d4e5`): NEW `import_mapping_preset` table (entity, name, mappings, owner_id, created_at); added `import_batch.staging_file` and `expires_at` columns; widened `import_batch.mode` to VARCHAR(20) for 'wizard_preview'=14 chars.
+- **Import services** (`services/imports/`):
+  - `staging.py`: multi-format reader (CSV encoding-ladder + delimiter sniff via csv.Sniffer; XLSX multi-sheet via openpyxl read_only)
+  - `suggest.py`: fuzzy header→target column suggestion (normalizes headers + fuzzy string match to S06 canonical targets)
+  - `disposition.py`: row classification (new/match/ambiguous/error by match_key: external_id|email|name_concat)
+  - `runner.py`: wizard runner — translates custom:X → custom_data.X; preview=zero core rows via savepoint; run=500-row chunks idempotent; conflict modes (skip|update|fill); participants ON CONFLICT DO NOTHING; name-ambiguous → S22 review queue; recompute_all_contacts on success per CN-24; synthetic event_ref injection for S06 mapper
+  - `presets.py`: mapping preset CRUD (global per entity + owner, 409 on name collision)
+  - Reuses S06 reader/normalize/mapper/loader + bulk_service + name_match + member_status_service + export_service._sanitize_cell (no S06 files modified)
+- **13 API endpoints** (`routers/imports.py`): upload/columns/preview/run/list/detail/rows/preview-rows/report.csv/presets (create/list/detail); all require_volunteer; rate-limited (@limiter.limit explicit decorators).
+- **Queue manager**: `_purge_expired_imports` sweep (24h TTL, transitions to status='expired', sets staging_file=None).
+- **Frontend:** 4-step wizard (UploadStep → MapStep → PreviewStep → RunStep) + import runs list + report viewer; VolunteerRoute (new); authStore.isVolunteer; Import nav entry.
+- **Security incident (BLOCK → FIXED):** Security audit found HIGH PII exposure the 76 green tests missed: staged import files (raw member CSVs) were written to STORAGE_PATH/imports/ which the PUBLIC `GET /storage/{path}` route serves to ANY authenticated token with no ownership check → a viewer/non-owner could read another user's uploaded PII by UUID (security-by-obscurity). **FIX:** serve_storage_file now rejects any path under `imports/` → 404. Plus MEDIUM (no rate-limit on upload/run/preview → added @limiter.limit decorators) + LOWs (match_key external_id collision → _create_contact_direct; entity allowlist → 422; mid-stream decode error → error row not 500; purge path-containment). **RE-AUDIT: PASS.**
+- Green gates: backend **96 isolated S10 tests + segment 123** passed/0 failed; frontend **426 tests** + build + lint; security PASS.
+- **Carry-forward:** 8 assumptions documented in BLOCKERS.md 🟡 (24h TTL, preset uniqueness, participant ON CONFLICT, rate-limiting gap, S06 event_ref requirement, purge audit-only, BOM stripping, mode varchar).
 
 ---
 

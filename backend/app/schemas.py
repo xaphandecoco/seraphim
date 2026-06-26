@@ -1299,6 +1299,101 @@ class MigrationSummaryResponse(BaseModel):
 
 
 # ============================================================================
+# S10 — Import Wizard
+# ============================================================================
+
+
+class ImportColumnInfo(BaseModel):
+    """One column descriptor returned by the upload + columns endpoints."""
+    name: str
+    sample: List[str] = []
+
+
+class ImportUploadResponse(BaseModel):
+    """Response from POST /imports/upload."""
+    batch_id: int
+    columns: List[ImportColumnInfo]
+    sample_rows: List[Dict[str, Any]]
+    total_rows: int
+    encoding: Optional[str] = None
+    delimiter: Optional[str] = None
+    sheets: Optional[List[str]] = None
+
+
+class ColumnsResponse(BaseModel):
+    """Response from GET /imports/{id}/columns."""
+    headers: List[str]
+    sample_rows: List[Dict[str, Any]]
+    sheets: Optional[List[str]] = None
+    suggested_map: Dict[str, Any]
+    targets: List[Dict[str, Any]]
+
+
+class PreviewRequest(BaseModel):
+    """Request body for POST /imports/{id}/preview."""
+    column_map: Dict[str, Any]
+    match_key: str = "external_id"       # external_id | email | name
+    conflict_policy: str = "skip"        # skip | update | fill
+    sheet: Optional[str] = None
+    target_event_id: Optional[int] = None
+
+
+class RunRequest(BaseModel):
+    """Request body for POST /imports/{id}/run (same fields as PreviewRequest)."""
+    column_map: Dict[str, Any]
+    match_key: str = "external_id"
+    conflict_policy: str = "skip"
+    sheet: Optional[str] = None
+    target_event_id: Optional[int] = None
+
+
+class PreviewCounts(BaseModel):
+    """Outcome counts returned by the preview endpoint."""
+    would_create: int = 0
+    would_update: int = 0
+    would_skip: int = 0
+    ambiguous: int = 0
+    errors: int = 0
+
+
+class RunCounts(BaseModel):
+    """Outcome counts returned by the run endpoint."""
+    created: int = 0
+    updated: int = 0
+    skipped: int = 0
+    review: int = 0
+    errors: int = 0
+
+
+class ImportPresetIn(BaseModel):
+    """Request body for creating or updating a mapping preset."""
+    entity: str
+    name: str
+    column_map: Dict[str, Any] = {}
+    options: Dict[str, Any] = {}
+    is_shared: bool = False
+
+
+class ImportPresetOut(BaseModel):
+    """Mapping preset as returned by the API."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    owner_id: Optional[int] = None
+    entity: str
+    name: str
+    column_map: Dict[str, Any]
+    options: Dict[str, Any]
+    is_shared: bool
+    created_at: datetime
+
+
+class ImportPresetListResponse(BaseModel):
+    items: List[ImportPresetOut]
+    total: int
+
+
+# ============================================================================
 # S16 — Scheduler / Settings / System Status
 # ============================================================================
 

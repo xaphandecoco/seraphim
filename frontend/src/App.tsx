@@ -36,6 +36,7 @@ import { AdvancedSearchPage } from '@/pages/AdvancedSearchPage';
 import { SavedSearchesPage } from '@/pages/SavedSearchesPage';
 import { GroupsPage } from '@/pages/GroupsPage';
 import { GroupDetailPage } from '@/pages/GroupDetailPage';
+import { VolunteerRoute } from '@/components/layout/VolunteerRoute';
 
 // S16 — lazy-load TanStack-Query-heavy pages to keep App.tsx initial bundle light
 const SystemStatusPage = lazy(() =>
@@ -43,6 +44,17 @@ const SystemStatusPage = lazy(() =>
 );
 const JobRunsPage = lazy(() =>
   import('@/pages/JobRunsPage').then((m) => ({ default: m.JobRunsPage })),
+);
+
+// S10 — lazy-load import wizard pages (data-heavy; volunteer+ only)
+const ImportsListPage = lazy(() =>
+  import('@/pages/ImportsListPage').then((m) => ({ default: m.ImportsListPage })),
+);
+const ImportWizardPage = lazy(() =>
+  import('@/pages/ImportWizardPage').then((m) => ({ default: m.ImportWizardPage })),
+);
+const ImportReportPage = lazy(() =>
+  import('@/pages/ImportReportPage').then((m) => ({ default: m.ImportReportPage })),
 );
 
 function PageFallback() {
@@ -122,6 +134,10 @@ function App() {
         <Route path="/settings/system-status" element={<AdminRoute><Suspense fallback={<PageFallback />}><SystemStatusPage /></Suspense></AdminRoute>} />
         <Route path="/settings/jobs" element={<AdminRoute><Suspense fallback={<PageFallback />}><JobRunsPage /></Suspense></AdminRoute>} />
         <Route path="/settings/biometric" element={<AdminRoute><RetentionReport /></AdminRoute>} />
+        {/* S10 — Import Wizard (volunteer+) */}
+        <Route path="/imports" element={<VolunteerRoute><Suspense fallback={<PageFallback />}><ImportsListPage /></Suspense></VolunteerRoute>} />
+        <Route path="/imports/new" element={<VolunteerRoute><Suspense fallback={<PageFallback />}><ImportWizardPage /></Suspense></VolunteerRoute>} />
+        <Route path="/imports/:batchId" element={<VolunteerRoute><Suspense fallback={<PageFallback />}><ImportReportPage /></Suspense></VolunteerRoute>} />
       </Routes>
     </div>
   );

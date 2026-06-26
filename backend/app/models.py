@@ -851,7 +851,7 @@ class ImportBatch(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     source_filename: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     entity: Mapped[str] = mapped_column(String(20), nullable=False)
-    mode: Mapped[str] = mapped_column(String(10), nullable=False)
+    mode: Mapped[str] = mapped_column(String(20), nullable=False)
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="running"
     )  # running | done | error | partial
@@ -868,6 +868,8 @@ class ImportBatch(Base):
     created_by_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    staging_file: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     __table_args__ = (
         Index("ix_import_batch_entity_status", "entity", "status"),
@@ -906,6 +908,35 @@ class ImportRowResult(Base):
         # Composite (batch_id, outcome) per spec §3.2 — matches the migration DDL
         # and serves the batch-scoped outcome filter on GET /batches/{id}/rows.
         Index("ix_import_row_result_outcome", "batch_id", "outcome"),
+    )
+
+
+class ImportMappingPreset(Base):
+    """User-saved column-mapping preset for the CSV/XLSX import wizard.
+
+    owner_id ondelete SET NULL — user may be removed without losing presets.
+    entity: 'contacts' | 'events' | 'participants' | 'links'
+    column_map: {source_col: app_field} mapping to pre-populate the wizard.
+    options: arbitrary loader options (e.g. match_field, date_format).
+    is_shared: True visible to all users; False owner-only.
+    """
+
+    __tablename__ = "import_mapping_preset"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    owner_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    entity: Mapped[str] = mapped_column(String(20), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    column_map: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    options: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    is_shared: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("entity", "name", name="uq_import_mapping_preset_entity_name"),
+        Index("ix_import_mapping_preset_owner_id", "owner_id"),
     )
 
 
