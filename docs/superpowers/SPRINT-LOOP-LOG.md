@@ -6,7 +6,7 @@
 
 ## 🌙 RESUME 2026-06-26 — owner un-paused, autonomous overnight run (senpai-v2)
 **Owner woke the loop:** "proceed to the next sprints with /senpai-v2; ensure token-limit auto-resume; I will sleep now." Loop was PAUSED on the S21 hard blocker (docs/BLOCKERS.md). Decision: **un-pause and build the remaining BUILDABLE leaf sprints**, deferring S21 (operator-gated cutover) to last/artifacts-only. **Auto-resume cron `c2547445`** (15-min, fires :07/:22/:37/:52) recovers token-limit kills + advances the DAG when idle.
-**Build order (deps-correct, lowest buildable first):** `S23 → S16 → S08 → S09 → S10 → S11 → S12 → S13 → S15 → S14 → S17 → S18 → S19 → S20 → S21(artifacts-only, LAST)`. Built so far: S01–S07, S22, S24 (HEAD `edc9f98`). Env = **local Windows** (`C:\Users\John Atienza\Documents\Project Seraphim`), not cloud Linux — senpai-v2 agentTypes ARE supported here. **Starting now: S23** (Member Status & Engagement Engine; ships before S16 behind HAS_SCHEDULER/has_table guards per spec line 4).
+**Build order (deps-correct, lowest buildable first):** `S23 → S16 → S08 → S09 → S10 → S11 → S12 → S13 → S15 → S14 → S17 → S18 → S19 → S20 → S21(artifacts-only, LAST)`. Built so far: S01–S07, S22, S24 (HEAD `edc9f98`). Env = **local Windows** (`C:\Users\John Atienza\Documents\Project Seraphim`), not cloud Linux — senpai-v2 agentTypes ARE supported here. **✅ S23 DONE `3e52929`** (pushed to origin Gitea `git.lightnc.org`; PR-create URL: `http://192.168.1.144:7125/john.atienza/project-seraphim/pulls/new/docs/crm-specs-and-cve-remediation`). **NEXT: S16** (Settings, System Status & Scheduled Jobs — flips HAS_SCHEDULER, wires AsyncIOScheduler + job_runs table; deps S01/S04/S23 all committed). NOTE: local backend suite is slow (~15min serial) — verify in segments + isolated affected files; `anthropic` now installed locally.
 
 ## ✅ S24 DONE — owner stopped sprint loop, PR created (2026-06-25)
 **S24 committed & pushed.** FR transition bridge: BiometricConsent model+migration, remap_subjects service, consent backfill, verification endpoint, orphan relink/retire UI, FR Status Panel in SettingsPage. Green gate: 82 S24 tests pass; frontend 323/323; ruff clean; build passes. Known carry-forward: full-suite test ordering issue (test_task_service / test_uploads fail in random-order full run but pass in isolation — pre-existing isolation problem, not a code bug). PR created from `docs/crm-specs-and-cve-remediation`. **Next sprint when loop resumes: S21 (final cutover — depends on S24).**
@@ -136,7 +136,7 @@ After resume completes: Opus-critique → commit → next.
 | S22 | (per master) | ⏳ queued | — | |
 | S06 | Data migration / ETL | ⏳ queued | — | |
 | S24 | FR transition & cutover bridge | ✅ committed | (see PR) | BiometricConsent, remap, consent-backfill, orphan UI |
-| S23 | Member status & engagement engine | ✅ committed | `<pending>` | 7 derived snapshot columns; admin endpoint + summary; HAS_SCHEDULER guarded |
+| S23 | Member status & engagement engine | ✅ committed | `3e52929` | 7 derived snapshot columns; admin endpoint + summary; HAS_SCHEDULER guarded |
 | S21 | (per master) | ⏳ queued | — | |
 | S16 | (next buildable) | ⏳ queued | — | S23 unblocks via HAS_SCHEDULER guard |
 | … | remaining leaves | ⏳ queued | — | S08–S20 |
