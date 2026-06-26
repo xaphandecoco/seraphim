@@ -55,6 +55,11 @@ const ImportsListPage = lazy(() =>
 const DuplicatesPage = lazy(() =>
   import('@/pages/DuplicatesPage').then((m) => ({ default: m.DuplicatesPage })),
 );
+
+// S12 — lazy-load Activities/Tasks page (TanStack-Query-heavy; all authenticated users)
+const ActivitiesPage = lazy(() =>
+  import('@/pages/ActivitiesPage').then((m) => ({ default: m.ActivitiesPage })),
+);
 const ImportWizardPage = lazy(() =>
   import('@/pages/ImportWizardPage').then((m) => ({ default: m.ImportWizardPage })),
 );
@@ -119,6 +124,7 @@ function App() {
         <Route path="/groups" element={<ProtectedRoute><GroupsPage /></ProtectedRoute>} />
         <Route path="/groups/:id" element={<ProtectedRoute><GroupDetailPage /></ProtectedRoute>} />
         <Route path="/attendees" element={<Navigate to="/contacts" replace />} />
+        <Route path="/activities" element={<ProtectedRoute><Suspense fallback={<PageFallback />}><ActivitiesPage /></Suspense></ProtectedRoute>} />
         <Route path="/audit" element={<ProtectedRoute><AuditPage /></ProtectedRoute>} />
         <Route path="/settings" element={<AdminRoute><SettingsPage /></AdminRoute>} />
         <Route path="/settings/users" element={<AdminRoute><UserManagementPage /></AdminRoute>} />

@@ -2,7 +2,7 @@ export interface User {
   id: number;
   email: string;
   name: string | null;
-  role: 'volunteer' | 'admin';
+  role: 'volunteer' | 'admin' | 'viewer';
   is_active: boolean;
 }
 

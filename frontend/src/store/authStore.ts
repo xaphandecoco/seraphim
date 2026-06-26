@@ -32,6 +32,8 @@ interface AuthState {
   isAdmin: boolean;
   /** True for admin and volunteer roles; false for viewer and unauthenticated. */
   isVolunteer: boolean;
+  /** True when the authenticated user has the 'viewer' role. Forward-compat with S15. */
+  isViewer: boolean;
   isAuthenticated: boolean;
   /** false until the initial /auth/refresh attempt completes; route guards wait for this */
   authReady: boolean;
@@ -47,6 +49,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   token: null,
   isAdmin: false,
   isVolunteer: false,
+  isViewer: false,
   isAuthenticated: false,
   authReady: false,
   login: (user, token) => {
@@ -55,6 +58,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       token,
       isAdmin: user.role === 'admin',
       isVolunteer: deriveIsVolunteer(user.role),
+      isViewer: user.role === 'viewer',
       isAuthenticated: true,
       authReady: true,
     });
@@ -65,6 +69,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       token: null,
       isAdmin: false,
       isVolunteer: false,
+      isViewer: false,
       isAuthenticated: false,
       authReady: true,
     });
@@ -74,12 +79,19 @@ export const useAuthStore = create<AuthState>((set) => ({
       user,
       isAdmin: user?.role === 'admin',
       isVolunteer: deriveIsVolunteer(user?.role),
+      isViewer: user ? user.role === 'viewer' : false,
       isAuthenticated: !!user,
     });
   },
   setToken: (token) => {
     const role = decodeJwtRole(token);
-    set({ token, isAuthenticated: true, isAdmin: role === 'admin', isVolunteer: deriveIsVolunteer(role) });
+    set({
+      token,
+      isAuthenticated: true,
+      isAdmin: role === 'admin',
+      isVolunteer: deriveIsVolunteer(role),
+      isViewer: role === 'viewer',
+    });
   },
   setAuthReady: () => {
     set({ authReady: true });

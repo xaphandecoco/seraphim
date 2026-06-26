@@ -48,6 +48,7 @@ beforeEach(() => {
     token: null,
     isAdmin: false,
     isVolunteer: false,
+    isViewer: false,
     isAuthenticated: false,
     authReady: false,
   });
@@ -185,6 +186,71 @@ describe('authStore — isAdmin via login/logout/setUser', () => {
     useAuthStore.getState().setUser(null);
     expect(useAuthStore.getState().isAdmin).toBe(false);
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// S12 — isViewer derivation (role === 'viewer' → true; others → false)
+// ---------------------------------------------------------------------------
+describe('authStore — isViewer via login / logout / setUser / setToken (S12)', () => {
+  const VIEWER_TOKEN_S12 = makeJwt({ sub: '3', role: 'viewer', exp: 9999999999 });
+
+  it('login(viewer) sets isViewer:true and isAdmin:false', () => {
+    useAuthStore.getState().login(VIEWER_USER, MALFORMED_TOKEN);
+    const s = useAuthStore.getState();
+    expect(s.isViewer).toBe(true);
+    expect(s.isAdmin).toBe(false);
+  });
+
+  it('login(admin) sets isViewer:false', () => {
+    useAuthStore.getState().login(ADMIN_USER, ADMIN_TOKEN);
+    expect(useAuthStore.getState().isViewer).toBe(false);
+  });
+
+  it('login(volunteer) sets isViewer:false', () => {
+    useAuthStore.getState().login(VOLUNTEER_USER, VOLUNTEER_TOKEN);
+    expect(useAuthStore.getState().isViewer).toBe(false);
+  });
+
+  it('logout() clears isViewer to false', () => {
+    useAuthStore.getState().login(VIEWER_USER, MALFORMED_TOKEN);
+    expect(useAuthStore.getState().isViewer).toBe(true);
+    useAuthStore.getState().logout();
+    expect(useAuthStore.getState().isViewer).toBe(false);
+  });
+
+  it('setUser(viewer) sets isViewer:true', () => {
+    useAuthStore.getState().setUser(VIEWER_USER);
+    expect(useAuthStore.getState().isViewer).toBe(true);
+  });
+
+  it('setUser(volunteer) sets isViewer:false', () => {
+    useAuthStore.getState().setUser(VIEWER_USER); // first set to true
+    useAuthStore.getState().setUser(VOLUNTEER_USER);
+    expect(useAuthStore.getState().isViewer).toBe(false);
+  });
+
+  it('setUser(null) sets isViewer:false', () => {
+    useAuthStore.getState().setUser(VIEWER_USER);
+    useAuthStore.getState().setUser(null);
+    expect(useAuthStore.getState().isViewer).toBe(false);
+  });
+
+  it('setToken with viewer-role JWT sets isViewer:true', () => {
+    useAuthStore.getState().setToken(VIEWER_TOKEN_S12);
+    expect(useAuthStore.getState().isViewer).toBe(true);
+  });
+
+  it('setToken with admin-role JWT sets isViewer:false', () => {
+    useAuthStore.getState().setToken(VIEWER_TOKEN_S12); // set to true first
+    useAuthStore.getState().setToken(ADMIN_TOKEN);
+    expect(useAuthStore.getState().isViewer).toBe(false);
+  });
+
+  it('setToken with malformed token sets isViewer:false (role decoding fails)', () => {
+    useAuthStore.getState().setToken(VIEWER_TOKEN_S12);
+    useAuthStore.getState().setToken(MALFORMED_TOKEN);
+    expect(useAuthStore.getState().isViewer).toBe(false);
   });
 });
 

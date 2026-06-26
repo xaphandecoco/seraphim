@@ -20,7 +20,7 @@ from sqlalchemy.orm import aliased
 
 from app.database import async_session
 from app.models import (
-    AuditLog,
+    AuditLog,  # noqa: F401  — imported for test fixtures that check AuditLog rows
     BiometricConsent,
     CommunityReport,
     ComprefaceSubject,
@@ -34,7 +34,7 @@ from app.models import (
     NameAlias,
     NameMatchReviewQueue,
     Participant,
-    utc_now,
+    utc_now,  # noqa: F401  — kept for potential future service helpers
 )
 from app.services import audit as audit_svc
 from app.services.migration.normalize import name_key
@@ -58,6 +58,7 @@ _REASSIGNMENT_TARGETS: frozenset = frozenset({
     ("name_match_review_queue", "contact_id"),
     ("name_match_review_queue", "candidate_contact_id"),
     # ── COLLISION-AWARE ───────────────────────────────────────────────────────
+    ("activities", "target_contact_id"),   # S12: plain UPDATE; has_table guard in _reassign_all
     ("participants", "contact_id"),        # UNIQUE(event_id, contact_id)
     ("group_members", "contact_id"),       # UNIQUE(group_id, contact_id)
     ("biometric_consent", "contact_id"),   # UNIQUE(contact_id)
@@ -1076,7 +1077,6 @@ async def merge_contacts(
     if cf_ids_to_purge:
         try:
             from app.services.compreface import ComprefaceClient  # type: ignore
-            from app.config import dynamic_settings as _ds  # type: ignore
 
             cf_client = ComprefaceClient()
             for cf_id in cf_ids_to_purge:

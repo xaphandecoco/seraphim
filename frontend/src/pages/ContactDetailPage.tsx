@@ -16,6 +16,7 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Pagination } from '@/components/ui/Pagination';
 import { StatusBadge, getTierTone, getTierLabel } from '@/components/ui/StatusBadge';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/StateViews';
+import { ActivitiesPanel } from '@/components/activities/ActivitiesPanel';
 
 import type { ContactAttendanceItem, ContactReferenceChip } from '@/types';
 import type { AxiosError } from 'axios';
@@ -500,7 +501,7 @@ export function ContactDetailPage() {
           data-slot="activities"
           className="bg-card rounded-2xl border border-border p-4"
         >
-          <p className="text-sm text-foreground/50">Activities — S12</p>
+          <ActivitiesPanel contactId={id!} />
         </section>
       </main>
 

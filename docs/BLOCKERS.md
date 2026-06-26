@@ -47,13 +47,15 @@ the end of a run. **Hard blockers (could build on bad data) are pinned at the to
 
 - [S23] **ASSUMPTION:** `job_runs` table schema (S16) is unknown at implementation time. The raw-SQL INSERT in `member_status_service._recompute` uses columns `(job_name, status, detail, ran_at)`. If S16's actual schema differs (e.g., no `status` / `detail` columns), the INSERT will fail silently (try/except) and `job_run_id` returns None — no crash, no data loss. Affects: `backend/app/services/member_status_service.py`.
 
+- [S12] **ASSUMPTION:** `GET /activities/assignees` uses `require_viewer` (admits admin|volunteer|viewer) rather than `require_volunteer` as stated in the §4.1 endpoint table. This aligns with AC§10 (§7) and the §8 test plan, both of which explicitly list `/activities/assignees` among read endpoints that must return 200 for viewer tokens. The §4.1 table entry is an internal spec inconsistency; AC§10 is treated as normative since it directly contradicts the table and the test plan enforces it. **Confirm:** if viewers should NOT see the user list (e.g., privacy concern), change the dependency back to `require_volunteer` and update AC§10 accordingly.
+
 - [S23] **ASSUMPTION:** `admin_settings` row with `key="connected_field_names"` stores its value as a JSON list (e.g., `["community_leader", "community"]`) OR as a dict with a `"names"` key. Fallback is `DEFAULT_CONNECTED_FIELD_NAMES`. No such row in test DB; tests use the default. Affects: `backend/app/services/member_status_service.py`.
 
 - [S23] **ASSUMPTION:** `weeks_absent` is computed as calendar-day difference (both `today_midnight` and `last_attended_at` are truncated to start-of-day before dividing by 7). This prevents rounding errors when events have non-midnight `start_at`. Affects: snapshot fields on Contact.
 
 - [S23/S16] **ASSUMPTION:** `main.py` lifespan calls `register_s23_jobs(...)` with an Ellipsis placeholder behind `HAS_SCHEDULER=False`; when S16 lands and flips the flag it MUST pass a real AsyncIOScheduler or boot will TypeError. Affects: `backend/app/main.py`, `backend/app/scheduler.py`. **HARD note for S16 implementation.**
 
-- [S11] **CARRY-FORWARD:** When S12 lands `activities.target_contact_id`, the introspection test (`test_manifest_covers_all_contact_fks`) WILL FAIL until `("activities", "target_contact_id")` is added to `_REASSIGNMENT_TARGETS`. This is by design — the test is a self-maintaining sentinel for missing FKs. Affects: `backend/app/services/dedupe_service.py`, `backend/tests/test_dedupe_manifest.py`.
+- [S11→S12] **✅ RESOLVED:** S12 added `activities.target_contact_id` to dedupe FK manifest. Introspection test now passes. Affects: `backend/app/services/dedupe_service.py`, `backend/tests/test_dedupe_manifest.py`.
 
 - [S11] **CARRY-FORWARD:** biometric_consent merge collision DELETES the loser's consent row (archived in audit before deletion). A future option ("consent_given TRUE-wins" precedence rule) is a one-liner change. Affects: `backend/app/services/dedupe_service.py`.
 
@@ -128,6 +130,16 @@ the end of a run. **Hard blockers (could build on bad data) are pinned at the to
 - [S11/backend] **ASSUMPTION:** `logs.matched_name` rewrite is included in `stats` under key `"logs.matched_name"` even though `"logs"` is not an FK in `_REASSIGNMENT_TARGETS`. The manifest frozenset only tracks contacts.id FKs + named non-FK paths; `logs.matched_name` is a companion to `detections.matched_name` handled under the same non-FK path string. The introspection test only checks FK coverage (not log rewrite). Affects: `backend/app/services/dedupe_service.py`.
 
 - [S11/backend] **ASSUMPTION:** S12 guard (`if await has_table(db, "activities"):`) covers only `activities.target_contact_id`. When S12 lands and adds that column, the introspection test (`test_manifest_covers_all_contact_fks`) will fail until `("activities", "target_contact_id")` is added to `_REASSIGNMENT_TARGETS`. This is by design — the test is a sentinel. Affects: `backend/app/services/dedupe_service.py`, `backend/tests/test_dedupe_manifest.py`.
+
+- [S12/frontend] **ASSUMPTION:** BottomNav 5-slot UX default applied (spec §10 Q6, "owner UX decision required"). Ranking removed from the 5 main tabs and moved into the admin "More" sheet. The Activities (CRM) "Tasks" tab (`/activities`, ListTodo icon) replaces Ranking as the 3rd main tab. Non-admin users no longer see Ranking in the main bar; admins find it in the More sheet. Affects: `frontend/src/components/layout/BottomNav.tsx`, `frontend/src/components/layout/BottomNav.test.tsx`. **Owner confirmation requested before merge.**
+
+- [S12/frontend] **ASSUMPTION:** Both the detection-review tab (`/`, label "Tasks") and the new Activities tab (`/activities`, label "Tasks") carry the same visible label. The BottomNav test uses `getAllByRole('link', { name: /^tasks$/i })` to handle two matches. UX may want to differentiate (e.g., rename detect tab to "Review") — tracked here for owner confirmation. Affects: `frontend/src/components/layout/BottomNav.tsx`.
+
+- [S12/backend] **ASSUMPTION:** `GET /activities/assignees` uses `require_viewer` (admits admin|volunteer|viewer) rather than `require_volunteer` as stated in spec §4.1 endpoint table. This aligns with AC§10 (§7) and the §8 test plan, both of which explicitly list `/activities/assignees` among read endpoints that must return 200 for viewer tokens. The §4.1 table entry is an internal spec inconsistency; AC§10 is treated as normative. The endpoint projection is safe (no secrets — names/emails/roles only). **Confirm:** if viewers should NOT see the user list (privacy concern), change to `require_volunteer` and update AC§10 accordingly. Affects: `backend/app/routers/activities.py`.
+
+- [S12/frontend] **ASSUMPTION:** ActivityFormModal target-contact field is a plain numeric ID input when not pre-filled (no S03 contact-picker primitive found as an exported component). When launched from a contact profile, the field is locked/read-only. A full contact-search picker can be substituted post-S12. Affects: `frontend/src/components/activities/ActivityFormModal.tsx`.
+
+- [S12/frontend] **ASSUMPTION:** `User.role` expanded from `'volunteer' | 'admin'` to `'volunteer' | 'admin' | 'viewer'` in `frontend/src/types/index.ts`. The S08 BLOCKERS entry ([S08/frontend]) noted this was needed when S15 landed — S12 does it early since `isViewer` is required for activity-gating now. Affects: `frontend/src/types/index.ts`, `frontend/src/store/authStore.ts`.
 
 ---
 ### Format

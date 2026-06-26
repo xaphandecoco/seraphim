@@ -35,6 +35,7 @@ The **SPRINT-LOOP-LOG.md** (`docs/superpowers/SPRINT-LOOP-LOG.md`) is the master
 | S09 | Advanced search, saved searches & smart groups | ✅ Committed | `91525ee` | 2026-06-26 | Native replacement for CiviCRM Advanced Search / Search Builder / Smart Groups; migration (3 tables); whitelist field registry (15 core + 7 S23-derived); injection-safe compile_criteria pipeline; security BLOCK→fix (3 bugs: bypassable DoS check, cross-owner IDOR, LIKE escape) |
 | S10 | CSV/XLSX import wizard | ✅ Committed | `ea77663` | 2026-06-26 | Self-service 4-step import wizard (Upload → Map → Preview → Run) for contacts + participants; reuses S06 ETL core; migration adds import_mapping_preset table; 13 API endpoints + frontend wizard UI; security BLOCK→fix (HIGH PII exposure in staging files) |
 | S11 | Find & merge duplicate contacts | ✅ Committed | `<pending>` | 2026-06-26 | Native duplicate detection + merge; dedup-rule-set admin config; FK-complete merge with manifest introspection guard; security PASS + 3 hardening fixes |
+| S12 | Activities (assignable tasks, user-facing "Tasks") | ✅ Committed | `<pending>` | 2026-06-26 | Activities table + ORM models; ActivityService (CRUD, role-aware status matrix); 8 endpoints; full React UI ("My Tasks"/"All", ActivitiesPanel on contact, FormModal); security PASS + reassign authz fix (admin-only); manifest dedupe guard resolved |
 
 **Queued (awaiting build):**
 
@@ -248,6 +249,24 @@ The **SPRINT-LOOP-LOG.md** (`docs/superpowers/SPRINT-LOOP-LOG.md`) is the master
 - **Migration** `s11a1b2c3d4e5` (down_revision `s10a1b2c3d4e5`): new `dedupe_rule_set` table. `test_migrations.py` EXPECTED_HEAD updated to `s11a1b2c3d4e5`.
 - Green gates: backend **32 isolated S11 tests + segment 96** passed/0 failed; frontend **434 tests** + build + lint; security PASS.
 - **Carry-forward:** 5 assumptions documented in BLOCKERS.md 🟡 (S12 FK guard, collision delete, rate-limiting gap, irreversible design, is_default app-layer).
+
+---
+
+### S12: Activities (Assignable Tasks)
+
+**Goal:** Implement a full activity/task engine with CRUD, role-aware status transitions, and a task-management UI for staff to assign, track, and complete activities tied to individual contacts.
+
+**Outcome:**
+- **Activities table & ORM:** `activities` (target_contact_id FK, assignee_user_id, title, description, due_at, status ENUM, priority ENUM, completed_at, created_by_id, created_at, updated_at)
+- **ActivityService** (new): CRUD with role-aware status-transition matrix, due-reminder producer stub (`scan_due_reminders()` + module-level `run_due_reminder_job()`)
+- **Outbox model** (new): queues activity updates for producer expansion in S16/S17
+- **8 API endpoints** in `routers/activities.py`: list (paginated) + create + detail + update + status-transition + reassign (admin-only) + due-reminders + outbox; `require_viewer` reused
+- **Frontend:** "My Tasks" / "All Tasks" page (tabbed, filterable, paginated), ActivitiesPanel on ContactDetail, ActivityFormModal (create/edit), ActivityCard component; TanStack Query + hooks + types
+- **Audit:** all mutations via S02 `record(...)` helper
+- **Security audit:** Initial HIGH (volunteer reassign in PATCH) → removed from schema, now admin-only; MEDIUM (enum validation on status/priority, completed_at stamping); Re-audit: PASS
+- **Notable reconciliations:** `require_viewer` already exists (S15 shim); /activities/assignees uses it (AC10 + test plan require viewer 200); Dedupe FK manifest introspection test **RESOLVED** by adding `('activities', 'target_contact_id')` tuple (no longer fails on S12 landing)
+- Green gates: backend **38 isolated S12 tests + 42 migrations+manifest+dedupe + 42 regression** passed/0 failed; app imports clean; frontend **build + lint clean, 483 tests** (35 files); security **PASS**
+- **UX carry-forwards:** BottomNav 6-slot logic (Ranking → admin More sheet, Tasks tab added); "Tasks" label collision with detection-review tab (rename candidate: "Review"); target-contact ID input unshared (post-S12 contact-picker enhancement)
 
 ---
 

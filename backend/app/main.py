@@ -13,6 +13,7 @@ from app.dependencies import check_setup_complete
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.rate_limit import limiter
 from app.routers import (
+    activities,
     analytics,
     attendance,
     audit,
@@ -130,6 +131,7 @@ app.include_router(auth.router)
 # All other endpoints require setup complete
 app.include_router(health.router)
 app.include_router(tasks.router, dependencies=[Depends(check_setup_complete)])
+app.include_router(activities.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(leaderboard.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(logs.router, dependencies=[Depends(check_setup_complete)])
 app.include_router(settings_router.router, dependencies=[Depends(check_setup_complete)])

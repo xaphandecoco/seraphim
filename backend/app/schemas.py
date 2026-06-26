@@ -1534,6 +1534,116 @@ class RetentionReportResponse(BaseModel):
 
 
 # ============================================================================
+# S12 — Activities (Assignable CRM Tasks)
+# ============================================================================
+
+
+class ActivityCreate(BaseModel):
+    """Payload for POST /activities."""
+
+    activity_type: str
+    subject: str
+    details: Optional[str] = None
+    activity_date: Optional[datetime] = None
+    due_date: Optional[datetime] = None
+    status: Optional[str] = "scheduled"
+    priority: Optional[str] = "normal"
+    assignee_user_id: Optional[int] = None
+    target_contact_id: Optional[int] = None
+
+
+class ActivityUpdate(BaseModel):
+    """Payload for PATCH /activities/{id} — all fields optional (partial update).
+
+    Note: assignee_user_id is intentionally excluded. Reassignment is admin-only
+    and flows through POST /activities/{id}/reassign only. PATCH cannot change the
+    assignee, preventing a volunteer from bypassing the admin-only reassign gate.
+    """
+
+    activity_type: Optional[str] = None
+    subject: Optional[str] = None
+    details: Optional[str] = None
+    activity_date: Optional[datetime] = None
+    due_date: Optional[datetime] = None
+    status: Optional[str] = None
+    priority: Optional[str] = None
+    target_contact_id: Optional[int] = None
+
+
+class ActivityResponse(BaseModel):
+    """Base activity fields — ORM-backed."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    activity_type: str
+    subject: str
+    details: Optional[str] = None
+    activity_date: datetime
+    due_date: Optional[datetime] = None
+    status: str
+    priority: str
+    assignee_user_id: Optional[int] = None
+    target_contact_id: Optional[int] = None
+    created_by_id: Optional[int] = None
+    completed_at: Optional[datetime] = None
+    reminder_sent_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ActivityDetailResponse(ActivityResponse):
+    """Full activity response including resolved display names (frontend contract)."""
+
+    target_contact_name: Optional[str] = None
+    assignee_name: Optional[str] = None
+    assignee_email: Optional[str] = None
+    creator_name: Optional[str] = None
+
+
+class PaginatedActivityResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    items: List[ActivityDetailResponse]
+
+
+class AssigneeOption(BaseModel):
+    """Safe projection of a system user for the assignee picker — no sensitive fields."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: Optional[str] = None
+    email: str
+    role: str
+
+
+class ActivityMetaResponse(BaseModel):
+    """Server-driven enum lists so frontend dropdowns need no deploys to update."""
+
+    types: List[str]
+    statuses: List[str]
+    priorities: List[str]
+
+
+class ActivityFilters(BaseModel):
+    """Query-parameter bundle for GET /activities list endpoint."""
+
+    assignee_user_id: Optional[str] = None  # "me" or str(int)
+    target_contact_id: Optional[int] = None
+    status: Optional[str] = None  # CSV: "scheduled,in_progress"
+    priority: Optional[str] = None
+    overdue: bool = False
+
+
+class ActivityReassignRequest(BaseModel):
+    """Body for POST /activities/{id}/reassign."""
+
+    assignee_user_id: Optional[int] = None
+
+
+# ============================================================================
 # S09 — Advanced Search, Saved Searches & Smart Groups
 # ============================================================================
 

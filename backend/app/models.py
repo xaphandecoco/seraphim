@@ -1105,3 +1105,75 @@ class DedupeRuleSet(Base):
     __table_args__ = (
         UniqueConstraint("name", name="uq_dedupe_rule_set_name"),
     )
+
+
+# ---------------------------------------------------------------------------
+# S12 — Activities (assignable CRM tasks) and Outbox (event delivery)
+# ---------------------------------------------------------------------------
+
+
+class Activity(Base):
+    """CRM assignable activity / task (S12).
+
+    Assigned to a system user, optionally targeting a contact.
+    'Activity' in code; end-user UI label is 'Task'.
+    Do NOT confuse with class Task (face-recognition detection-review queue).
+    assignee_user_id: SET NULL on user deletion — preserves activity history.
+    target_contact_id: CASCADE on contact hard-delete — contact removal purges tasks.
+    created_by_id: SET NULL on user deletion — preserves authorship trail.
+    """
+    __tablename__ = "activities"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    activity_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    activity_date: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    due_date: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="scheduled")
+    priority: Mapped[str] = mapped_column(String(10), nullable=False, default="normal")
+    assignee_user_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    target_contact_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("contacts.id", ondelete="CASCADE"), nullable=True
+    )
+    created_by_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    reminder_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+    __table_args__ = (
+        Index("ix_activities_assignee_status", "assignee_user_id", "status"),
+        Index("ix_activities_target_contact_id", "target_contact_id"),
+        Index("ix_activities_due_date", "due_date"),
+        Index("ix_activities_status", "status"),
+    )
+
+
+class Outbox(Base):
+    """Transactional outbox for async event delivery (S12 producer; S17 consumer).
+
+    S12 inserts rows with event_type='activity.due_reminder', status='pending'.
+    S17 owns the consumer / delivery. Table is created idempotently by the S12
+    migration; define exactly once here so test-suite create_all also builds it.
+    """
+    __tablename__ = "outbox"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    payload: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    run_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+
+    __table_args__ = (
+        Index("ix_outbox_status_run_at", "status", "run_at"),
+    )

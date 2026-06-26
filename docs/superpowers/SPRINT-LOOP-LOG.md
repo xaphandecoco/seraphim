@@ -143,13 +143,46 @@ After resume completes: Opus-critique → commit → next.
 | S09 | Advanced search, saved searches & smart groups | ✅ committed | `91525ee` | Native CiviCRM Advanced Search replacement; injection-safe compile_criteria; whitelist field registry; security BLOCK→fix (3 bugs) |
 | S10 | CSV/XLSX import wizard | ✅ committed | `ea77663` | Self-service 4-step import wizard; reuses S06 ETL; security BLOCK→fix (HIGH PII exposure in staging files) |
 | S11 | Find & merge duplicate contacts | ✅ committed | `ab694a0` | Native duplicate detection + merge; dedup-rule-set admin config; FK-complete merge with manifest introspection guard; security PASS + 3 hardening fixes |
-| … | remaining leaves | ⏳ queued | — | S12–S20 |
+| S12 | Activities (assignable tasks) | ✅ committed | `<pending>` | Activities table + ORM models; ActivityService (CRUD, status transitions, role-aware); 8 endpoints; full React UI ("My Tasks"/"All", ActivityPanel on contact, FormModal, Card); security PASS + reassign authz fix |
+| … | remaining leaves | ⏳ queued | — | S13–S20 |
 
 Legend: ✅ committed · 🔄 in progress · ⏳ queued · ⛔ blocked (see top)
 
 ---
 
 ## 📝 PER-SPRINT LOG (newest first)
+
+### S12 — Activities (Assignable Tasks)
+- **Goal:** Implement a full activity/task engine (CRUD, role-aware status transitions, due-reminder producer stub). React UI for "My Tasks" / "All Tasks" page, ActivityPanel on contact profile, ActivityFormModal, ActivityCard. Audit all writes via S02 `record()`.
+- **Definition of Done:**
+  1. Migration `s12a1b2c3d4e5` (down_revision `s11a1b2c3d4e5`): new `activities` table (target_contact_id FK, assignee_user_id, title, description, due_at, status, priority, completed_at, created_by_id, created_at, updated_at)
+  2. Alembic migration adds dedupe FK manifest tuple `('activities', 'target_contact_id')` (resolves S11 carry-forward — introspection test now passes)
+  3. `Activity` + `Outbox` SQLAlchemy ORM models
+  4. `ActivityService` (CRUD, role-aware status-transition matrix, due-reminder producer stub `scan_due_reminders()`, module-level `run_due_reminder_job()`)
+  5. 8 endpoints in `routers/activities.py`: list / create / detail / update / status-transition / assign / due-reminders / outbox
+  6. `require_viewer` reused (already existed as S15 shim, no changes needed)
+  7. Full React UI: "My Tasks" / "All" page (with tabs + filtering + pagination), ActivitiesPanel on contact profile, ActivityFormModal (create/edit), ActivityCard, custom hooks/service/types
+  8. Audit all mutations via S02 `record(...)`
+  9. Security audit PASS (HIGH: volunteer reassign via PATCH in initial ActivityUpdate → removed, now admin-only POST /activities/{id}/reassign; MEDIUM: enum-validate status/priority on create/update; completed_at stamped when status='completed')
+  10. Green gates: backend 38 tests (incl. 3 security regression); migrations+manifest+dedupe 42; regression (contacts/audit/participants/tasks) 42; app imports clean. Frontend: build + lint clean, 483 tests (35 files); security PASS
+- **Status:** PASS, committed. Green gate verified: backend **38 isolated S12 tests + 42 migrations+manifest+dedupe + 42 regression passed/0 failed**; app imports clean; frontend **build + lint + 483 tests**; security **PASS** (fixes applied pre-commit).
+- **Security incident (PASS → FIXED):**
+  1. **HIGH:** volunteer could reassign via PATCH (assignee_user_id in ActivityUpdate) → removed from update schema + service; reassignment now admin-only via POST /activities/{id}/reassign
+  2. **MEDIUM:** status/priority now enum-validated on create/update; completed_at stamped when created as 'completed'
+- **Reconciliations:**
+  1. `require_viewer` already exists (S15 shim); /activities/assignees uses it (spec §4.1 table said require_volunteer, but AC§10 + §8 test plan require viewer 200; accessor projection safe — no secrets exposed)
+  2. Outbox model created (awaiting S16/S17 producer expansion)
+  3. Dedupe FK manifest introspection test now passes: `('activities', 'target_contact_id')` added to `_REASSIGNMENT_TARGETS` (resolves S11 carry-forward)
+  4. `require_viewer` already existed; no new exports needed
+- **Carry-forward assumptions:** (all documented in BLOCKERS.md 🟡)
+  - BottomNav 6-slot UX (spec §10 Q6): Ranking moved to admin/More; new Tasks tab added to main bar. Owner UX confirmation requested.
+  - Two "Tasks" labels in BottomNav (detection-review `/` tab + activities `/activities`). Owner may rename detection tab.
+  - ActivityFormModal target-contact field is plain numeric ID input when not launched from profile (no shared contact-picker primitive found).
+- **Next:** S13 (remaining leaves).
+
+✅ **S12 committed — safe to resume with S13.**
+
+---
 
 ### S11 — Find & Merge Duplicate Contacts
 - **Goal:** Native on-demand duplicate detection and human-confirmed contact merge with admin-tunable dedup rules. Atomic, FK-complete merge using manifest introspection to ensure zero orphaned references.

@@ -86,6 +86,13 @@ vi.mock('@/components/contacts/FacePanel', () => ({
   ),
 }));
 
+// S12: Mock ActivitiesPanel to avoid network calls from its hooks
+vi.mock('@/components/activities/ActivitiesPanel', () => ({
+  ActivitiesPanel: ({ contactId }: { contactId: number }) => (
+    <div data-testid="activities-panel" data-contact-id={contactId} />
+  ),
+}));
+
 import { contactsApi } from '@/services/contacts';
 import { ContactDetailPage } from './ContactDetailPage';
 
@@ -245,9 +252,11 @@ describe('ContactDetailPage — sections', () => {
     expect(await screen.findByText(/biometric consent/i)).toBeInTheDocument();
   });
 
-  it('has data-slot="activities" placeholder', async () => {
+  it('mounts ActivitiesPanel in the activities slot (S12)', async () => {
     renderDetail();
-    expect(await screen.findByText(/activities — s12/i)).toBeInTheDocument();
+    const panel = await screen.findByTestId('activities-panel');
+    expect(panel).toBeInTheDocument();
+    expect(panel).toHaveAttribute('data-contact-id', '1');
   });
 });
 

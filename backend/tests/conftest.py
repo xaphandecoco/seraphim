@@ -278,6 +278,32 @@ async def viewer_auth_headers(viewer_user):
     return {"Authorization": f"Bearer {token}"}
 
 
+@pytest_asyncio.fixture
+async def another_user(db_session):
+    """A second volunteer user for reassign tests — distinct from volunteer_user."""
+    from app.models import User
+
+    user = User(
+        email="another@lightnc.org",
+        password_hash=hash_password("anotherpass123"),
+        role="volunteer",
+        is_active=True,
+        name="Another Volunteer",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user
+
+
+@pytest_asyncio.fixture
+async def another_auth_headers(another_user):
+    token = make_token(
+        another_user.id, another_user.email, another_user.role, "Another Volunteer"
+    )
+    return {"Authorization": f"Bearer {token}"}
+
+
 # ---------------------------------------------------------------------------
 # Domain / supporting-data fixtures
 # ---------------------------------------------------------------------------

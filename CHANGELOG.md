@@ -1,5 +1,44 @@
 ## [Unreleased]
 
+### S12 — Activities (Assignable Tasks) (Sprint complete 2026-06-26)
+
+Assignable task/activity engine for contact-tied workflows. Admins + volunteers create, assign, and transition activity status; role-aware mutations with due-reminder producer stub.
+
+**Backend**
+- `app/models.py`: new `Activity` ORM model (target_contact_id FK, assignee_user_id, title, description, due_at, status/priority ENUMs, completed_at, created_by_id, audit fields)
+- `app/models.py`: new `Outbox` ORM model (queues activity updates for S16/S17 producers)
+- `services/activity_service.py` (new): `ActivityService` with CRUD, role-aware status-transition matrix, due-reminder producer stub (`scan_due_reminders()`, module-level `run_due_reminder_job()`)
+- `routers/activities.py` (new): 8 endpoints (GET list, POST create, GET/{id} detail, PATCH update, PATCH/{id}/status [status-transition], POST/{id}/reassign [admin-only], GET due-reminders, GET outbox); all require_volunteer except reassign (require_admin); GET /assignees uses require_viewer (safe projection)
+- Migration `s12a1b2c3d4e5` (new, down_revision `s11a1b2c3d4e5`): new activities + outbox tables; dedupe FK manifest tuple `('activities', 'target_contact_id')` added (resolves S11 carry-forward)
+- **Audit:** all mutations via S02 `record(...)`
+- **Dedupe guard RESOLVED:** S11 introspection test now passes (manifest includes activities FK)
+
+**Frontend**
+- `pages/ActivitiesPage.tsx` (new): "My Tasks" / "All Tasks" tabs, filterable list, pagination
+- `components/activities/ActivitiesPanel.tsx` (new): read-only panel on contact profile
+- `components/activities/ActivityFormModal.tsx` (new): create/edit modal
+- `components/activities/ActivityCard.tsx` (new): individual activity card component
+- `services/activities.ts`, `hooks/useActivities.ts` (new): TanStack Query client + custom hooks
+- `types/index.ts`: Activity, ActivityStatus, ActivityPriority types; User.role expanded to include 'viewer' (S15 prep)
+- `components/layout/BottomNav.tsx`: added "Tasks" tab (`/activities`, ListTodo icon) to main bar; "Ranking" moved to admin More sheet
+
+**Security audit**
+- Initial finding: 1 HIGH (volunteer could reassign via PATCH), 1 MEDIUM (enum validation missing on status/priority).
+- **HIGH FIXED:** removed `assignee_user_id` from `ActivityUpdate` schema; reassignment now admin-only via `POST /activities/{id}/reassign`.
+- **MEDIUM FIXED:** `ActivityCreate` and `ActivityUpdate` now validate status/priority against Literal/Enum; completed_at stamped when status='completed'.
+- **Re-audit: PASS.**
+
+**Integration**
+- `test_migrations.py` EXPECTED_HEAD updated to `s12a1b2c3d4e5`; down_revision test to `s11a1b2c3d4e5`.
+- `require_viewer` (S15 shim) reused for /activities/assignees (AC10 + test plan require viewer 200; safe projection).
+
+**Key assumptions (documented in BLOCKERS.md)**
+- BottomNav 6-slot UX (spec §10 Q6): Ranking moved to admin More; Tasks tab replaces it. Owner UX confirmation requested.
+- Two "Tasks" labels in BottomNav (detection-review `/` tab + activities `/activities`). May rename detection tab to "Review".
+- ActivityFormModal target-contact field is plain numeric ID input when not pre-filled (post-S12 enhancement: shared contact-picker).
+
+---
+
 ### S11 — Find & Merge Duplicate Contacts (Sprint complete 2026-06-26)
 
 Native on-demand duplicate detection and atomic, FK-complete contact merge with admin-tunable dedup rules.

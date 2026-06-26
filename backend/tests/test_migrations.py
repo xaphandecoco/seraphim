@@ -27,7 +27,7 @@ from alembic.script import ScriptDirectory
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = BACKEND_DIR / "alembic.ini"
 
-EXPECTED_HEAD = "s11a1b2c3d4e5"  # updated by S11 (dedupe rule set; chains s11a1b2c3d4e5 -> s10a1b2c3d4e5 -> s09a1b2c3d4e5)
+EXPECTED_HEAD = "s12a1b2c3d4e5"  # updated by S12 (activities; chains s12a1b2c3d4e5 -> s11a1b2c3d4e5 -> s10a1b2c3d4e5)
 INITIAL_REV = "74e9ab60ea7e"
 
 
@@ -75,10 +75,10 @@ def test_revision_chain_is_connected_back_to_initial(script_dir):
     )
 
 
-def test_head_down_revision_is_s10(script_dir):
-    """Regression: the S11 head (dedupe rule set) builds on the S10 import-wizard migration."""
+def test_head_down_revision_is_s11(script_dir):
+    """Regression: the S12 head (activities) builds on the S11 dedupe rule set migration."""
     head = script_dir.get_revision(EXPECTED_HEAD)
-    assert head.down_revision == "s10a1b2c3d4e5"
+    assert head.down_revision == "s11a1b2c3d4e5"
 
 
 # ---------------------------------------------------------------------------

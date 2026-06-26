@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ClipboardList, Trophy, Calendar, CalendarRange, Users, Settings, Settings2, AlertTriangle, FileText, ShieldCheck, MoreHorizontal, X, Upload, UserCheck, FileCheck, Database, Fingerprint, Search, FileSpreadsheet, Copy } from 'lucide-react';
+import { ClipboardList, Trophy, Calendar, CalendarRange, Users, Settings, Settings2, AlertTriangle, FileText, ShieldCheck, MoreHorizontal, X, Upload, UserCheck, FileCheck, Database, Fingerprint, Search, FileSpreadsheet, Copy, ListTodo } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { useTaskStore } from '@/store/taskStore';
+import { useOverdueBadgeCount } from '@/hooks/useActivities';
 
 function PendingBadge({ count }: { count: number }) {
   return (
@@ -19,18 +20,26 @@ export function BottomNav() {
   const location = useLocation();
   const isAdmin = useAuthStore((s) => s.isAdmin);
   const isVolunteer = useAuthStore((s) => s.isVolunteer);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const pendingCount = useTaskStore((s) => s.pendingCount);
   const [showMore, setShowMore] = useState(false);
+
+  // Overdue-activity badge — polls every 60 s; disabled when not yet authenticated.
+  const { data: overdueCount = 0 } = useOverdueBadgeCount({ enabled: !!isAuthenticated });
 
   const mainTabs = [
     { path: '/', label: 'Tasks', icon: ClipboardList },
     { path: '/audit', label: 'Audit', icon: ShieldCheck },
-    { path: '/ranking', label: 'Ranking', icon: Trophy },
+    // S12: "Tasks" (activities / CRM) replaces "Ranking" in the main tab bar.
+    // Ranking moves to the admin More sheet (documented default per spec §10 Q6).
+    { path: '/activities', label: 'Tasks', icon: ListTodo },
     { path: '/events', label: 'Events', icon: Calendar },
     { path: '/contacts', label: 'Contacts', icon: Users },
   ];
 
   const adminTabs = [
+    // S12: Ranking moved here so the main bar has room for the Activities tab.
+    { path: '/ranking', label: 'Ranking', icon: Trophy },
     { path: '/imports', label: 'Import', icon: FileSpreadsheet },
     { path: '/duplicates', label: 'Duplicates', icon: Copy },
     { path: '/pit', label: 'Pit Queue', icon: AlertTriangle },
@@ -103,6 +112,7 @@ export function BottomNav() {
                 <div className="relative">
                   <Icon size={22} strokeWidth={isActive ? 2.5 : 2} aria-hidden="true" />
                   {tab.path === '/' && pendingCount > 0 && <PendingBadge count={pendingCount} />}
+                  {tab.path === '/activities' && overdueCount > 0 && <PendingBadge count={overdueCount} />}
                 </div>
                 <span className="mt-0.5 text-[10px] font-semibold" aria-hidden="true">{tab.label}</span>
                 {isActive && <span className="absolute top-0 h-0.5 w-8 rounded-full bg-primary" aria-hidden="true" />}
